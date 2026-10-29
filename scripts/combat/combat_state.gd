@@ -96,6 +96,13 @@ var _extra_autofires_granted_this_chain: int = 0
 var pace_after_fire: bool = false
 ## rush!：敌人按计时器自动向左走，不因玩家每发射击才推进一步。
 var auto_enemy_advance: bool = false
+## rush! 连续滑行：当前这一格走了多少（0..1）。满 1 → 逻辑格 -1 并结算一拍。
+var enemy_step_progress: float = 0.0
+## 本拍开始时锁定的「会移动」敌人（instance_id → true），保证视觉滑行与落格一致。
+var _glide_movers: Dictionary = {}
+var _glide_movers_valid: bool = false
+## 敌人落格拍发生在射击中：延到射击收束再清愤怒/贪婪枪口。
+var _turn_sin_clear_pending: bool = false
 var _post_fire_enemy_pending: bool = false
 var _in_gold_extra_round: bool = false
 
@@ -171,6 +178,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	last_reward_base_gold = 0
 	pace_after_fire = true
 	auto_enemy_advance = true
+	reset_enemy_glide()
 	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	_clear_all_sin_muzzle(true)
@@ -893,6 +901,11 @@ func load_next_chamber() -> Dictionary:
 		return fail
 	if magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE or bag.is_empty() or _load_next_slot >= CombatConstants.MAGAZINE_SIZE:
 		return _complete_load_session()
+	# v0.3.3 修：上弹口只往空仓装；若上弹口对着有弹仓（半匣/随时开火后）先顺转到最近空仓，绝不覆盖。
+	if magazine.slots[magazine.chamber_at_load_port()] != Magazine.EMPTY:
+		_align_load_port_to_empty()
+		if magazine.slots[magazine.chamber_at_load_port()] != Magazine.EMPTY:
+			return _complete_load_session()
 	var drawn: Array[int] = _draw_random_from_bag(1)
 	var raw_id: int = drawn[0]
 	var raw_temp: bool = bool(_last_drawn_temps[0]) if not _last_drawn_temps.is_empty() else false
@@ -901,6 +914,7 @@ func load_next_chamber() -> Dictionary:
 	var resolved: int = resolved_arr[0]
 	_load_resolved_ids.append(resolved)
 	var slot: int = magazine.chamber_at_load_port()
+	assert(magazine.slots[slot] == Magazine.EMPTY)
 	magazine.set_slot(slot, resolved, raw_temp)
 	if raw_id == FireResolver.ID_BW and resolved != FireResolver.ID_BW:
 		_log("黑白子弹变形为 %s。" % _ammo_name(resolved))
@@ -917,7 +931,7 @@ func load_next_chamber() -> Dictionary:
 	if _in_gold_extra_round:
 		more = false
 	if more:
-		var rotate_to: int = (magazine.start_index + 1) % CombatConstants.MAGAZINE_SIZE
+		var rotate_to: int = next_empty_load_start()
 		_emit()
 		return {
 			"ok": true,
@@ -933,11 +947,35 @@ func load_next_chamber() -> Dictionary:
 
 ## 装弹入格展示完毕后调用：整盘逻辑步进 60°（start_index+1），供下一发对准上弹口。
 func apply_load_rotate() -> int:
+	## v0.3.3：转到「上弹口对准下一空仓」的位置（跳过已有弹仓），不再固定 +1（旧逻辑会让下一发覆盖已有弹）。
 	if magazine == null:
 		return 0
-	magazine.start_index = (magazine.start_index + 1) % CombatConstants.MAGAZINE_SIZE
+	magazine.start_index = next_empty_load_start()
 	_emit()
 	return magazine.start_index
+
+
+func align_load_port_if_occupied() -> bool:
+	## UI：装填会话中下一发前若上弹口对着有弹仓，先转到最近空仓。返回是否转动。
+	if magazine == null or not _load_session_active:
+		return false
+	if magazine.slots[magazine.chamber_at_load_port()] == Magazine.EMPTY:
+		return false
+	var before: int = magazine.start_index
+	_align_load_port_to_empty()
+	return magazine.start_index != before
+
+
+func next_empty_load_start() -> int:
+	## 从当前 start_index 顺时针前进 ≥1 步，返回上弹口对准空仓的 start_index；无空仓则 +1。
+	var n: int = CombatConstants.MAGAZINE_SIZE
+	if magazine == null:
+		return 0
+	for k in range(1, n + 1):
+		var s: int = (magazine.start_index + k) % n
+		if magazine.slots[magazine.chamber_at_load_port(s)] == Magazine.EMPTY:
+			return s
+	return (magazine.start_index + 1) % n
 
 
 func _complete_load_session_after_shot(resolved: int, slot: int) -> Dictionary:
@@ -1021,6 +1059,7 @@ func _lose_ammo_exhausted() -> void:
 	_purge_ghost_ammo()
 	_clear_combat_bonus_ammo()
 	magazine = Magazine.new()
+	_reset_load_session()
 	_set_phase(Phase.LOST)
 	_log("失败：弹药耗尽（袋、弃牌与弹夹皆空，无法洗回）。")
 	_emit()
@@ -1055,6 +1094,7 @@ func _lose_hp() -> void:
 	_purge_ghost_ammo()
 	_clear_combat_bonus_ammo()
 	magazine = Magazine.new()
+	_reset_load_session()
 	_set_phase(Phase.LOST)
 	_log("失败：玩家血量归零，整局结束。")
 	_emit()
@@ -1755,6 +1795,9 @@ func finalize_post_fire() -> void:
 	_post_fire_enemy_pending = false
 	_pending_gold_autofires = 0
 	_reset_muzzle()
+	if _turn_sin_clear_pending:
+		_turn_sin_clear_pending = false
+		_clear_turn_sin_muzzle()
 	if _check_end_after_player():
 		_emit()
 		return
@@ -1766,8 +1809,76 @@ func finalize_post_fire() -> void:
 	_emit()
 
 
+func reset_enemy_glide() -> void:
+	enemy_step_progress = 0.0
+	_turn_sin_clear_pending = false
+	_glide_movers.clear()
+	_glide_movers_valid = false
+
+
+func compute_enemy_movers() -> Dictionary:
+	## 预测下一拍谁会左移 1 格（与 _move_enemy_steps 的升序占格规则一致：前方格空或前者也会走）。
+	var out := {}
+	var occ := occupied_cells()
+	for e in enemies_sorted_by_cell():
+		var next_cell: int = e.cell - 1
+		if next_cell <= CombatConstants.PLAYER_CELL:
+			continue
+		if occ.has(next_cell):
+			var front: EnemyInstance = occ[next_cell]
+			if not out.has(front.get_instance_id()):
+				continue
+		out[e.get_instance_id()] = true
+	return out
+
+
+func _ensure_glide_movers() -> void:
+	if _glide_movers_valid:
+		return
+	_glide_movers = compute_enemy_movers()
+	_glide_movers_valid = true
+
+
+func enemy_glide_fraction(e: EnemyInstance) -> float:
+	## 视觉：该敌人在本格内已向左滑过的比例（0..1）；不会移动的敌人为 0。
+	## 尸体（pace 下待飚血）保留死亡瞬间的滑行位，避免死时瞬移回格心。
+	if e == null or not auto_enemy_advance:
+		return 0.0
+	if not e.is_alive() and not _glide_movers_valid:
+		return 0.0
+	_ensure_glide_movers()
+	if not _glide_movers.has(e.get_instance_id()):
+		return 0.0
+	return clampf(enemy_step_progress, 0.0, 1.0)
+
+
+func enemy_continuous_x(e: EnemyInstance) -> float:
+	## 连续位置（以格为单位）：逻辑格减去本格已滑比例。
+	if e == null:
+		return 0.0
+	return float(e.cell) - enemy_glide_fraction(e)
+
+
+func advance_enemy_glide(delta_cells: float) -> int:
+	## rush! 连续推进：累计滑行距离（格），每满 1 格调用一次 tick_enemy_auto_step。返回本次落格拍数。
+	if not auto_enemy_advance or phase == Phase.WON or phase == Phase.LOST:
+		return 0
+	if delta_cells <= 0.0:
+		return 0
+	_ensure_glide_movers()
+	enemy_step_progress += delta_cells
+	var steps := 0
+	while enemy_step_progress >= 1.0 and steps < 8:
+		enemy_step_progress -= 1.0
+		steps += 1
+		if not tick_enemy_auto_step():
+			enemy_step_progress = 0.0
+			break
+	return steps
+
+
 func tick_enemy_auto_step() -> bool:
-	## rush! 连续推进一拍：全体向左 1 格（可读），进入射程则攻击；结算燃烧/流血/再生/召唤。
+	## rush! 连续推进一拍（滑满 1 格时落格）：会移动者向左 1 格，进入射程则攻击；结算燃烧/流血/再生/召唤。
 	## 不进入 ENEMY_TURN，避免锁死装弹/射击按钮。返回 false 表示战斗已结束。
 	if not auto_enemy_advance:
 		return false
@@ -1786,8 +1897,11 @@ func tick_enemy_auto_step() -> bool:
 		_enter_won()
 		_emit()
 		return false
+	# 先算本拍移动名单：连续滑行时沿用拍首锁定的名单（新召唤/刚解除阻挡的下拍再走，避免瞬移）
+	var movers: Dictionary = _glide_movers if _glide_movers_valid else compute_enemy_movers()
 	for e in enemies_sorted_by_cell():
-		_move_enemy_steps(e, 1)
+		if movers.has(e.get_instance_id()):
+			_move_enemy_steps(e, 1)
 		if can_attack_player(e):
 			var incoming: int = int(round(float(e.atk) * _incoming_pride_multiplier()))
 			_apply_player_damage(incoming, "")
@@ -1807,8 +1921,15 @@ func tick_enemy_auto_step() -> bool:
 		_emit()
 		return false
 	_try_super_zombie_summons()
-	_clear_turn_sin_muzzle()
+	# 子弹飞行中（FIRING）不清愤怒/贪婪：本发命中结算仍要用；射击收束后再清
+	if phase == Phase.FIRING:
+		_turn_sin_clear_pending = true
+	else:
+		_clear_turn_sin_muzzle()
 	_auto_reset_bag_if_empty_at_turn_start()
+	# 下一拍重新锁定移动名单
+	_glide_movers.clear()
+	_glide_movers_valid = false
 	# 保持玩家可操作阶段
 	if phase != Phase.FIRING and phase != Phase.WON and phase != Phase.LOST:
 		if magazine == null or magazine.is_empty():
@@ -2212,6 +2333,8 @@ func _enter_won() -> void:
 	if phase == Phase.WON and (reward_pending or reward_resolved):
 		return
 	_set_phase(Phase.WON)
+	# 手装会话中途清场（如落格拍 DoT 致死）：结束会话，避免悬挂到奖励/下一波
+	_reset_load_session()
 	_log("胜利：敌人全灭。")
 	# 枪口一律清；幽灵等 ephemeral 清；每波保留构筑仅清临时
 	_clear_all_sin_muzzle(true)
@@ -2364,6 +2487,7 @@ func start_next_wave() -> bool:
 	enemies.clear()
 	pace_after_fire = true
 	auto_enemy_advance = true
+	reset_enemy_glide()
 	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	lose_reason = LoseReason.NONE

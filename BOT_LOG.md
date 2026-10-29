@@ -1,3 +1,11 @@
+## 2026-10-29 — 敌人平滑滑行 + 转轮提速 + 装弹不覆盖 + rush! 逻辑审计（v0.3.3）
+- 任务（t338u/t339u/t340u/t341u）：怪移动连续不跳格且更慢；转轮整体速度 ×1.5；手动装弹会覆盖已有弹；顺带查 rush! 其他逻辑问题。
+- 滑行：去掉 EnemyAutoTimer，`_process` 每帧 `advance_enemy_glide(delta*speed/ENEMY_AUTO_STEP_SEC)`；ENEMY_AUTO_STEP_SEC 1.15→1.65（≈41 px/s，慢约 30%）。滑满 1 格才逻辑落格并跑原 tick（攻击/DoT/召唤）；拍首锁定移动名单（被挡/贴脸不滑，拍中解除阻挡的下拍再走，防瞬移）；UnitBody.x = 格心 − 进度×CELL_W，抖动/飚血/飘字/枪线都取 UnitBody 实际位置。
+- 转轮：WHEEL_SPEED_MULT=1.5；STEP_ROT 0.18→0.12、ROLL_BASE 0.45→0.30、ROLL_PER_STEP 0.06→0.04、ROLL_MAX 1.05→0.70、LOAD_INSERT_PAUSE 0.14→0.093、FIRE_SHOT_DELAY 0.4→0.267、FIRE_FLASH_HOLD 0.2→0.133。
+- 装弹覆盖根因：装填会话内每发后 `apply_load_rotate` 固定 +1，下一发直接写上弹口那仓、不检查是否有弹；开火后匣内有弹/空仓交错时就会覆盖。修：转到下一空仓（`next_empty_load_start`），写入前若上弹口非空先对齐空仓（满则结束会话），UI 可见转到空仓。
+- 审计修：波次大字期间怪仍走（加入暂停条件）；子弹飞行中落格拍清愤怒/贪婪（延到射击收束）；尸体瞬移回格心（保留死亡时滑行位）；清场/战败悬挂装填会话（重置）。
+- 自测：pre_push_check；字体子集重建；GUT 201/201；`tools/shot_rr_enemy_smooth.gd` 逐帧最大位移 <1px、8 秒狂点装/射 0 问题；截图 `docs/shots/rr_enemy_smooth.png`。
+
 ## 2026-10-29 — RR 开工：唯一模式 rush! + 竖屏三等分 + 两键操作 + 去日志（v0.3.0）
 - 任务：新仓 revolver-rush（从 project001 v0.2.75 拷贝）。去掉所有模式只留 `rush!`；竖屏手机布局（上战斗区 / 中转轮+弹药袋 / 下操作区）；操作区只放「手动装弹」「射击」；日志去掉。
 - 判断：rush! 玩法未定 → 暂复用原无限模式循环（刷怪表、奖励、每 5 波商店、超级僵尸 Boss 波）。射击沿用「打空转轮」而非单发；ROLL/卸除/一键装满按钮去掉（装满自动转盘保留）。

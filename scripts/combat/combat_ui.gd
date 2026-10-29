@@ -1,7 +1,7 @@
 extends Control
 ## rush! 战斗 UI（竖屏三等分）：上=战斗区，中=转轮+弹药袋，下=操作区（随时手动装弹 / 随时单发射击）。
 ## 转轮：大盘(_disk)带着六小圆整盘转；红击发圈与装弹标挂在 MagWheel 上不转。
-## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°（半匣可继续补，不倾倒）；点射一次打 1 发；敌人按计时器自动向左走。
+## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°（半匣可继续补，不倾倒）；点射一次打 1 发；敌人每帧连续向左滑行（v0.3.3）。
 ## rush!：每 5 波奖励后进商店（复用 ShopState）；受击飘字带弧线轨迹。无战斗日志。
 
 const ShopState = preload("res://scripts/shop/shop_state.gd")
@@ -18,15 +18,17 @@ const WHEEL_SIZE := 220.0
 const CHAMBER_SIZE := 58.0
 const WHEEL_RADIUS := 78.0
 const DISK_BG_SIZE := 210.0
-const FIRE_SHOT_DELAY := 0.4
-const FIRE_FLASH_HOLD := 0.2
+## 转轮整体动画速度倍率（v0.3.3：×1.5，即下列转轮时长 ÷1.5）。
+const WHEEL_SPEED_MULT := 1.5
+const FIRE_SHOT_DELAY := 0.4 / WHEEL_SPEED_MULT
+const FIRE_FLASH_HOLD := 0.2 / WHEEL_SPEED_MULT
 const POST_FIRE_STATUS_DELAY := 0.45
-const STEP_ROT_DURATION := 0.18
-const ROLL_ANIM_BASE := 0.45
-const ROLL_ANIM_PER_STEP := 0.06
-const ROLL_ANIM_MAX := 1.05
+const STEP_ROT_DURATION := 0.18 / WHEEL_SPEED_MULT
+const ROLL_ANIM_BASE := 0.45 / WHEEL_SPEED_MULT
+const ROLL_ANIM_PER_STEP := 0.06 / WHEEL_SPEED_MULT
+const ROLL_ANIM_MAX := 1.05 / WHEEL_SPEED_MULT
 const ROLL_VISUAL_EXTRA_TURNS := 1
-const LOAD_INSERT_PAUSE := 0.14
+const LOAD_INSERT_PAUSE := 0.14 / WHEEL_SPEED_MULT
 ## 战斗节奏全局倍率：装弹间隔 / 射击间隔与拖尾飞行 / 转轮旋转 统一除以该值（越大越快）
 const COMBAT_SPEED_MIN := 0.5
 const COMBAT_SPEED_MAX := 2.0
@@ -112,7 +114,6 @@ var _detail_ammo_id: int = -1
 var _hover_ammo_id: int = -1
 var _long_press_ammo_id: int = -1
 var _long_press_timer: Timer = null
-var _enemy_auto_timer: Timer = null
 var _detail_from_hover: bool = false
 var _detail_from_long_press: bool = false
 var _ammo_detail_title: Label = null
@@ -948,16 +949,8 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 
 
 func _ensure_enemy_auto_timer() -> void:
-	## rush!：按固定间隔推进敌人（与玩家射击脱钩）；速度滑条缩短间隔。
-	if _enemy_auto_timer != null:
-		return
-	_enemy_auto_timer = Timer.new()
-	_enemy_auto_timer.name = "EnemyAutoTimer"
-	_enemy_auto_timer.one_shot = false
-	_enemy_auto_timer.wait_time = CombatConstants.ENEMY_AUTO_STEP_SEC
-	_enemy_auto_timer.timeout.connect(_on_enemy_auto_tick)
-	add_child(_enemy_auto_timer)
-	_enemy_auto_timer.start()
+	## rush!：敌人每帧连续向左滑行（与玩家射击脱钩）；不再用计时器一格一跳。名字沿用旧调用点。
+	set_process(true)
 
 
 func _enemy_auto_allowed() -> bool:
@@ -965,7 +958,8 @@ func _enemy_auto_allowed() -> bool:
 		return false
 	if state.phase == CombatState.Phase.WON or state.phase == CombatState.Phase.LOST:
 		return false
-	if _sin_pick_open or _reward_open or _reward_delaying:
+	if _sin_pick_open or _reward_open or _reward_delaying or _wave_bannering:
+		# 「第N波」大字期间玩家按钮锁住，敌人也不走（v0.3.3 修）
 		return false
 	if state.reward_pending:
 		return false
@@ -976,18 +970,63 @@ func _enemy_auto_allowed() -> bool:
 	return true
 
 
-func _on_enemy_auto_tick() -> void:
-	if not _enemy_auto_allowed():
+func _enemy_glide_cells_per_sec() -> float:
+	## 连续滑行速度（格/秒）：1 / ENEMY_AUTO_STEP_SEC，受战斗速度倍率影响。
+	return maxf(_combat_speed, 0.01) / maxf(CombatConstants.ENEMY_AUTO_STEP_SEC, 0.01)
+
+
+func _process(delta: float) -> void:
+	if state == null or not _enemy_auto_allowed():
 		return
-	# 受战斗速度影响：快进时更密
-	var base: float = CombatConstants.ENEMY_AUTO_STEP_SEC
-	var want: float = maxf(base / maxf(_combat_speed, 0.01), 0.25)
-	if _enemy_auto_timer != null and absf(_enemy_auto_timer.wait_time - want) > 0.01:
-		_enemy_auto_timer.wait_time = want
 	var alive_before: bool = not state.alive_enemies().is_empty()
-	state.tick_enemy_auto_step()
-	if alive_before:
+	var steps: int = state.advance_enemy_glide(delta * _enemy_glide_cells_per_sec())
+	if steps > 0 and alive_before:
 		_refresh()
+	else:
+		_update_enemy_glide_visuals()
+
+
+func _enemy_glide_px(cell: int) -> float:
+	## 该格敌人本格内已左滑像素（负数向左）；玩家/空格/不动的怪为 0。
+	if state == null or cell == CombatConstants.PLAYER_CELL:
+		return 0.0
+	var corpse: EnemyInstance = null
+	for e in state.enemies:
+		if e == null or int(e.cell) != cell:
+			continue
+		if e.is_alive():
+			return -state.enemy_glide_fraction(e) * float(CELL_W)
+		corpse = e
+	if corpse != null:
+		return -state.enemy_glide_fraction(corpse) * float(CELL_W)
+	return 0.0
+
+
+func _unit_rest_position_for_cell(cell: int) -> Vector2:
+	return _unit_rest_position() + Vector2(_enemy_glide_px(cell), 0.0)
+
+
+func _body_cell_index(body: Control) -> int:
+	if body == null or board_row == null:
+		return -1
+	var slot: Node = body.get_parent()
+	if slot == null or slot.get_parent() != board_row:
+		return -1
+	return slot.get_index()
+
+
+func _update_enemy_glide_visuals() -> void:
+	## 每帧只改单位块 x（抖动中的格由抖动 tween 自己叠加滑行位）。
+	if board_row == null:
+		return
+	for i in mini(CombatConstants.BOARD_SIZE, board_row.get_child_count()):
+		if _cell_shake_tweens.has(i):
+			continue
+		var slot: Control = board_row.get_child(i) as Control
+		var unit: Control = slot.get_node_or_null("UnitBody") as Control
+		if unit == null or not unit.visible:
+			continue
+		unit.position = _unit_rest_position_for_cell(i)
 
 
 func _busy() -> bool:
@@ -1014,6 +1053,13 @@ func _run_manual_load_one() -> void:
 		_apply_disk_rotation(float(state.magazine.start_index))
 		_refresh_mag_contents()
 		_refresh_hud_only()
+	elif state.align_load_port_if_occupied():
+		# 会话中上弹口对着有弹仓：可见地转到最近空仓再装（绝不覆盖已有弹）
+		var tgt: float = float(state.magazine.start_index)
+		while tgt + 0.001 < _wheel_visual_steps:
+			tgt += float(CombatConstants.MAGAZINE_SIZE)
+		_wheel_animating = true
+		await _animate_disk_to(tgt, _paced(STEP_ROT_DURATION) * maxf(1.0, tgt - _wheel_visual_steps))
 	var before_steps: float = _wheel_visual_steps
 	var result: Dictionary = state.load_next_chamber()
 	if not bool(result.get("ok", false)):
@@ -1034,7 +1080,7 @@ func _run_manual_load_one() -> void:
 			target = before_steps + 1.0
 		_wheel_animating = true
 		state.apply_load_rotate()
-		await _animate_disk_to(target, _paced(STEP_ROT_DURATION))
+		await _animate_disk_to(target, _paced(STEP_ROT_DURATION) * maxf(1.0, target - before_steps))
 		_refresh_mag_contents()
 	else:
 		# 装满结束：与整匣装相同，可随机转
@@ -1079,7 +1125,7 @@ func _animate_gold_extra_load() -> void:
 			target = before_steps + 1.0
 		_wheel_animating = true
 		state.apply_load_rotate()
-		await _animate_disk_to(target, _paced(STEP_ROT_DURATION))
+		await _animate_disk_to(target, _paced(STEP_ROT_DURATION) * maxf(1.0, target - before_steps))
 		_refresh_mag_contents()
 		# 额外轮只补一发：提交会话，保留已装弹
 		state.commit_load_session_if_active()
@@ -2052,7 +2098,7 @@ func _reset_cell_shake_offsets(body: Control) -> void:
 	## 抖完必须回到贴地休息位；勿清 offset_*（会把无锚点 Panel 甩到 0,0）。
 	if not is_instance_valid(body):
 		return
-	body.position = _unit_rest_position()
+	body.position = _unit_rest_position_for_cell(_body_cell_index(body))
 
 
 func _shake_cell_for_damage(cell: int, amount: int) -> void:
@@ -2093,7 +2139,7 @@ func _shake_cell_for_damage(cell: int, amount: int) -> void:
 func _apply_cell_offsets(body: Control, ox: float, oy: float) -> void:
 	if not is_instance_valid(body):
 		return
-	body.position = _unit_rest_position() + Vector2(ox, oy)
+	body.position = _unit_rest_position_for_cell(_body_cell_index(body)) + Vector2(ox, oy)
 
 
 func _damage_float_step(t: float, lab: Label, start_g: Vector2, ctrl: Vector2, end_g: Vector2) -> void:
@@ -3210,7 +3256,7 @@ func _refresh_board() -> void:
 			var tw_live: Tween = _cell_shake_tweens[i] as Tween
 			shaking = tw_live != null and is_instance_valid(tw_live) and tw_live.is_running()
 		if not shaking:
-			unit.position = _unit_rest_position()
+			unit.position = _unit_rest_position_for_cell(i)
 		var info: Label = unit.get_node("VBox/Info")
 		var hp_bar: ProgressBar = unit.get_node("VBox/HpBar")
 		var style := StyleBoxFlat.new()
