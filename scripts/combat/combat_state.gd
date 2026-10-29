@@ -94,6 +94,8 @@ var _pending_gold_autofires: int = 0
 var _extra_autofires_granted_this_chain: int = 0
 ## UI 逐步表现：为 true 时整匣结束后不立刻跑金色额外轮/怪回合，由 UI 消费。
 var pace_after_fire: bool = false
+## rush!：敌人按计时器自动向左走，不因玩家每发射击才推进一步。
+var auto_enemy_advance: bool = false
 var _post_fire_enemy_pending: bool = false
 var _in_gold_extra_round: bool = false
 
@@ -168,6 +170,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	encounter_kind = EncounterKind.NORMAL
 	last_reward_base_gold = 0
 	pace_after_fire = true
+	auto_enemy_advance = true
 	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	_clear_all_sin_muzzle(true)
@@ -1613,14 +1616,14 @@ func _finish_fire() -> void:
 	])
 	_reset_fire_session()
 	if pace_after_fire:
-		# 保留枪口与待追加金，供 UI 播额外轮；怪回合延后。离开 FIRING 以免动画环再次 finish。
+		# 保留枪口与待追加金，供 UI 播额外轮。rush! 自动走位：不挂怪回合待办。
 		if _check_end_after_player():
 			_pending_gold_autofires = 0
 			_reset_muzzle()
 			_post_fire_enemy_pending = false
 			_emit()
 			return
-		_post_fire_enemy_pending = true
+		_post_fire_enemy_pending = false if auto_enemy_advance else true
 		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
 		_emit()
 		return
@@ -1630,7 +1633,8 @@ func _finish_fire() -> void:
 	if _check_end_after_player():
 		_emit()
 		return
-	_run_enemy_turn()
+	if not auto_enemy_advance:
+		_run_enemy_turn()
 	_emit()
 
 
@@ -1730,10 +1734,13 @@ func begin_gold_extra_load() -> bool:
 
 ## UI：射击表现与金色额外轮都结束后，再跑怪回合（含流血）。
 func resolve_post_fire_enemy_turn() -> void:
+	## 兼容旧 pace：有待办才跑怪回合。rush! 自动走位时用 finalize_post_fire。
+	if auto_enemy_advance:
+		finalize_post_fire()
+		return
 	if not _post_fire_enemy_pending:
 		return
 	_post_fire_enemy_pending = false
-	# 此时金色额外轮应已打完；清枪口
 	_pending_gold_autofires = 0
 	_reset_muzzle()
 	if _check_end_after_player():
@@ -1741,6 +1748,75 @@ func resolve_post_fire_enemy_turn() -> void:
 		return
 	_run_enemy_turn()
 	_emit()
+
+
+func finalize_post_fire() -> void:
+	## 本发（+额外轮）收束：清元素枪口；rush! 不进怪回合（敌人由 tick_enemy_auto_step 推进）。
+	_post_fire_enemy_pending = false
+	_pending_gold_autofires = 0
+	_reset_muzzle()
+	if _check_end_after_player():
+		_emit()
+		return
+	if magazine != null and not magazine.is_empty():
+		if phase != Phase.FIRING and phase != Phase.WON and phase != Phase.LOST:
+			_set_phase(Phase.AWAIT_ACTION)
+	elif phase != Phase.FIRING and phase != Phase.WON and phase != Phase.LOST:
+		_set_phase(Phase.AWAIT_LOAD)
+	_emit()
+
+
+func tick_enemy_auto_step() -> bool:
+	## rush! 连续推进一拍：全体向左 1 格（可读），进入射程则攻击；结算燃烧/流血/再生/召唤。
+	## 不进入 ENEMY_TURN，避免锁死装弹/射击按钮。返回 false 表示战斗已结束。
+	if not auto_enemy_advance:
+		return false
+	if phase == Phase.WON or phase == Phase.LOST:
+		return false
+	_log("--- 敌人自动推进 ---")
+	for e in alive_enemies():
+		if e.burn_stacks > 0:
+			var b: int = e.burn_stacks
+			var dealt: int = e.apply_damage(b)
+			_notify_enemy_damage(e, dealt, "燃烧")
+			e.burn_stacks = maxi(0, e.burn_stacks - 1)
+			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
+	_remove_dead()
+	if alive_enemies().is_empty():
+		_enter_won()
+		_emit()
+		return false
+	for e in enemies_sorted_by_cell():
+		_move_enemy_steps(e, 1)
+		if can_attack_player(e):
+			var incoming: int = int(round(float(e.atk) * _incoming_pride_multiplier()))
+			_apply_player_damage(incoming, "")
+			_log("%s 攻击玩家，造成 %d（玩家 HP %d/%d · 射程 %d%s）" % [
+				e.name_zh, incoming, player_hp, player_max_hp, e.attack_range,
+				(" · 傲慢×%d" % _muzzle_pride) if _muzzle_pride > 0 else ""
+			])
+	if player_hp <= 0:
+		_lose_hp()
+		_emit()
+		return false
+	_tick_bleed_end_of_enemy_turn()
+	_tick_zombie_regen_end_of_enemy_turn()
+	_remove_dead()
+	if alive_enemies().is_empty():
+		_enter_won()
+		_emit()
+		return false
+	_try_super_zombie_summons()
+	_clear_turn_sin_muzzle()
+	_auto_reset_bag_if_empty_at_turn_start()
+	# 保持玩家可操作阶段
+	if phase != Phase.FIRING and phase != Phase.WON and phase != Phase.LOST:
+		if magazine == null or magazine.is_empty():
+			_set_phase(Phase.AWAIT_LOAD)
+		else:
+			_set_phase(Phase.AWAIT_ACTION)
+	_emit()
+	return phase != Phase.WON and phase != Phase.LOST
 
 
 func _run_pending_gold_autofires(reason: String) -> void:
@@ -1871,7 +1947,7 @@ func do_fire() -> bool:
 	if any and phase != Phase.WON and phase != Phase.LOST:
 		_pending_gold_autofires = 0
 		_reset_muzzle()
-		if not _check_end_after_player():
+		if not _check_end_after_player() and not auto_enemy_advance:
 			_run_enemy_turn()
 		_emit()
 	return any
@@ -1885,7 +1961,9 @@ func do_fire_one() -> bool:
 		fire_next_shot()
 	if _pending_gold_autofires > 0:
 		_run_pending_gold_autofires("do_fire_one")
-	if _post_fire_enemy_pending:
+	if auto_enemy_advance:
+		finalize_post_fire()
+	elif _post_fire_enemy_pending:
 		resolve_post_fire_enemy_turn()
 	return true
 
@@ -1912,7 +1990,8 @@ func resolve_after_player_action() -> void:
 	if _check_end_after_player():
 		_emit()
 		return
-	_run_enemy_turn()
+	if not auto_enemy_advance:
+		_run_enemy_turn()
 	_emit()
 
 
@@ -1944,7 +2023,12 @@ func do_unload() -> bool:
 	if _check_end_after_player():
 		_emit()
 		return true
-	_run_enemy_turn()
+	if not auto_enemy_advance:
+		_run_enemy_turn()
+	elif magazine.is_empty():
+		_set_phase(Phase.AWAIT_LOAD)
+	else:
+		_set_phase(Phase.AWAIT_ACTION)
 	_emit()
 	return true
 
@@ -2080,9 +2164,13 @@ func _tick_zombie_regen_end_of_enemy_turn() -> void:
 
 
 func _move_enemy(e: EnemyInstance) -> void:
-	var steps: int = e.mobility
+	_move_enemy_steps(e, e.mobility)
+
+
+func _move_enemy_steps(e: EnemyInstance, steps: int) -> void:
+	## 向玩家方向（格号减小）推进最多 steps 格；遇玩家格或占格则停。
 	var occ := occupied_cells()
-	for _s in steps:
+	for _s in maxi(steps, 0):
 		var next_cell: int = e.cell - 1
 		if next_cell <= CombatConstants.PLAYER_CELL:
 			break
@@ -2275,6 +2363,7 @@ func start_next_wave() -> bool:
 	wave_index += 1
 	enemies.clear()
 	pace_after_fire = true
+	auto_enemy_advance = true
 	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	lose_reason = LoseReason.NONE

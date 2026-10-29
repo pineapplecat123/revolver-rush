@@ -1,7 +1,7 @@
 extends Control
 ## rush! 战斗 UI（竖屏三等分）：上=战斗区，中=转轮+弹药袋，下=操作区（随时手动装弹 / 随时单发射击）。
 ## 转轮：大盘(_disk)带着六小圆整盘转；红击发圈与装弹标挂在 MagWheel 上不转。
-## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°（半匣可继续补，不倾倒）；点射一次打 1 发。
+## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°（半匣可继续补，不倾倒）；点射一次打 1 发；敌人按计时器自动向左走。
 ## rush!：每 5 波奖励后进商店（复用 ShopState）；受击飘字带弧线轨迹。无战斗日志。
 
 const ShopState = preload("res://scripts/shop/shop_state.gd")
@@ -112,6 +112,7 @@ var _detail_ammo_id: int = -1
 var _hover_ammo_id: int = -1
 var _long_press_ammo_id: int = -1
 var _long_press_timer: Timer = null
+var _enemy_auto_timer: Timer = null
 var _detail_from_hover: bool = false
 var _detail_from_long_press: bool = false
 var _ammo_detail_title: Label = null
@@ -230,10 +231,11 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "随时装弹 / 随时开火：手动装弹每次补 1 发（不倾倒已上膛）；射击每次打 1 发，随后怪行动。长按弹药可看效果。"
+		hint_lab.text = "随时装弹 / 随时开火：手动装弹每次补 1 发；射击每次打 1 发。敌人会自动向左推进，靠近就攻击。长按弹药可看效果。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
+	_ensure_enemy_auto_timer()
 	_build_board_cells()
 	_build_wheel_chambers()
 	_build_ammo_detail_panel()
@@ -944,6 +946,50 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 			return {"bg": Color(0.85, 0.85, 0.88), "fg": Color(0.1, 0.1, 0.1)}
 
 
+
+func _ensure_enemy_auto_timer() -> void:
+	## rush!：按固定间隔推进敌人（与玩家射击脱钩）；速度滑条缩短间隔。
+	if _enemy_auto_timer != null:
+		return
+	_enemy_auto_timer = Timer.new()
+	_enemy_auto_timer.name = "EnemyAutoTimer"
+	_enemy_auto_timer.one_shot = false
+	_enemy_auto_timer.wait_time = CombatConstants.ENEMY_AUTO_STEP_SEC
+	_enemy_auto_timer.timeout.connect(_on_enemy_auto_tick)
+	add_child(_enemy_auto_timer)
+	_enemy_auto_timer.start()
+
+
+func _enemy_auto_allowed() -> bool:
+	if state == null or not state.auto_enemy_advance:
+		return false
+	if state.phase == CombatState.Phase.WON or state.phase == CombatState.Phase.LOST:
+		return false
+	if _sin_pick_open or _reward_open or _reward_delaying:
+		return false
+	if state.reward_pending:
+		return false
+	# 商店打开时暂停
+	var shop: CanvasItem = get_node_or_null("%RushShopPanel") as CanvasItem
+	if shop != null and shop.visible:
+		return false
+	return true
+
+
+func _on_enemy_auto_tick() -> void:
+	if not _enemy_auto_allowed():
+		return
+	# 受战斗速度影响：快进时更密
+	var base: float = CombatConstants.ENEMY_AUTO_STEP_SEC
+	var want: float = maxf(base / maxf(_combat_speed, 0.01), 0.25)
+	if _enemy_auto_timer != null and absf(_enemy_auto_timer.wait_time - want) > 0.01:
+		_enemy_auto_timer.wait_time = want
+	var alive_before: bool = not state.alive_enemies().is_empty()
+	state.tick_enemy_auto_step()
+	if alive_before:
+		_refresh()
+
+
 func _busy() -> bool:
 	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying
 
@@ -1067,8 +1113,10 @@ func _run_fire_sequence() -> void:
 		if not state.begin_fire():
 			break
 		await _animate_fire_shots()
-	# 本发（+额外轮）结束 → 短暂间隔 → 怪回合 → 解锁按钮
-	if state.post_fire_enemy_pending():
+	# 本发（+额外轮）结束：清枪口；rush! 敌人由计时器自动走，不在此锁键进怪回合
+	if state.auto_enemy_advance:
+		state.finalize_post_fire()
+	elif state.post_fire_enemy_pending():
 		await get_tree().create_timer(_paced(POST_FIRE_STATUS_DELAY)).timeout
 		state.resolve_post_fire_enemy_turn()
 	if state.has_corpse_enemies():
@@ -2532,6 +2580,7 @@ func _on_bag_cell_input(event: InputEvent, ammo_id: int, cell: Control) -> void:
 
 func _begin_long_press(ammo_id: int, cell: Control) -> void:
 	_ensure_long_press_timer()
+	_ensure_enemy_auto_timer()
 	_long_press_kind = "ammo"
 	_long_press_ammo_id = ammo_id
 	_long_press_timer.stop()
@@ -2712,6 +2761,7 @@ func _on_muzzle_gui_input(event: InputEvent) -> void:
 
 func _begin_muzzle_long_press() -> void:
 	_ensure_long_press_timer()
+	_ensure_enemy_auto_timer()
 	_long_press_kind = "muzzle"
 	_long_press_ammo_id = -1
 	_long_press_timer.stop()

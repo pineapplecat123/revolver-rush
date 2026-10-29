@@ -124,8 +124,7 @@ func test_pride_persists_greed_clears_end_of_turn() -> void:
 	cs._muzzle_pride = 2
 	cs._muzzle_greed = 3
 	cs._muzzle_wrath = 1
-	cs.do_load()
-	cs.do_unload()
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs._muzzle_pride, 2)
 	assert_eq(cs._muzzle_greed, 0)
 	assert_eq(cs._muzzle_wrath, 0)
@@ -146,8 +145,7 @@ func test_super_zombie_summons_in_front() -> void:
 	cs.start_rush(908, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(CombatConstants.SUPER_ZOMBIE_ENEMY_ID, 5)
-	cs.do_load()
-	cs.do_unload()
+	assert_true(cs.tick_enemy_auto_step())
 	var boss: EnemyInstance = null
 	var zcell := -1
 	for e in cs.enemies:
@@ -166,8 +164,7 @@ func test_zombie_regens_five_hp() -> void:
 	cs.dev_spawn_enemy(CombatConstants.ZOMBIE_ENEMY_ID, 8)
 	cs.enemies[0].hp = 20
 	cs.enemies[0].max_hp = 50
-	cs.do_load()
-	cs.do_unload()
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.enemies[0].hp, 25)
 
 

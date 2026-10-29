@@ -83,6 +83,9 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 	assert_eq(cs.enemies[0].hp, 20)
 	assert_gt(cs.pending_gold_autofires(), 0)
 	assert_true(cs.do_fire())
+	# rush!：流血在自动推进拍结算；补一拍清场
+	if cs.phase != CombatState.Phase.WON:
+		cs.tick_enemy_auto_step()  # may return false when bleed clears the wave
 	assert_eq(cs.phase, CombatState.Phase.WON)
 	assert_true(cs.alive_enemies().is_empty())
 
@@ -125,6 +128,9 @@ func test_fire_stops_when_enemies_cleared_mid_magazine() -> void:
 	] as Array[int])
 	# rush!：do_fire 一发发打，第 4 发致死停射，未击发归袋
 	assert_true(cs.do_fire())
+	# rush!：流血在自动推进拍结算；补一拍清场
+	if cs.phase != CombatState.Phase.WON:
+		cs.tick_enemy_auto_step()  # may return false when bleed clears the wave
 	assert_eq(cs.phase, CombatState.Phase.WON)
 	assert_true(cs.alive_enemies().is_empty())
 	assert_eq(cs.discard.size(), 0)
@@ -728,8 +734,7 @@ func test_super_zombie_summons_behind() -> void:
 	cs.bag.clear()
 	for _i in 6:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
-	cs.do_load()
-	cs.do_unload()
+	assert_true(cs.tick_enemy_auto_step())
 	var boss: EnemyInstance = null
 	var zombies := 0
 	var zcell := -1

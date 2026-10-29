@@ -122,7 +122,7 @@ func test_stepwise_fire_api() -> void:
 
 
 func test_roll_ends_turn_and_enemy_advances() -> void:
-	## ROLL 消耗回合：转轮后进怪物回合，怪前进一格；匣内仍有弹 → AWAIT_ACTION，可再射/roll/卸。
+	## rush!：ROLL 只转轮不推进敌人；敌人由 tick_enemy_auto_step 向左走。
 	var cs := CombatState.new(99)
 	cs.start_rush(99)
 	cs.bag.clear()
@@ -138,54 +138,44 @@ func test_roll_ends_turn_and_enemy_advances() -> void:
 	var order_after: Array[int] = cs.magazine.fire_order()
 	assert_eq(order_after.size(), order_before.size())
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
+	assert_eq(cs.enemies[0].cell, start_cell, "roll must not step enemies in auto mode")
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.enemies[0].cell, start_cell - 1)
 	assert_eq(cs.player_hp, hp_before)
-	assert_false(cs.can_load())
-	assert_true(cs.can_start_roll())
-	assert_true(cs.can_unload())
 	assert_true(cs.can_fire())
+	assert_true(cs.can_manual_load() or cs.magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE)
 
 
 func test_distant_enemy_multiple_turns_no_player_damage() -> void:
 	var cs := CombatState.new(5)
-	# 贪婪：袋空自动重置后装≥3 也不会自伤扣血（避免愤怒惩罚干扰本测）
 	cs.start_rush(5, FireResolver.ID_GREED)
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	for _i in 12:
-		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.enemies[0].cell = 9
 	var hp0 := cs.player_hp
-	# 用 UNLOAD 把弹打入弃牌，避免只 ROLL 导致袋空且弃牌空而误判弹药耗尽
+	# rush!：自动推进 5 拍，仍未邻接
 	for _i in 5:
-		assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
-		assert_true(cs.do_load())
-		assert_true(cs.do_unload())
+		assert_true(cs.tick_enemy_auto_step())
 		assert_false(cs.is_adjacent_to_player(cs.enemies[0]))
 		assert_eq(cs.player_hp, hp0)
-	# 5 步后应在格 4，仍未邻接
 	assert_eq(cs.enemies[0].cell, 4)
 	assert_eq(cs.player_hp, hp0)
+	assert_true(cs.can_fire() or cs.can_manual_load() or cs.phase == CombatState.Phase.AWAIT_LOAD)
 
 
 func test_only_adjacent_enemy_attacks() -> void:
 	var cs := CombatState.new(1)
 	cs.start_rush(1, FireResolver.ID_GREED)
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	for _i in 12:
-		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.enemies[0].cell = 2
 	var hp_before := cs.player_hp
-	cs.do_load()
-	cs.do_unload()
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.enemies[0].cell, 1)
 	assert_true(cs.is_adjacent_to_player(cs.enemies[0]))
 	assert_eq(cs.player_hp, hp_before - cs.enemies[0].atk)
+	# 推进时不锁玩家按钮阶段
+	assert_true(cs.phase == CombatState.Phase.AWAIT_LOAD or cs.phase == CombatState.Phase.AWAIT_ACTION)
 
 
 func test_empty_ammo_lose_does_not_zero_hp() -> void:
@@ -204,15 +194,18 @@ func test_empty_ammo_lose_does_not_zero_hp() -> void:
 
 
 func test_unload_discards_and_enemy_turn() -> void:
+	## rush!：卸除不推进敌人；清空匣后回 AWAIT_LOAD。
 	var cs := CombatState.new(3)
 	cs.start_rush(3)
 	cs.enemies[0].hp = 100
+	var cell0: int = cs.enemies[0].cell
 	cs.do_load()
 	var loaded := cs.magazine.loaded_count()
 	assert_true(cs.do_unload())
 	assert_true(cs.magazine.is_empty())
 	assert_eq(cs.discard.size(), loaded)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
+	assert_eq(cs.enemies[0].cell, cell0, "unload must not auto-step enemies")
 
 
 func test_white_bullet_damage_value() -> void:
@@ -271,10 +264,12 @@ func test_force_load_yellow_and_fire() -> void:
 	cs.enemies[0].max_hp = 100
 	cs.dev_force_load([4, 4, 4, 4, 4, 4] as Array[int])
 	assert_true(cs.do_fire())
-	# rush! 单发：黄梯随匣内剩余递减 5+5+4+3+2+1=20；6 次命中流血，怪回合 -6 → 74，层数剩 5
+	# rush!：黄梯 5+5+4+3+2+1=20；不在 do_fire 末尾结算流血（自动推进才结算）
+	assert_eq(cs.enemies[0].hp, 80)
+	assert_eq(cs.enemies[0].bleed_stacks, 6)
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.enemies[0].hp, 74)
 	assert_eq(cs.enemies[0].bleed_stacks, 5)
-	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
 
 
 func test_skeleton_does_not_bleed() -> void:
@@ -295,8 +290,7 @@ func test_bio_bleeds_and_ticks() -> void:
 	cs.enemies[0].apply_hit(3)
 	assert_eq(cs.enemies[0].bleed_stacks, 1)
 	var hp_before: int = cs.enemies[0].hp
-	cs.do_load()
-	cs.do_unload()  # 怪回合含流血结算
+	assert_true(cs.tick_enemy_auto_step())  # 自动推进含流血结算
 	assert_eq(cs.enemies[0].hp, hp_before - 1)
 	assert_eq(cs.enemies[0].bleed_stacks, 0)
 
@@ -378,16 +372,16 @@ func test_apply_roll_without_enemy_turn() -> void:
 	assert_lte(steps, CombatConstants.MAGAZINE_SIZE - 1)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 	assert_eq(cs.enemies[0].cell, cell_before)
-	cs.resolve_after_player_action()
+	cs.resolve_after_player_action()  # rush! 自动走位：不推进
+	assert_eq(cs.enemies[0].cell, cell_before)
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.enemies[0].cell, cell_before - 1)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 	assert_true(cs.can_fire())
-	assert_true(cs.can_start_roll())
-	assert_true(cs.can_unload())
 
 
 func test_begin_roll_consumes_turn_like_unload() -> void:
-	## begin_roll 耗回合：怪前进；与卸除不同——匣未空，回 AWAIT_ACTION 可继续行动。
+	## rush!：begin_roll 只转轮；自动推进才让怪前进；匣未空保持可行动。
 	var cs := CombatState.new(44)
 	cs.start_rush(44)
 	cs.enemies[0].hp = 999
@@ -395,12 +389,11 @@ func test_begin_roll_consumes_turn_like_unload() -> void:
 	var cell0: int = cs.enemies[0].cell
 	cs.do_load()
 	assert_true(cs.begin_roll())
+	assert_eq(cs.enemies[0].cell, cell0)
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.enemies[0].cell, cell0 - 1)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 	assert_true(cs.can_fire())
-	assert_true(cs.can_unload())
-	assert_true(cs.can_start_roll())
-	assert_false(cs.can_load())
 
 
 func test_reward_generate_three_choices() -> void:
@@ -726,7 +719,8 @@ func test_partial_load_then_next_turn_auto_resets_bag() -> void:
 	assert_true(cs.do_fire())
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
 	assert_ne(cs.phase, CombatState.Phase.LOST)
-	# 袋空自动重置：count=1，10+5+1，含 1 发临时罪孽
+	# rush!：袋空重置挂在自动推进拍
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1)
 	assert_eq(cs.count_temporary_in_bag(), 1)
@@ -757,10 +751,8 @@ func test_roll_keeps_mag_and_can_act_after_enemy_turn() -> void:
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 	assert_eq(cs.magazine.loaded_count(), 6)
 	assert_true(cs.can_fire())
-	assert_true(cs.can_start_roll())
-	assert_true(cs.can_unload())
-	assert_false(cs.can_load())
-	# 怪回合后袋空 → 已自动重置
+	# 自动推进拍：袋空则战斗内重置
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1)
 	assert_true(cs.do_unload())
@@ -1221,3 +1213,25 @@ func test_pace_damage_applies_only_on_resolve() -> void:
 	assert_eq(cs.enemies[0].hp, hp0 - dealt)
 	cs.finalize_paced_shot()
 	assert_false(cs.has_paced_shot_pending())
+
+
+func test_enemy_auto_step_moves_left_without_locking_buttons() -> void:
+	## rush! 连续推进：与射击脱钩；每拍左移 1；进射程攻击；阶段保持可操作。
+	var cs := CombatState.new(777)
+	cs.start_rush(777)
+	assert_true(cs.auto_enemy_advance)
+	cs.enemies[0].hp = 999
+	cs.enemies[0].max_hp = 999
+	cs.enemies[0].cell = 5
+	cs.do_load()
+	assert_true(cs.can_fire())
+	var cell: int = cs.enemies[0].cell
+	assert_true(cs.tick_enemy_auto_step())
+	assert_eq(cs.enemies[0].cell, cell - 1)
+	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
+	assert_true(cs.can_fire())
+	assert_true(cs.can_manual_load() or cs.magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE)
+	# 点射不推进敌人
+	_shot_one(cs)
+	assert_eq(cs.enemies[0].cell, cell - 1)
+	assert_false(cs.post_fire_enemy_pending())

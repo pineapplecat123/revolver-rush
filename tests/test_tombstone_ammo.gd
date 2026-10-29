@@ -68,8 +68,11 @@ func test_tombstone_spawns_ghost_and_fills_empty_chambers() -> void:
 		if int(id) == FireResolver.ID_GHOST:
 			left_g += 1
 	assert_eq(left_g, 0, "ghosts consumed from bag into mag")
-	# 墓碑伤 2；再 do_fire 打完平庸+5幽灵。do_fire 末尾一次怪回合：7 命中流血 tick。
+	# 墓碑伤 2；再 do_fire 打完平庸+5幽灵 = 15；流血在自动推进拍结算
 	assert_true(cs.do_fire())
+	assert_eq(999 - int(cs.enemies[0].hp), 15, "shot damage before bleed tick")
+	assert_eq(cs.enemies[0].bleed_stacks, 7)
+	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(999 - int(cs.enemies[0].hp), 15 + 7, "15 shot dmg + 7 bleed tick")
 
 

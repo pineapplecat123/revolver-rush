@@ -42,3 +42,6 @@ const LOAD_SESSION_INITIAL_START := 1
 
 ## 金色/超级回合额外装填射击：单次玩家开火链最多追加轮数（防全匣超级回合软锁）
 const MAX_EXTRA_AUTOFIREs_PER_CHAIN := 10
+
+## rush! 敌人自动向左推进：每格间隔（秒，受战斗速度倍率影响）
+const ENEMY_AUTO_STEP_SEC := 1.15
