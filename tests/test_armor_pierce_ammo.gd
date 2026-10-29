@@ -108,6 +108,8 @@ func test_armor_pierce_muzzle_max_one_layer() -> void:
 	## 最多 1 层：连打两发穿甲仍为布尔挂载，不叠层。
 	var cs := CombatState.new(2212)
 	cs.start_rush(2212)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -139,6 +141,8 @@ func test_armor_pierce_in_reward_choices_pool() -> void:
 func test_endless_win_keeps_armor_pierce() -> void:
 	var cs := CombatState.new(2213)
 	cs.start_rush(2213, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs._bag_append(FireResolver.ID_ARMOR_PIERCE, false)
 	cs._snapshot_combat_bag_baseline()
 	cs.enemies[0].hp = 1
@@ -153,9 +157,11 @@ func test_endless_win_keeps_armor_pierce() -> void:
 	assert_eq(n, 1, "armor pierce must survive endless wave win")
 
 
-func test_muzzle_clears_after_fire_session() -> void:
+func test_muzzle_clears_after_duration() -> void:
 	var cs := CombatState.new(2214)
 	cs.start_rush(2214)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -163,4 +169,7 @@ func test_muzzle_clears_after_fire_session() -> void:
 		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
 	assert_true(cs.do_fire())
-	assert_false(cs._muzzle_pierce, "pierce muzzle clears when fire session ends")
+	assert_true(cs._muzzle_pierce, "pierce persists until duration ends")
+	assert_gt(cs._muzzle_pierce_t, 0.0)
+	cs.tick_muzzle_durations(CombatConstants.MUZZLE_DURATION_ELEMENT_SEC + 0.01)
+	assert_false(cs._muzzle_pierce)

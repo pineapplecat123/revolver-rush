@@ -46,3 +46,12 @@ const MAX_EXTRA_AUTOFIREs_PER_CHAIN := 10
 ## rush! 敌人连续向左滑行：走完 1 格所需秒数（受战斗速度倍率影响）。
 ## v0.3.2 为 1.15s/格一跳；v0.3.3 改平滑连续并放慢约 30%（1.65s/格 ≈ 41 px/s @CELL_W 68）。
 const ENEMY_AUTO_STEP_SEC := 1.65
+
+## rush! 波次刷怪数量倍率（相对设计表）；ceil 后上限 BOARD_SIZE-1。
+const WAVE_SPAWN_COUNT_MULT := 1.5
+
+## 枪口状态持续时间（秒，受战斗速度倍率缩放；傲慢整场，无计时）。
+## 设计表原为「挂上到回合结束」；rush! 无经典回合，改为固定秒数。
+const MUZZLE_DURATION_WRATH_SEC := 4.0
+const MUZZLE_DURATION_GREED_SEC := 4.0
+const MUZZLE_DURATION_ELEMENT_SEC := 4.0  ## 穿甲/汽油/火/水/雷

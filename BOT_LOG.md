@@ -1,3 +1,11 @@
+## 2026-10-29 — 敌人血量砍半 + 数量×1.5 + 袋一空立刻补 + 枪口持续时间（v0.3.4）
+- 任务（t342u–t344u）：怪血量砍一半、数量多一点、袋子一空就补、枪口状态改持续时间；用户要求 RR 改回本地推 main。
+- HP：enemies.json 全种类 ÷2（min1）：平民10 / 强盗15 / 熊20 / 僵尸25 / 超僵50 / 骷髅5 / 石头人10。
+- 数量：WAVE_SPAWN_COUNT_MULT=1.5，ceil 后上限 9；Boss 波 ceil((波/10)×1.5)。
+- 袋：ensure_bag_refilled_if_empty；can_manual_load / 装填会话结束 / 落格拍兜底立刻补（构筑基线+N 临时罪孽）。
+- 枪口：愤怒/贪婪/元素 4.0 秒（叠层刷新，战斗速度缩放；奖励/店/波次大字暂停）；傲慢仍整场；射击收束/落格不再清。
+- 自测：pre_push_check；GUT；本地推 main。
+
 ## 2026-10-29 — 敌人平滑滑行 + 转轮提速 + 装弹不覆盖 + rush! 逻辑审计（v0.3.3）
 - 任务（t338u/t339u/t340u/t341u）：怪移动连续不跳格且更慢；转轮整体速度 ×1.5；手动装弹会覆盖已有弹；顺带查 rush! 其他逻辑问题。
 - 滑行：去掉 EnemyAutoTimer，`_process` 每帧 `advance_enemy_glide(delta*speed/ENEMY_AUTO_STEP_SEC)`；ENEMY_AUTO_STEP_SEC 1.15→1.65（≈41 px/s，慢约 30%）。滑满 1 格才逻辑落格并跑原 tick（攻击/DoT/召唤）；拍首锁定移动名单（被挡/贴脸不滑，拍中解除阻挡的下拍再走，防瞬移）；UnitBody.x = 格心 − 进度×CELL_W，抖动/飚血/飘字/枪线都取 UnitBody 实际位置。

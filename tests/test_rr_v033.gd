@@ -283,28 +283,34 @@ func test_corpse_keeps_glide_position_until_flushed() -> void:
 	assert_almost_eq(cs.enemy_glide_fraction(e), 0.4, 0.0001, "死亡瞬间不得瞬移回格心")
 
 
-func test_step_during_firing_defers_wrath_greed_clear() -> void:
+func test_step_during_firing_keeps_wrath_greed_for_duration() -> void:
 	var cs := _rush()
 	cs._muzzle_wrath = 1
+	cs._muzzle_wrath_t = CombatConstants.MUZZLE_DURATION_WRATH_SEC
 	cs._muzzle_greed = 1
+	cs._muzzle_greed_t = CombatConstants.MUZZLE_DURATION_GREED_SEC
 	cs._set_phase(CombatState.Phase.FIRING)
 	cs.reset_enemy_glide()
 	cs.advance_enemy_glide(1.0)
 	assert_eq(cs._muzzle_wrath, 1, "飞行中不清愤怒")
-	assert_eq(cs._muzzle_greed, 1, "飞行中不清贪婪（击杀掉金要用）")
+	assert_eq(cs._muzzle_greed, 1, "飞行中不清贪婪")
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	cs.finalize_post_fire()
+	assert_eq(cs._muzzle_wrath, 1, "收束也不清；等持续时间")
+	assert_eq(cs._muzzle_greed, 1)
+	cs.tick_muzzle_durations(CombatConstants.MUZZLE_DURATION_WRATH_SEC + 0.01)
 	assert_eq(cs._muzzle_wrath, 0)
 	assert_eq(cs._muzzle_greed, 0)
 
 
-func test_step_outside_firing_still_clears_wrath() -> void:
+func test_step_outside_firing_does_not_clear_wrath() -> void:
 	var cs := _rush()
 	cs._muzzle_wrath = 2
+	cs._muzzle_wrath_t = CombatConstants.MUZZLE_DURATION_WRATH_SEC
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	cs.reset_enemy_glide()
 	cs.advance_enemy_glide(1.0)
-	assert_eq(cs._muzzle_wrath, 0)
+	assert_eq(cs._muzzle_wrath, 2, "落格拍不再清愤怒")
 
 
 func test_win_mid_load_session_ends_session() -> void:

@@ -53,6 +53,8 @@ func test_choose_sin_refills_bag() -> void:
 func test_wrath_pack_of_three_self_damage() -> void:
 	var cs := CombatState.new(903)
 	cs.start_rush(903, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -115,29 +117,37 @@ func test_greed_pack_subtracts_gold() -> void:
 	assert_eq(cs.gold, -4)
 
 
-func test_pride_persists_greed_clears_end_of_turn() -> void:
+func test_pride_persists_greed_clears_by_duration() -> void:
 	var cs := CombatState.new(907)
 	cs.start_rush(907, FireResolver.ID_PRIDE)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.enemies[0].cell = 9
 	cs._muzzle_pride = 2
 	cs._muzzle_greed = 3
+	cs._muzzle_greed_t = CombatConstants.MUZZLE_DURATION_GREED_SEC
 	cs._muzzle_wrath = 1
+	cs._muzzle_wrath_t = CombatConstants.MUZZLE_DURATION_WRATH_SEC
 	assert_true(cs.tick_enemy_auto_step())
+	assert_eq(cs._muzzle_pride, 2)
+	assert_eq(cs._muzzle_greed, 3)
+	assert_eq(cs._muzzle_wrath, 1)
+	cs.tick_muzzle_durations(CombatConstants.MUZZLE_DURATION_GREED_SEC + 0.01)
 	assert_eq(cs._muzzle_pride, 2)
 	assert_eq(cs._muzzle_greed, 0)
 	assert_eq(cs._muzzle_wrath, 0)
 
 
 func test_enemy_table_hp_and_zombie_tag() -> void:
-	assert_eq(int(DataRegistry.get_enemy(1).get("hp")), 20)
-	assert_eq(int(DataRegistry.get_enemy(2).get("hp")), 30)
-	assert_eq(int(DataRegistry.get_enemy(3).get("hp")), 40)
-	assert_eq(int(DataRegistry.get_enemy(4).get("hp")), 50)
+	assert_eq(int(DataRegistry.get_enemy(1).get("hp")), 10)
+	assert_eq(int(DataRegistry.get_enemy(2).get("hp")), 15)
+	assert_eq(int(DataRegistry.get_enemy(3).get("hp")), 20)
+	assert_eq(int(DataRegistry.get_enemy(4).get("hp")), 25)
 	var tags = DataRegistry.get_enemy(4).get("tags", [])
 	assert_true("僵尸" in tags)
-	assert_eq(int(DataRegistry.get_enemy(5).get("hp")), 100)
+	assert_eq(int(DataRegistry.get_enemy(5).get("hp")), 50)
 
 
 func test_super_zombie_summons_in_front() -> void:
@@ -191,13 +201,16 @@ func test_manual_load_one_chamber_at_a_time() -> void:
 	assert_true(bool(r3.get("done", false)), "bag empty after 3rd should complete session")
 	assert_eq(cs.magazine.loaded_count(), 3)
 	assert_false(cs.is_busy_loading())
-	assert_false(cs.can_manual_load())
+	assert_eq(cs.bag_reset_count, 1)
+	assert_true(cs.can_manual_load(), "bag refilled immediately; mag not full")
 
 
 func test_manual_load_one_then_can_continue_and_fire() -> void:
 	## 手装 1 发后仍可再装；且可直接开火（提交装填会话）。
 	var cs := CombatState.new(920)
 	cs.start_rush(920, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()

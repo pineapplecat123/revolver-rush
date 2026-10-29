@@ -978,12 +978,18 @@ func _enemy_glide_cells_per_sec() -> float:
 func _process(delta: float) -> void:
 	if state == null or not _enemy_auto_allowed():
 		return
+	# 枪口持续时间：与怪滑行同一套暂停条件；按战斗速度缩放逻辑秒。
+	var logic_dt: float = delta * maxf(_combat_speed, 0.01)
+	var muzzle_changed: bool = state.tick_muzzle_durations(logic_dt)
 	var alive_before: bool = not state.alive_enemies().is_empty()
 	var steps: int = state.advance_enemy_glide(delta * _enemy_glide_cells_per_sec())
 	if steps > 0 and alive_before:
 		_refresh()
 	else:
 		_update_enemy_glide_visuals()
+		if muzzle_changed:
+			_refresh_muzzle_hud()
+			_refresh_hud_only()
 
 
 func _enemy_glide_px(cell: int) -> float:
@@ -1159,7 +1165,7 @@ func _run_fire_sequence() -> void:
 		if not state.begin_fire():
 			break
 		await _animate_fire_shots()
-	# 本发（+额外轮）结束：清枪口；rush! 敌人由计时器自动走，不在此锁键进怪回合
+	# 本发（+额外轮）结束：枪口改持续时间不再此处清；rush! 敌人由 _process 滑行
 	if state.auto_enemy_advance:
 		state.finalize_post_fire()
 	elif state.post_fire_enemy_pending():

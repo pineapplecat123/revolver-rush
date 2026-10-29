@@ -42,6 +42,8 @@ func test_super_round_grants_extra_load_and_autofire_after_magazine() -> void:
 	## 击发超级回合后计入待追加；do_fire/点射收束时追加 1 轮（补1发再射1发）。
 	var cs := CombatState.new(2121)
 	cs.start_rush(2121)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -76,6 +78,8 @@ func test_super_round_grants_extra_load_and_autofire_after_magazine() -> void:
 func test_two_super_rounds_grant_two_extra_cycles() -> void:
 	var cs := CombatState.new(2122)
 	cs.start_rush(2122)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -107,6 +111,8 @@ func test_extra_round_super_round_nests_with_cap() -> void:
 	## 额外轮内再打出超级回合应继续入队；全匣超级时靠硬上限收束，pending 最终为 0。
 	var cs := CombatState.new(2123)
 	cs.start_rush(2123)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 9999
 	cs.enemies[0].max_hp = 9999
 	cs.bag.clear()
@@ -137,6 +143,8 @@ func test_super_round_extra_chain_hard_cap() -> void:
 	## 直接压测入队：同链授予不超过 MAX_EXTRA_AUTOFIREs_PER_CHAIN。
 	var cs := CombatState.new(2126)
 	cs.start_rush(2126)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs._extra_autofires_granted_this_chain = 0
@@ -163,6 +171,8 @@ func test_super_round_in_reward_choices_pool() -> void:
 func test_endless_win_keeps_super_round() -> void:
 	var cs := CombatState.new(2124)
 	cs.start_rush(2124, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs._bag_append(FireResolver.ID_SUPER_ROUND, false)
 	cs._snapshot_combat_bag_baseline()
 	cs.enemies[0].hp = 1
@@ -207,6 +217,8 @@ func test_extra_round_sync_load_triggers_wrath_pack() -> void:
 	## rush! 额外轮只补 1 发：单发愤怒不触发≥3 包；普通装满会话仍会惩罚（见手装测）。
 	var cs := CombatState.new(2127)
 	cs.start_rush(2127, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -229,6 +241,8 @@ func test_extra_round_stepwise_load_triggers_wrath_pack() -> void:
 	## UI 金色额外：begin 后只补 1 发即结束会话（不拉满匣、不因单发愤怒包伤）。
 	var cs := CombatState.new(2128)
 	cs.start_rush(2128, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -260,6 +274,8 @@ func test_super_round_chain_extra_loads_sin_pack() -> void:
 	## 实打：主匣超级回合 → 额外轮只补 1 发愤怒，不触发≥3 包；仍应跑额外轮。
 	var cs := CombatState.new(2129)
 	cs.start_rush(2129, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()

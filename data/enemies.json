@@ -4,7 +4,7 @@
     {
       "id": 1,
       "name": "平民",
-      "hp": 20,
+      "hp": 10,
       "atk": 1,
       "mobility": 1,
       "special": "无",
@@ -17,7 +17,7 @@
     {
       "id": 2,
       "name": "强盗",
-      "hp": 30,
+      "hp": 15,
       "atk": 2,
       "mobility": 1,
       "special": "无",
@@ -30,7 +30,7 @@
     {
       "id": 3,
       "name": "熊",
-      "hp": 40,
+      "hp": 20,
       "atk": 3,
       "mobility": 1,
       "special": "无",
@@ -43,7 +43,7 @@
     {
       "id": 4,
       "name": "僵尸",
-      "hp": 50,
+      "hp": 25,
       "atk": 1,
       "mobility": 1,
       "special": "无",
@@ -56,7 +56,7 @@
     {
       "id": 5,
       "name": "超级僵尸",
-      "hp": 100,
+      "hp": 50,
       "atk": 1,
       "mobility": 1,
       "special": "每回合在面前生成1个僵尸，如果没有空间则不生成",
@@ -69,7 +69,7 @@
     {
       "id": 104,
       "name": "骷髅",
-      "hp": 10,
+      "hp": 5,
       "atk": 1,
       "mobility": 1,
       "special": "无",
@@ -82,7 +82,7 @@
     {
       "id": 105,
       "name": "石头人",
-      "hp": 20,
+      "hp": 10,
       "atk": 2,
       "mobility": 1,
       "special": "无",

@@ -26,7 +26,7 @@ func test_data_registry_loads_tables() -> void:
 	assert_eq(DataRegistry.get_enemy(1).get("name"), "平民")
 	assert_true(DataRegistry.get_tag("生物").has("effect"))
 	assert_eq(int(DataRegistry.get_ammo(1).get("base_damage")), 3)
-	assert_eq(int(DataRegistry.get_enemy(1).get("hp")), 20)
+	assert_eq(int(DataRegistry.get_enemy(1).get("hp")), 10)
 
 
 func test_magazine_load_and_fire_order() -> void:
@@ -106,6 +106,8 @@ func test_fire_white_damages_civilian() -> void:
 func test_stepwise_fire_api() -> void:
 	var cs := CombatState.new(11)
 	cs.start_rush(11)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.do_load()
@@ -149,6 +151,8 @@ func test_roll_ends_turn_and_enemy_advances() -> void:
 func test_distant_enemy_multiple_turns_no_player_damage() -> void:
 	var cs := CombatState.new(5)
 	cs.start_rush(5, FireResolver.ID_GREED)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.enemies[0].cell = 9
@@ -166,6 +170,8 @@ func test_distant_enemy_multiple_turns_no_player_damage() -> void:
 func test_only_adjacent_enemy_attacks() -> void:
 	var cs := CombatState.new(1)
 	cs.start_rush(1, FireResolver.ID_GREED)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.enemies[0].cell = 2
@@ -178,7 +184,8 @@ func test_only_adjacent_enemy_attacks() -> void:
 	assert_true(cs.phase == CombatState.Phase.AWAIT_LOAD or cs.phase == CombatState.Phase.AWAIT_ACTION)
 
 
-func test_empty_ammo_lose_does_not_zero_hp() -> void:
+func test_empty_bag_refills_instead_of_ammo_lose() -> void:
+	## v0.3.4：袋空立刻战斗内重置，不再因袋空判「弹药耗尽」。
 	var cs := CombatState.new(2)
 	cs.start_rush(2)
 	cs.bag.clear()
@@ -188,15 +195,19 @@ func test_empty_ammo_lose_does_not_zero_hp() -> void:
 	var hp_before := cs.player_hp
 	assert_gt(hp_before, 0)
 	assert_true(cs.do_load())
-	assert_eq(cs.phase, CombatState.Phase.LOST)
-	assert_eq(cs.lose_reason, CombatState.LoseReason.AMMO_EXHAUSTED)
+	assert_ne(cs.phase, CombatState.Phase.LOST)
+	assert_eq(cs.lose_reason, CombatState.LoseReason.NONE)
 	assert_eq(cs.player_hp, hp_before)
+	assert_eq(cs.bag_reset_count, 1)
+	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
 
 
 func test_unload_discards_and_enemy_turn() -> void:
 	## rush!：卸除不推进敌人；清空匣后回 AWAIT_LOAD。
 	var cs := CombatState.new(3)
 	cs.start_rush(3)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	var cell0: int = cs.enemies[0].cell
 	cs.do_load()
@@ -250,6 +261,8 @@ func test_green_trailing_multiplier() -> void:
 func test_pink_bonus_on_unload() -> void:
 	var cs := CombatState.new(8)
 	cs.start_rush(8)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.dev_force_load([9, 9, 1, 1, 1, 1] as Array[int])
 	assert_eq(cs.pink_bonus, 0)
@@ -260,6 +273,8 @@ func test_pink_bonus_on_unload() -> void:
 func test_force_load_yellow_and_fire() -> void:
 	var cs := CombatState.new(8)
 	cs.start_rush(8)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.dev_force_load([4, 4, 4, 4, 4, 4] as Array[int])
@@ -283,6 +298,8 @@ func test_skeleton_does_not_bleed() -> void:
 func test_bio_bleeds_and_ticks() -> void:
 	var cs := CombatState.new(4)
 	cs.start_rush(4)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.enemies[0].cell = 9
@@ -363,6 +380,8 @@ func test_apply_roll_without_enemy_turn() -> void:
 	## apply_roll 本身只转轮（装填后 spin 复用）；显式 resolve 才进怪回合；匣内有弹回 AWAIT_ACTION。
 	var cs := CombatState.new(33)
 	cs.start_rush(33)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	var cell_before: int = cs.enemies[0].cell
@@ -384,6 +403,8 @@ func test_begin_roll_consumes_turn_like_unload() -> void:
 	## rush!：begin_roll 只转轮；自动推进才让怪前进；匣未空保持可行动。
 	var cs := CombatState.new(44)
 	cs.start_rush(44)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	var cell0: int = cs.enemies[0].cell
@@ -544,9 +565,11 @@ func test_ammo_inventory_bag_and_mag() -> void:
 
 
 func test_ammo_inventory_shows_owned_when_bag_empty() -> void:
-	## 袋空时装满匣后，库存仍显示膛内拥有（列表不为空）。
+	## 装满匣后袋立刻补；库存含膛内+新袋，列表不为空。
 	var cs := CombatState.new(43)
 	cs.start_rush(43)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -556,16 +579,17 @@ func test_ammo_inventory_shows_owned_when_bag_empty() -> void:
 	for _i in 6:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	assert_true(cs.do_load())
-	assert_true(cs.bag.is_empty())
 	assert_eq(cs.magazine.loaded_count(), 6)
+	assert_eq(cs.bag_reset_count, 1)
+	assert_false(cs.bag.is_empty())
 	var inv: Dictionary = cs.ammo_inventory_by_id()
 	assert_false(inv.is_empty())
 	assert_true(inv.has(CombatConstants.WHITE_AMMO_ID))
 	var e: Dictionary = inv[CombatConstants.WHITE_AMMO_ID]
-	assert_eq(int(e["bag"]), 0)
 	assert_eq(int(e["mag"]), 6)
+	assert_gt(int(e["bag"]), 0)
 	assert_eq(int(e["discard"]), 0)
-	assert_eq(int(e["total"]), 6)
+	assert_eq(int(e["total"]), int(e["bag"]) + 6)
 
 
 func test_load_port_and_fire_port_offsets() -> void:
@@ -701,10 +725,12 @@ func test_magazine_random_roll_steps_nonzero_when_full() -> void:
 		assert_lte(steps, 5, "seed %d" % seed_v)
 
 
-func test_partial_load_then_next_turn_auto_resets_bag() -> void:
-	## 袋剩 N 发只装 N；FIRE 后怪回合；袋空 → 自动战斗内重置，可手装，不判负。
+func test_partial_load_then_bag_refills_immediately() -> void:
+	## 袋剩 N 发只装 N；会话结束袋空则立刻战斗内重置，不必等怪走。
 	var cs := CombatState.new(42)
 	cs.start_rush(42)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -715,25 +741,23 @@ func test_partial_load_then_next_turn_auto_resets_bag() -> void:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 2)
-	assert_true(cs.bag.is_empty())
-	assert_true(cs.do_fire())
-	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
-	assert_ne(cs.phase, CombatState.Phase.LOST)
-	# rush!：袋空重置挂在自动推进拍
-	assert_true(cs.tick_enemy_auto_step())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1)
 	assert_eq(cs.count_temporary_in_bag(), 1)
 	assert_true(cs.can_manual_load())
-	assert_true(cs.do_load())
+	assert_true(cs.do_fire())
+	assert_ne(cs.phase, CombatState.Phase.LOST)
 	assert_eq(cs.lose_reason, CombatState.LoseReason.NONE)
+	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
 
 
-func test_roll_keeps_mag_and_can_act_after_enemy_turn() -> void:
-	## ROLL 不耗弹；怪回合后匣内仍有弹 → AWAIT_ACTION；袋空会自动战斗内重置。
+func test_roll_keeps_mag_and_bag_refills_on_empty_load() -> void:
+	## ROLL 不耗弹；装满后袋空立刻补；匣内仍有弹可继续行动。
 	var cs := CombatState.new(77)
 	cs.start_rush(77)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -744,17 +768,14 @@ func test_roll_keeps_mag_and_can_act_after_enemy_turn() -> void:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 6)
-	assert_true(cs.bag.is_empty())
+	assert_eq(cs.bag_reset_count, 1)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1)
 	var steps: int = cs.apply_roll()
 	assert_gte(steps, 1)
 	cs.resolve_after_player_action()
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 	assert_eq(cs.magazine.loaded_count(), 6)
 	assert_true(cs.can_fire())
-	# 自动推进拍：袋空则战斗内重置
-	assert_true(cs.tick_enemy_auto_step())
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1)
 	assert_true(cs.do_unload())
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
 	assert_true(cs.can_manual_load())
@@ -767,6 +788,8 @@ func test_blank_chamber_skips_to_nearest_ammo() -> void:
 	## 锤位空仓：快跳到最近有弹格再结算，不逐空打；跳过步数记入 last_blank_skip_steps。
 	var cs := CombatState.new(101)
 	cs.start_rush(101)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -796,6 +819,8 @@ func test_partial_mag_manual_load_blank_skip_peek() -> void:
 	## 只手装几发、锤位落在空仓：peek 给出转到有弹的步数；开火后跳空步数一致。
 	var cs := CombatState.new(102)
 	cs.start_rush(102)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -832,6 +857,8 @@ func test_muzzle_fire_persists_for_rest_of_turn() -> void:
 	## 火弹挂枪口后，本回合后续白弹也施加燃烧；旧「只传下一发」会在第 3 发丢失。
 	var cs := CombatState.new(202)
 	cs.start_rush(202)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -855,10 +882,12 @@ func test_muzzle_fire_persists_for_rest_of_turn() -> void:
 	assert_gt(burn3, burn2)
 
 
-func test_muzzle_resets_after_fire_turn() -> void:
-	## 射击回合结束后枪口重置；下一匣纯白不再带火。
+func test_muzzle_expires_after_duration() -> void:
+	## v0.3.4：火枪口持续期内仍有效；到期后纯白不再带火。
 	var cs := CombatState.new(303)
 	cs.start_rush(303)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -867,15 +896,13 @@ func test_muzzle_resets_after_fire_turn() -> void:
 		CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	assert_true(cs.do_fire())
-	# 进入怪物回合后应为 AWAIT_LOAD 或仍在打；清空后重新装纯白
+	assert_true(cs._muzzle_fire)
+	cs.tick_muzzle_durations(CombatConstants.MUZZLE_DURATION_ELEMENT_SEC + 0.01)
+	assert_false(cs._muzzle_fire)
 	cs.bag.clear()
 	cs.discard.clear()
 	for _i in 6:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
-	if cs.phase != CombatState.Phase.AWAIT_LOAD:
-		# 若怪未清仍可能 AWAIT_LOAD
-		pass
-	# 强制到可装填
 	cs.dev_skip_enemy_turn()
 	assert_true(cs.do_load())
 	var e: EnemyInstance = cs.enemies[0]
@@ -883,7 +910,7 @@ func test_muzzle_resets_after_fire_turn() -> void:
 	e.hp = 999
 	e.max_hp = 999
 	_shot_one(cs)
-	assert_eq(e.burn_stacks, 0, "muzzle should be clear on new fire turn")
+	assert_eq(e.burn_stacks, 0, "muzzle should be clear after duration expires")
 
 
 func test_muzzle_pierce_applies_to_later_whites() -> void:
@@ -978,6 +1005,8 @@ func test_partial_mag_can_start_roll() -> void:
 	## 不满匣（有弹即可）也可 ROLL；与「装满才自动 spin」区分。
 	var cs := CombatState.new(551)
 	cs.start_rush(551)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -1034,6 +1063,8 @@ func test_last_shot_hit_and_muzzle_outline_ids() -> void:
 	## 实弹命中写入 last_shot_hit_cell/dealt/ammo；描边=开火前枪口贡献色（不含本发刚挂罪孽）。
 	var cs := CombatState.new(920)
 	cs.start_rush(920, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs._muzzle_pride = 1
@@ -1062,6 +1093,8 @@ func test_outline_excludes_just_mounted_pride_keeps_prefire_wrath_pierce() -> vo
 	## 枪口已有穿甲+愤怒，打傲慢：芯=傲慢；描边=愤怒+穿甲，不含本发傲慢。
 	var cs := CombatState.new(923)
 	cs.start_rush(923, FireResolver.ID_PRIDE)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs._muzzle_wrath = 1
@@ -1129,6 +1162,8 @@ func test_pace_killing_shot_keeps_corpse_until_flush() -> void:
 	## pace 开火：视觉命中前不扣血；finalize 后致死留尸体，flush 后才移除。
 	var cs := CombatState.new(930)
 	cs.start_rush(930)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 3
 	cs.enemies[0].max_hp = 3
@@ -1170,6 +1205,8 @@ func test_last_shot_keeps_hit_data_after_finish() -> void:
 	## 匣内最后一发打完后仍保留 last_shot_hit_*，供 UI 播弹点/轨迹（修末发无枪线）。
 	var cs := CombatState.new(931)
 	cs.start_rush(931)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
@@ -1192,6 +1229,8 @@ func test_pace_damage_applies_only_on_resolve() -> void:
 	## pace：fire_next_shot 不扣血；resolve_paced_hit 才对齐视觉命中结算。
 	var cs := CombatState.new(932)
 	cs.start_rush(932)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 10
 	cs.enemies[0].max_hp = 10

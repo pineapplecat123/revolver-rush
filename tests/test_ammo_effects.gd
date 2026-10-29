@@ -32,6 +32,8 @@ func test_gold_triggers_extra_auto_load_and_fire() -> void:
 	## 整匣打完后按本匣击发金数追加额外自动装填射击一轮。
 	var cs := CombatState.new(808)
 	cs.start_rush(808)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -59,6 +61,8 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 	## 金色整匣后触发：先打完同匣白弹；白弹清场后仍记录金色并尝试追加（场空则跳过）。
 	var cs := CombatState.new(820)
 	cs.start_rush(820)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	# 平民 10HP；金0 + 白弹清场
 	cs.bag.clear()
 	cs.discard.clear()
@@ -72,7 +76,7 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
-	assert_eq(cs.enemies[0].hp, 20)
+	assert_eq(cs.enemies[0].hp, 10)
 	# rush!：点射金 → pace 下需 finalize 才入账待追加
 	assert_true(cs.begin_fire())
 	var more: bool = cs.fire_next_shot()
@@ -80,7 +84,7 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 	if cs.has_paced_shot_pending():
 		cs.finalize_paced_shot()
 	assert_true(_log_has(cs, "击发金") or _log_has(cs, "金色弹药"))
-	assert_eq(cs.enemies[0].hp, 20)
+	assert_eq(cs.enemies[0].hp, 10)
 	assert_gt(cs.pending_gold_autofires(), 0)
 	assert_true(cs.do_fire())
 	# rush!：流血在自动推进拍结算；补一拍清场
@@ -94,6 +98,8 @@ func test_gold_extra_round_keeps_muzzle() -> void:
 	## 枪口效果跨金色额外轮保留（额外轮内白弹仍带火）。
 	var cs := CombatState.new(809)
 	cs.start_rush(809)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -116,6 +122,8 @@ func test_fire_stops_when_enemies_cleared_mid_magazine() -> void:
 	## 连射中途清场：立刻停射进胜利，不打完剩余弹；未击发归袋（rush! 保留构筑）。
 	var cs := CombatState.new(810)
 	cs.start_rush(810)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 10
 	cs.enemies[0].max_hp = 10
 	cs.dev_force_load([
@@ -143,6 +151,8 @@ func test_endless_win_keeps_build_clears_temp_sin() -> void:
 	## 无限每波胜利：清 bag_reset_count / 临时额外罪孽与幽灵；保留构筑（不打回 10+5）；奖励叠加；枪口清。
 	var cs := CombatState.new(840)
 	cs.start_rush(840, FireResolver.ID_WRATH)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	assert_eq(cs.bag_reset_count, 0)
 	# 先做一次袋空自动重置，使 count=1（同波内加成仍在）
 	cs.bag.clear()
@@ -215,6 +225,8 @@ func test_blue_damage_and_six_types_double() -> void:
 func test_bw_transforms_on_load_from_prev() -> void:
 	var cs := CombatState.new(813)
 	cs.start_rush(813)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.last_load_ids = [1, 1, 1, 1, 4, 4] as Array[int]
 	cs.dev_force_load([10, 10, 1, 1, 1, 1] as Array[int])
@@ -234,6 +246,8 @@ func test_bw_no_prev_stays() -> void:
 func test_water_applies_wet_and_clears_burn() -> void:
 	var cs := CombatState.new(815)
 	cs.start_rush(815)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.enemies[0].burn_stacks = 5
@@ -279,6 +293,8 @@ func test_thunder_chains_across_wet() -> void:
 func test_gas_then_fire_ignites() -> void:
 	var cs := CombatState.new(817)
 	cs.start_rush(817)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -302,6 +318,8 @@ func test_gas_then_fire_ignites() -> void:
 func test_muzzle_gas_on_later_white() -> void:
 	var cs := CombatState.new(818)
 	cs.start_rush(818)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -323,6 +341,8 @@ func test_pink_unload_bonus_shared_on_later_pinks() -> void:
 	## 一次卸除含多粉只 +1；加成作用于之后所有粉伤害。
 	var cs := CombatState.new(830)
 	cs.start_rush(830)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([9, 9, 9, 1, 1, 1] as Array[int])
@@ -381,6 +401,8 @@ func test_black_triples_whole_mag_when_strict_majority() -> void:
 func test_muzzle_water_on_later_white() -> void:
 	var cs := CombatState.new(831)
 	cs.start_rush(831)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.enemies[0].burn_stacks = 4
@@ -568,6 +590,8 @@ func test_gold_extra_when_bag_empty_after_full_load() -> void:
 	## 袋空时装满匣再开火：整匣打完后弃牌洗回，额外轮应打出实质白伤（不再「白打」）。
 	var cs := CombatState.new(830)
 	cs.start_rush(830)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -593,6 +617,8 @@ func test_gold_extras_after_remaining_whites() -> void:
 	## rush!：金点射立刻记待追加；额外轮在该发收束后即可打，不需先清空匣。
 	var cs := CombatState.new(831)
 	cs.start_rush(831)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -706,10 +732,10 @@ func test_pierce_thunder_chains_from_wet() -> void:
 
 
 func test_endless_spawns_zombies_and_boss_super() -> void:
-	## 新表：第1波平民池；第10波超级僵尸×1。
+	## v0.3.4：第1波平民×2；第10波超级僵尸×2；HP50。
 	var cs := CombatState.new(843)
 	cs.start_rush(843)
-	assert_eq(cs.enemies.size(), 1)
+	assert_eq(cs.enemies.size(), 2)
 	assert_eq(cs.enemies[0].def_id, 1)
 	cs.phase = CombatState.Phase.WON
 	cs.reward_resolved = true
@@ -719,9 +745,9 @@ func test_endless_spawns_zombies_and_boss_super() -> void:
 	assert_true(cs.start_next_wave())
 	assert_eq(cs.wave_index, 10)
 	assert_eq(cs.encounter_kind, CombatState.EncounterKind.BOSS)
-	assert_eq(cs.enemies.size(), 1)
+	assert_eq(cs.enemies.size(), 2)
 	assert_eq(cs.enemies[0].def_id, CombatConstants.SUPER_ZOMBIE_ENEMY_ID)
-	assert_eq(cs.enemies[0].max_hp, 100)
+	assert_eq(cs.enemies[0].max_hp, 50)
 
 
 func test_super_zombie_summons_behind() -> void:
@@ -753,6 +779,8 @@ func test_begin_gold_extra_load_is_stepwise_not_instant() -> void:
 	## UI 金色额外：begin 后不瞬装满，需逐步 load_next_chamber；装完才可开火。
 	var cs := CombatState.new(830)
 	cs.start_rush(830)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999

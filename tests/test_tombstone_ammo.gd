@@ -159,6 +159,8 @@ func test_endless_win_keeps_tombstones_then_reward_stacks() -> void:
 		if int(id) == FireResolver.ID_TOMBSTONE:
 			before += 1
 	assert_eq(before, 2)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
 	cs.enemies[0].hp = 1
 	cs.enemies[0].max_hp = 1
 	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])

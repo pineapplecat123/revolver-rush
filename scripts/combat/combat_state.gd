@@ -79,10 +79,18 @@ var _muzzle_gas: bool = false
 var _muzzle_fire: bool = false
 var _muzzle_water: bool = false
 var _muzzle_thunder: bool = false
-## 罪孽枪口层数：愤怒/贪婪回合末清；傲慢本场保留，战斗结束/失败/新开/下一波清零。
+## 罪孽枪口层数：愤怒/贪婪按持续时间清；傲慢本场保留，战斗结束/失败/新开/下一波清零。
 var _muzzle_wrath: int = 0
 var _muzzle_pride: int = 0
 var _muzzle_greed: int = 0
+## 枪口剩余时间（秒，战斗速度倍率缩放后的逻辑秒）；傲慢无计时。
+var _muzzle_wrath_t: float = 0.0
+var _muzzle_greed_t: float = 0.0
+var _muzzle_pierce_t: float = 0.0
+var _muzzle_gas_t: float = 0.0
+var _muzzle_fire_t: float = 0.0
+var _muzzle_water_t: float = 0.0
+var _muzzle_thunder_t: float = 0.0
 ## 本局所选罪孽弹药 id（愤怒/傲慢/贪婪之一）
 var selected_sin_ammo_id: int = FireResolver.ID_WRATH
 ## 本场战斗内袋重置次数；每次重置灌袋 = 构筑基线 + 本计数发额外临时罪孽。开局/波末/下场清零。
@@ -101,7 +109,7 @@ var enemy_step_progress: float = 0.0
 ## 本拍开始时锁定的「会移动」敌人（instance_id → true），保证视觉滑行与落格一致。
 var _glide_movers: Dictionary = {}
 var _glide_movers_valid: bool = false
-## 敌人落格拍发生在射击中：延到射击收束再清愤怒/贪婪枪口。
+## 兼容旧字段：v0.3.4 枪口改持续时间后不再用于清愤怒/贪婪。
 var _turn_sin_clear_pending: bool = false
 var _post_fire_enemy_pending: bool = false
 var _in_gold_extra_round: bool = false
@@ -204,7 +212,7 @@ func _consolidate_ammo_into_bag() -> void:
 
 
 func _reset_fire_session() -> void:
-	## 仅清射击队列；枪口效果跨金色额外轮保留，回合结束由 _reset_muzzle 清。
+	## 仅清射击队列；枪口效果跨金色额外轮保留，胜败/新波由 _reset_muzzle 清；平时靠持续时间到期。
 	## 保留 last_shot_* / last_fired_slot / last_blank_skip_steps 供 UI 播完末发；下一发开火时会重写。
 	_fire_queue.clear()
 	_fire_damages.clear()
@@ -300,18 +308,22 @@ func muzzle_damage_tip_text() -> String:
 		lines.append("当前无修正（×1）")
 		lines.append("结算：无倍率，底伤不变")
 	if greed > 0:
-		lines.append("贪婪×%d：造成伤害时每层 30%% 掉等额金（不改倍率）" % greed)
+		lines.append("贪婪×%d：造成伤害时每层 30%% 掉等额金（不改倍率）· 剩余 %.1f 秒" % [greed, _muzzle_greed_t])
+	if wrath > 0:
+		lines.append("愤怒剩余 %.1f 秒" % _muzzle_wrath_t)
+	if pride > 0:
+		lines.append("傲慢：整场战斗")
 	var elems: PackedStringArray = PackedStringArray()
 	if _muzzle_pierce:
-		elems.append("穿甲")
+		elems.append("穿甲%.1fs" % _muzzle_pierce_t)
 	if _muzzle_gas:
-		elems.append("汽油")
+		elems.append("汽油%.1fs" % _muzzle_gas_t)
 	if _muzzle_fire:
-		elems.append("火")
+		elems.append("火%.1fs" % _muzzle_fire_t)
 	if _muzzle_water:
-		elems.append("水")
+		elems.append("水%.1fs" % _muzzle_water_t)
 	if _muzzle_thunder:
-		elems.append("雷")
+		elems.append("雷%.1fs" % _muzzle_thunder_t)
 	if not elems.is_empty():
 		lines.append("元素附带：%s（不改倍率）" % " · ".join(elems))
 	if _muzzle_pierce:
@@ -320,20 +332,27 @@ func muzzle_damage_tip_text() -> String:
 
 
 func _reset_muzzle() -> void:
-	## 射击收束时清元素枪口；罪孽层数另管（愤怒/贪婪回合末，傲慢本场、战后清）。
+	## 清全部元素枪口及其计时（胜/败/新波/新开）；平时靠持续时间自然到期。
 	_muzzle_pierce = false
 	_muzzle_gas = false
 	_muzzle_fire = false
 	_muzzle_water = false
 	_muzzle_thunder = false
+	_muzzle_pierce_t = 0.0
+	_muzzle_gas_t = 0.0
+	_muzzle_fire_t = 0.0
+	_muzzle_water_t = 0.0
+	_muzzle_thunder_t = 0.0
 
 
 func _clear_turn_sin_muzzle() -> void:
-	## 怪物回合结束：清愤怒与贪婪；傲慢保留。
+	## 兼容旧调用名：立即清愤怒/贪婪（及计时）；傲慢保留。持续时间模式下通常由 tick_muzzle_durations 到期。
 	if _muzzle_wrath > 0 or _muzzle_greed > 0:
-		_log("回合末：枪口愤怒/贪婪清除（傲慢×%d 保留）。" % _muzzle_pride)
+		_log("枪口：愤怒/贪婪清除（傲慢×%d 保留）。" % _muzzle_pride)
 	_muzzle_wrath = 0
 	_muzzle_greed = 0
+	_muzzle_wrath_t = 0.0
+	_muzzle_greed_t = 0.0
 
 
 func _clear_all_sin_muzzle(include_pride: bool = true) -> void:
@@ -341,9 +360,54 @@ func _clear_all_sin_muzzle(include_pride: bool = true) -> void:
 	_muzzle_wrath = 0
 	_muzzle_greed = 0
 	_muzzle_pride = 0
+	_muzzle_wrath_t = 0.0
+	_muzzle_greed_t = 0.0
 	if not include_pride:
 		# 旧调用若显式 false 也不再保留傲慢（口头：离场必须清）
 		pass
+
+
+func tick_muzzle_durations(delta_sec: float) -> bool:
+	## 战斗进行中扣减枪口剩余时间（已按战斗速度缩放的逻辑秒）。到期清对应状态。返回是否有变化。
+	if delta_sec <= 0.0:
+		return false
+	if phase == Phase.WON or phase == Phase.LOST:
+		return false
+	var changed := false
+	changed = _tick_muzzle_flag("_muzzle_pierce", "_muzzle_pierce_t", delta_sec, "穿甲") or changed
+	changed = _tick_muzzle_flag("_muzzle_gas", "_muzzle_gas_t", delta_sec, "汽油") or changed
+	changed = _tick_muzzle_flag("_muzzle_fire", "_muzzle_fire_t", delta_sec, "火") or changed
+	changed = _tick_muzzle_flag("_muzzle_water", "_muzzle_water_t", delta_sec, "水") or changed
+	changed = _tick_muzzle_flag("_muzzle_thunder", "_muzzle_thunder_t", delta_sec, "雷") or changed
+	if _muzzle_wrath > 0:
+		_muzzle_wrath_t = maxf(0.0, _muzzle_wrath_t - delta_sec)
+		if _muzzle_wrath_t <= 0.0:
+			_log("枪口【愤怒】持续时间结束（曾 ×%d）。" % _muzzle_wrath)
+			_muzzle_wrath = 0
+			_muzzle_wrath_t = 0.0
+			changed = true
+	if _muzzle_greed > 0:
+		_muzzle_greed_t = maxf(0.0, _muzzle_greed_t - delta_sec)
+		if _muzzle_greed_t <= 0.0:
+			_log("枪口【贪婪】持续时间结束（曾 ×%d）。" % _muzzle_greed)
+			_muzzle_greed = 0
+			_muzzle_greed_t = 0.0
+			changed = true
+	return changed
+
+
+func _tick_muzzle_flag(flag_name: String, timer_name: String, delta_sec: float, label: String) -> bool:
+	if not bool(get(flag_name)):
+		return false
+	var t: float = float(get(timer_name))
+	t = maxf(0.0, t - delta_sec)
+	set(timer_name, t)
+	if t > 0.0:
+		return false
+	set(flag_name, false)
+	set(timer_name, 0.0)
+	_log("枪口【%s】持续时间结束。" % label)
+	return true
 
 
 func _apply_sin_choice(sin_ammo_id: int, refill_bag: bool = true) -> void:
@@ -502,13 +566,17 @@ func _clear_combat_bonus_ammo() -> void:
 
 
 func _auto_reset_bag_if_empty_at_turn_start() -> bool:
-	## 玩家回合开始：袋空则自动战斗内重置（构筑基线 + N 临时罪孽，保留幽灵），便于手装；每回合至多一次（仅此处调用）。
-	## 弃牌并入重置逻辑。
+	## 兼容旧名：袋空立刻战斗内重置（见 ensure_bag_refilled_if_empty）。
+	return ensure_bag_refilled_if_empty()
+
+
+func ensure_bag_refilled_if_empty() -> bool:
+	## 袋一空就补：立刻战斗内重置（构筑基线 + N 临时罪孽，保留幽灵）。弃牌并入重置逻辑。
 	if not bag.is_empty():
 		return false
 	_reset_bag_in_combat()
 	needs_reshuffle_next_load = false
-	_log("弹药袋已空：自动战斗内重置（构筑 %d + 临时罪孽 ×%d，第 %d 次）。" % [
+	_log("弹药袋已空：立刻战斗内重置（构筑 %d + 临时罪孽 ×%d，第 %d 次）。" % [
 		_combat_bag_baseline.size(), bag_reset_count, bag_reset_count
 	])
 	return true
@@ -550,32 +618,40 @@ func _scale_outgoing_damage(raw: int) -> int:
 
 
 func _mount_muzzle_from(flags: Dictionary) -> void:
-	## 元素枪口：射击后挂上，本回合后续击发附带。
+	## 元素枪口：射击后挂上并刷新持续时间；持续期内后续击发附带。
+	var dur: float = CombatConstants.MUZZLE_DURATION_ELEMENT_SEC
 	if bool(flags.get("pierce", false)):
 		if not _muzzle_pierce:
-			_log("  → 枪口【穿甲】（最多 1 层）")
+			_log("  → 枪口【穿甲】（最多 1 层，%.1f 秒）" % dur)
 		_muzzle_pierce = true
+		_muzzle_pierce_t = dur
 	if bool(flags.get("gas", false)):
 		_muzzle_gas = true
+		_muzzle_gas_t = dur
 	if bool(flags.get("fire", false)):
 		_muzzle_fire = true
+		_muzzle_fire_t = dur
 	if bool(flags.get("water", false)):
 		_muzzle_water = true
+		_muzzle_water_t = dur
 	if bool(flags.get("thunder", false)):
 		_muzzle_thunder = true
+		_muzzle_thunder_t = dur
 
 
 func _mount_sin_muzzle_from(flags: Dictionary) -> void:
-	## 罪孽层在本发结算前叠加，使本发即享受加成。
+	## 罪孽层在本发结算前叠加，使本发即享受加成；愤怒/贪婪刷新持续时间，傲慢本场永久。
 	if bool(flags.get("wrath", false)):
 		_muzzle_wrath += 1
-		_log("  → 枪口【愤怒】+1（现 %d）" % _muzzle_wrath)
+		_muzzle_wrath_t = CombatConstants.MUZZLE_DURATION_WRATH_SEC
+		_log("  → 枪口【愤怒】+1（现 %d，%.1f 秒）" % [_muzzle_wrath, _muzzle_wrath_t])
 	if bool(flags.get("pride", false)):
 		_muzzle_pride += 1
 		_log("  → 枪口【傲慢】+1（现 %d，本场）" % _muzzle_pride)
 	if bool(flags.get("greed", false)):
 		_muzzle_greed += 1
-		_log("  → 枪口【贪婪】+1（现 %d）" % _muzzle_greed)
+		_muzzle_greed_t = CombatConstants.MUZZLE_DURATION_GREED_SEC
+		_log("  → 枪口【贪婪】+1（现 %d，%.1f 秒）" % [_muzzle_greed, _muzzle_greed_t])
 
 
 func _count_ammo_in(ids: Array, ammo_id: int) -> int:
@@ -778,9 +854,11 @@ func can_load() -> bool:
 
 func can_manual_load() -> bool:
 	## 手装：随时可开新会话或在会话中继续装 1 发（袋有弹且未满匣）。
-	## 不要求先打空转轮；AWAIT_ACTION 下也可补弹。
+	## 不要求先打空转轮；AWAIT_ACTION 下也可补弹。袋空则立刻补后再判。
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
 		return false
+	if bag.is_empty():
+		ensure_bag_refilled_if_empty()
 	if bag.is_empty():
 		return false
 	if magazine != null and magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
@@ -870,6 +948,8 @@ func begin_load() -> bool:
 		_log("第 %d 回合：开始装填（上弹口=左上，击发点=正上）…" % turn_index)
 	_emit()
 	if bag.is_empty():
+		ensure_bag_refilled_if_empty()
+	if bag.is_empty():
 		return _finish_load_session_empty()
 	return true
 
@@ -920,8 +1000,7 @@ func load_next_chamber() -> Dictionary:
 		_log("黑白子弹变形为 %s。" % _ammo_name(resolved))
 	_log("装填上弹口→仓 %d：%s。" % [slot + 1, _ammo_name(resolved)])
 	_load_next_slot += 1
-	if bag.is_empty():
-		needs_reshuffle_next_load = true
+	# 本会话袋抽空：本轮装几发是几发；会话结束/下次 can_manual_load 立刻补袋（不等怪走）。
 	var more: bool = (
 		_load_next_slot < CombatConstants.MAGAZINE_SIZE
 		and magazine.loaded_count() < CombatConstants.MAGAZINE_SIZE
@@ -997,10 +1076,12 @@ func _complete_load_session() -> Dictionary:
 	_resolve_sin_pack_on_load(_load_resolved_ids)
 	var rotate_to: int = magazine.start_index
 	_reset_load_session()
+	# v0.3.4：装填会话结束袋若空则立刻补，手装按钮不用等怪走一格。
+	ensure_bag_refilled_if_empty()
 	if magazine.is_empty():
 		magazine.start_index = 0
 		_log("弹药袋与弹夹皆空，无法行动。")
-		if discard.is_empty():
+		if bag.is_empty() and discard.is_empty():
 			_lose_ammo_exhausted()
 			_emit()
 			return {
@@ -1659,7 +1740,6 @@ func _finish_fire() -> void:
 		# 保留枪口与待追加金，供 UI 播额外轮。rush! 自动走位：不挂怪回合待办。
 		if _check_end_after_player():
 			_pending_gold_autofires = 0
-			_reset_muzzle()
 			_post_fire_enemy_pending = false
 			_emit()
 			return
@@ -1669,7 +1749,7 @@ func _finish_fire() -> void:
 		return
 	_run_pending_gold_autofires("单发射击后")
 	_pending_gold_autofires = 0
-	_reset_muzzle()  # 本发结束，重置枪口（额外轮已处理）
+	# v0.3.4：枪口改持续时间，射击收束不再清
 	if _check_end_after_player():
 		_emit()
 		return
@@ -1782,7 +1862,7 @@ func resolve_post_fire_enemy_turn() -> void:
 		return
 	_post_fire_enemy_pending = false
 	_pending_gold_autofires = 0
-	_reset_muzzle()
+	# v0.3.4：枪口改持续时间，射击收束不再清
 	if _check_end_after_player():
 		_emit()
 		return
@@ -1791,13 +1871,10 @@ func resolve_post_fire_enemy_turn() -> void:
 
 
 func finalize_post_fire() -> void:
-	## 本发（+额外轮）收束：清元素枪口；rush! 不进怪回合（敌人由 tick_enemy_auto_step 推进）。
+	## 本发（+额外轮）收束：枪口改持续时间，不再在收束时清；rush! 不进怪回合。
 	_post_fire_enemy_pending = false
 	_pending_gold_autofires = 0
-	_reset_muzzle()
-	if _turn_sin_clear_pending:
-		_turn_sin_clear_pending = false
-		_clear_turn_sin_muzzle()
+	_turn_sin_clear_pending = false  # 愤怒/贪婪改由持续时间到期，不再延拍清
 	if _check_end_after_player():
 		_emit()
 		return
@@ -1921,12 +1998,9 @@ func tick_enemy_auto_step() -> bool:
 		_emit()
 		return false
 	_try_super_zombie_summons()
-	# 子弹飞行中（FIRING）不清愤怒/贪婪：本发命中结算仍要用；射击收束后再清
-	if phase == Phase.FIRING:
-		_turn_sin_clear_pending = true
-	else:
-		_clear_turn_sin_muzzle()
-	_auto_reset_bag_if_empty_at_turn_start()
+	# v0.3.4：愤怒/贪婪改持续时间，落格拍不再清枪口；袋空仍兜底立刻补。
+	_turn_sin_clear_pending = false
+	ensure_bag_refilled_if_empty()
 	# 下一拍重新锁定移动名单
 	_glide_movers.clear()
 	_glide_movers_valid = false
@@ -2067,7 +2141,7 @@ func do_fire() -> bool:
 			_post_fire_enemy_pending = false
 	if any and phase != Phase.WON and phase != Phase.LOST:
 		_pending_gold_autofires = 0
-		_reset_muzzle()
+		# v0.3.4：枪口改持续时间，do_fire 收束不再清
 		if not _check_end_after_player() and not auto_enemy_advance:
 			_run_enemy_turn()
 		_emit()
@@ -2226,9 +2300,8 @@ func _run_enemy_turn() -> void:
 		return
 	# 超级僵尸：每怪物回合在面前召唤一只僵尸
 	_try_super_zombie_summons()
-	_clear_turn_sin_muzzle()
-	# 玩家回合开始：袋空则自动重置（战斗内袋重置）
-	_auto_reset_bag_if_empty_at_turn_start()
+	# v0.3.4：枪口改持续时间，怪回合末不再清愤怒/贪婪；袋空立刻补。
+	ensure_bag_refilled_if_empty()
 	# ROLL 不清空弹匣：匣内仍有弹 → 可继续 FIRE/ROLL/UNLOAD；仅空匣才要求装填
 	if magazine.is_empty():
 		_set_phase(Phase.AWAIT_LOAD)
@@ -2516,11 +2589,15 @@ func _configure_rush_wave_encounter() -> void:
 
 
 func _rush_wave_enemy_ids() -> Array[int]:
-	## 波次→种类数字串→数量；10 的倍数：超级僵尸 ×(波次/10)。
+	## 波次→种类数字串→数量；再 × WAVE_SPAWN_COUNT_MULT（ceil，上限 BOARD_SIZE-1）。
+	## 10 的倍数：超级僵尸 × ceil((波次/10)*倍率)。
 	var w: int = wave_index
 	var out: Array[int] = []
+	var cap: int = CombatConstants.BOARD_SIZE - 1
+	var mult: float = CombatConstants.WAVE_SPAWN_COUNT_MULT
 	if w > 0 and w % 10 == 0:
-		var n: int = int(w / 10)
+		var n: int = maxi(1, int(ceil(float(w / 10) * mult)))
+		n = mini(n, cap)
 		for _i in n:
 			out.append(CombatConstants.SUPER_ZOMBIE_ENEMY_ID)
 		return out
@@ -2566,6 +2643,8 @@ func _rush_wave_enemy_ids() -> Array[int]:
 		# >20 且非 10 倍数
 		pool = [1, 2, 3, 4]
 		count = 5
+	count = maxi(1, int(ceil(float(count) * mult)))
+	count = mini(count, cap)
 	for _j in count:
 		out.append(pool[rng.randi_range(0, pool.size() - 1)])
 	return out
