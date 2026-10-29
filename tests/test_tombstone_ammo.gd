@@ -1,4 +1,18 @@
 extends GutTest
+
+func _shot_one(cs: CombatState, resolve_enemy: bool = false) -> void:
+	## rush!：打 1 发并 finalize；默认不进怪回合（保留枪口，方便测跨发枪口）。
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	if cs.post_fire_enemy_pending():
+		if resolve_enemy:
+			cs.resolve_post_fire_enemy_turn()
+		else:
+			cs._post_fire_enemy_pending = false
+
+
 ## 墓碑→幽灵：生成、填空仓爆发、战后清幽灵、奖励/商店池排除。
 
 
@@ -43,24 +57,19 @@ func test_tombstone_spawns_ghost_and_fills_empty_chambers() -> void:
 		cs.bag.append(FireResolver.ID_GHOST)
 		cs.bag_temp.append(false)
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())  # 墓碑
-	var ghost_in_queue := 0
-	for id in cs._fire_queue:
+	_shot_one(cs)  # 墓碑 → 幽灵填空仓，不连射锁控
+	var ghost_in_mag := 0
+	for id in cs.magazine.slots:
 		if int(id) == FireResolver.ID_GHOST:
-			ghost_in_queue += 1
-	assert_eq(ghost_in_queue, 5, "5 empty chambers filled with ghosts")
+			ghost_in_mag += 1
+	assert_eq(ghost_in_mag, 5, "5 empty chambers filled with ghosts")
 	var left_g := 0
 	for id in cs.bag:
 		if int(id) == FireResolver.ID_GHOST:
 			left_g += 1
 	assert_eq(left_g, 0, "ghosts consumed from bag into mag")
-	assert_eq(cs._fire_total_damage, 2, "tombstone dealt 2")
-	# 打完剩余（平庸+5幽灵）。整匣结束后会进怪回合结算流血：7 次命中 → 流血 7。
-	var guard := 0
-	while cs.phase == CombatState.Phase.FIRING and guard < 12:
-		cs.fire_next_shot()
-		guard += 1
+	# 墓碑伤 2；再 do_fire 打完平庸+5幽灵。do_fire 末尾一次怪回合：7 命中流血 tick。
+	assert_true(cs.do_fire())
 	assert_eq(999 - int(cs.enemies[0].hp), 15 + 7, "15 shot dmg + 7 bleed tick")
 
 
@@ -82,8 +91,7 @@ func test_tombstone_generates_ghost_even_when_mag_full_of_ammo() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	var left_g2 := 0
 	for id in cs.bag:
 		if int(id) == FireResolver.ID_GHOST:
@@ -93,8 +101,9 @@ func test_tombstone_generates_ghost_even_when_mag_full_of_ammo() -> void:
 	for id in cs.magazine.slots:
 		if int(id) == FireResolver.ID_GHOST:
 			ghosts_in_mag += 1
-	assert_eq(ghosts_in_mag, 1)
-	assert_true(FireResolver.ID_GHOST in cs._fire_queue)
+	assert_eq(ghosts_in_mag, 1, "emptied hammer refilled with 1 ghost; rest stay white")
+	# rush!：不把幽灵塞进本发队列，留给后续点射
+	assert_false(FireResolver.ID_GHOST in cs._fire_queue)
 
 
 func test_ghost_never_in_reward_choices() -> void:
@@ -150,9 +159,7 @@ func test_endless_win_keeps_tombstones_then_reward_stacks() -> void:
 	cs.enemies[0].hp = 1
 	cs.enemies[0].max_hp = 1
 	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
-	assert_true(cs.begin_fire())
-	while cs.phase == CombatState.Phase.FIRING:
-		cs.fire_next_shot()
+	assert_true(cs.do_fire())
 	assert_eq(cs.phase, CombatState.Phase.WON)
 	var mid := 0
 	for id in cs.bag:
@@ -223,7 +230,6 @@ func test_tombstone_fill_keeps_last_fired_slot() -> void:
 		cs.bag_temp.append(false)
 	cs.magazine.set_start(0)
 	var hammer: int = cs.magazine.chamber_at_fire_port()
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_eq(cs.last_fired_slot, hammer, "ghost fill must not retarget last_fired_slot")
 	assert_eq(cs.magazine.slots[hammer], FireResolver.ID_GHOST, "emptied hammer may be refilled with ghost")

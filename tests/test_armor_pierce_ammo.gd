@@ -1,4 +1,18 @@
 extends GutTest
+
+func _shot_one(cs: CombatState, resolve_enemy: bool = false) -> void:
+	## rush!：打 1 发并 finalize；默认不进怪回合（保留枪口，方便测跨发枪口）。
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	if cs.post_fire_enemy_pending():
+		if resolve_enemy:
+			cs.resolve_post_fire_enemy_turn()
+		else:
+			cs._post_fire_enemy_pending = false
+
+
 ## 穿甲弹药（设计表#12 → 运行时 id=22）：挂枪口【穿甲】；递减穿怪；奖励池；袋/仓钢青辉光。
 
 
@@ -49,8 +63,7 @@ func test_armor_pierce_damage_falloff_across_enemies() -> void:
 	cs.magazine.set_start(0)
 	var sorted: Array = cs.enemies_sorted_by_cell()
 	var hp0: Array[int] = [sorted[0].hp, sorted[1].hp, sorted[2].hp, sorted[3].hp]
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	# base 3 → 3/2/1/0（第4只不吃伤）
 	assert_eq(hp0[0] - sorted[0].hp, 3)
 	assert_eq(hp0[1] - sorted[1].hp, 2)
@@ -82,11 +95,10 @@ func test_muzzle_armor_pierce_applies_to_later_whites() -> void:
 	] as Array[int])
 	cs.magazine.set_start(0)
 	var sorted: Array = cs.enemies_sorted_by_cell()
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())  # 穿甲 3/2/1
+	_shot_one(cs)  # 穿甲 3/2/1
 	assert_true(cs._muzzle_pierce)
 	var hp_w0: Array[int] = [sorted[0].hp, sorted[1].hp, sorted[2].hp]
-	assert_true(cs.fire_next_shot())  # 白弹底伤3 + 枪口穿甲 → 3/2/1
+	_shot_one(cs)  # 白弹底伤3 + 枪口穿甲 → 3/2/1
 	assert_eq(hp_w0[0] - sorted[0].hp, 3)
 	assert_eq(hp_w0[1] - sorted[1].hp, 2)
 	assert_eq(hp_w0[2] - sorted[2].hp, 1)
@@ -104,10 +116,9 @@ func test_armor_pierce_muzzle_max_one_layer() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_true(cs._muzzle_pierce)
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_true(cs._muzzle_pierce)
 	# tip 含穿甲说明
 	assert_true("穿甲：" in cs.muzzle_damage_tip_text() or "穿甲" in cs.muzzle_damage_tip_text())
@@ -133,9 +144,7 @@ func test_endless_win_keeps_armor_pierce() -> void:
 	cs.enemies[0].hp = 1
 	cs.enemies[0].max_hp = 1
 	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
-	assert_true(cs.begin_fire())
-	while cs.phase == CombatState.Phase.FIRING:
-		cs.fire_next_shot()
+	assert_true(cs.do_fire())
 	assert_eq(cs.phase, CombatState.Phase.WON)
 	var n := 0
 	for id in cs.bag:

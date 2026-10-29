@@ -1,4 +1,18 @@
 extends GutTest
+
+func _shot_one(cs: CombatState, resolve_enemy: bool = false) -> void:
+	## rush!：打 1 发并 finalize；默认不进怪回合（保留枪口，方便测跨发枪口）。
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	if cs.post_fire_enemy_pending():
+		if resolve_enemy:
+			cs.resolve_post_fire_enemy_turn()
+		else:
+			cs._post_fire_enemy_pending = false
+
+
 ## 罪孽：开局 10+5、装≥3 负面、枪口叠层、敌人数值与超僵面前召唤。
 
 
@@ -66,9 +80,8 @@ func test_wrath_muzzle_doubles_damage() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
 	var hp0: int = cs.enemies[0].hp
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_eq(cs._muzzle_wrath, 1)
 	assert_eq(hp0 - cs.enemies[0].hp, 6)
 

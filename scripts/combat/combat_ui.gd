@@ -1,7 +1,7 @@
 extends Control
-## rush! 战斗 UI（竖屏三等分）：上=战斗区（棋盘/枪线/飙血/飘字/波次横幅），中=转轮+弹药袋，下=操作区（手动装弹 / 射击）。
+## rush! 战斗 UI（竖屏三等分）：上=战斗区，中=转轮+弹药袋，下=操作区（随时手动装弹 / 随时单发射击）。
 ## 转轮：大盘(_disk)带着六小圆整盘转；红击发圈与装弹标挂在 MagWheel 上不转。
-## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°；装满后自动 reroll；射击从正上逐发打空转轮。
+## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°（半匣可继续补，不倾倒）；点射一次打 1 发。
 ## rush!：每 5 波奖励后进商店（复用 ShopState）；受击飘字带弧线轨迹。无战斗日志。
 
 const ShopState = preload("res://scripts/shop/shop_state.gd")
@@ -230,7 +230,7 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "手动装弹：从弹药袋装 1 发进转轮（装满自动转盘）· 射击：打出转轮里的全部子弹。长按弹药可看效果。"
+		hint_lab.text = "随时装弹 / 随时开火：手动装弹每次补 1 发（不倾倒已上膛）；射击每次打 1 发，随后怪行动。长按弹药可看效果。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
@@ -412,7 +412,7 @@ func _ensure_combat_layout() -> void:
 
 
 func _ensure_action_buttons() -> void:
-	## 操作区只有两颗大按钮：手动装弹（装 1 发）/ 射击（打空转轮）。
+	## 操作区只有两颗大按钮：手动装弹（装 1 发）/ 射击（打 1 发）。
 	for btn in [btn_manual_load, btn_fire]:
 		if btn == null:
 			continue
@@ -1001,29 +1001,30 @@ func _run_manual_load_one() -> void:
 
 
 func _animate_gold_extra_load() -> void:
-	## 金色额外轮：一发发装入转轮，节奏对齐普通 LOAD（入弹停顿 + 60° 旋转）；装满可再 spin。
+	## 额外轮：只补 1 发（不倾倒匣内弹、不拉满匣），节奏同手装一发；满匣则跳过。
 	_loading = true
 	_apply_disk_rotation(float(state.magazine.start_index))
 	_refresh_mag_contents()
 	_refresh_hud_only()
 	if not state.is_busy_loading():
+		# 匣已满：begin_gold_extra_load 已直接进 AWAIT_ACTION
 		_loading = false
 		_apply_disk_rotation(float(state.magazine.start_index))
 		_refresh_hud_only()
 		return
-	var needs_spin := false
-	while state.is_busy_loading():
-		var before_steps: float = _wheel_visual_steps
-		var result: Dictionary = state.load_next_chamber()
-		if not bool(result.get("ok", false)):
-			break
-		needs_spin = bool(result.get("needs_spin", false))
-		_refresh_mag_contents()
-		_refresh_hud_only()
-		if LOAD_INSERT_PAUSE > 0.0:
-			await get_tree().create_timer(_paced(LOAD_INSERT_PAUSE)).timeout
-		if bool(result.get("done", false)):
-			break
+	var before_steps: float = _wheel_visual_steps
+	var result: Dictionary = state.load_next_chamber()
+	if not bool(result.get("ok", false)):
+		state.commit_load_session_if_active()
+		_loading = false
+		_refresh()
+		return
+	_refresh_mag_contents()
+	_refresh_hud_only()
+	if LOAD_INSERT_PAUSE > 0.0:
+		await get_tree().create_timer(_paced(LOAD_INSERT_PAUSE)).timeout
+	var done: bool = bool(result.get("done", false))
+	if not done:
 		var rotate_to: float = float(result.get("rotate_to", state.magazine.start_index))
 		var target: float = rotate_to
 		while target + 0.001 < before_steps:
@@ -1034,8 +1035,8 @@ func _animate_gold_extra_load() -> void:
 		state.apply_load_rotate()
 		await _animate_disk_to(target, _paced(STEP_ROT_DURATION))
 		_refresh_mag_contents()
-	if needs_spin and state.can_start_roll():
-		await _run_shared_cylinder_spin()
+		# 额外轮只补一发：提交会话，保留已装弹
+		state.commit_load_session_if_active()
 	else:
 		_apply_disk_rotation(float(state.magazine.start_index))
 	_loading = false
@@ -1050,11 +1051,12 @@ func _on_fire() -> void:
 
 
 func _run_fire_sequence() -> void:
+	## rush!：点一次射击 = 打 1 发 →（超级回合等额外轮：各补 1 射 1）→ 怪回合 → 立刻把两键交还给玩家。
 	if not state.begin_fire():
 		return
 	_firing = true
 	await _animate_fire_shots()
-	# 金色额外轮：逐步装弹（同普通装弹节奏）→ 再自动开火（不瞬装满）
+	# 额外轮：每次只补 1 发再打 1 发，不锁死整匣
 	while state.pending_gold_autofires() > 0:
 		if not state.begin_gold_extra_load():
 			break
@@ -1065,7 +1067,7 @@ func _run_fire_sequence() -> void:
 		if not state.begin_fire():
 			break
 		await _animate_fire_shots()
-	# 射击序列结束 → 可见间隔 → 再结算怪回合（含流血等状态伤）
+	# 本发（+额外轮）结束 → 短暂间隔 → 怪回合 → 解锁按钮
 	if state.post_fire_enemy_pending():
 		await get_tree().create_timer(_paced(POST_FIRE_STATUS_DELAY)).timeout
 		state.resolve_post_fire_enemy_turn()

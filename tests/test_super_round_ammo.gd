@@ -1,4 +1,18 @@
 extends GutTest
+
+func _shot_one(cs: CombatState, resolve_enemy: bool = false) -> void:
+	## rush!：打 1 发并 finalize；默认不进怪回合（保留枪口，方便测跨发枪口）。
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	if cs.post_fire_enemy_pending():
+		if resolve_enemy:
+			cs.resolve_post_fire_enemy_turn()
+		else:
+			cs._post_fire_enemy_pending = false
+
+
 ## 超级回合子弹：射击后额外装填+自动射击；奖励池；额外轮可嵌套（有硬上限防软锁）。
 
 
@@ -25,7 +39,7 @@ func test_ammo_def_enabled_and_in_reward_pool() -> void:
 
 
 func test_super_round_grants_extra_load_and_autofire_after_magazine() -> void:
-	## 击发超级回合后不立刻额外轮；整匣打完后追加 1 轮自动装填射击。
+	## 击发超级回合后计入待追加；do_fire/点射收束时追加 1 轮（补1发再射1发）。
 	var cs := CombatState.new(2121)
 	cs.start_rush(2121)
 	cs.enemies[0].hp = 999
@@ -46,19 +60,16 @@ func test_super_round_grants_extra_load_and_autofire_after_magazine() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	var hp0: int = cs.enemies[0].hp
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())  # 超级回合：伤1，计入待追加
+	# rush!：点射超级回合 → 立刻待追加；do_fire 打完剩余并同步打额外轮（每轮补1发再射1发）
+	_shot_one(cs)  # 超级回合：伤1
 	assert_eq(cs.pending_gold_autofires(), 1)
 	assert_true(_log_has(cs, "超级回合子弹"))
-	assert_false(_log_has(cs, "额外自动装填射击"), "extras must wait until magazine finishes")
 	assert_eq(hp0 - cs.enemies[0].hp, 1)
-	while cs.phase == CombatState.Phase.FIRING:
-		cs.fire_next_shot()
-	# 主匣：1 + 5×3=16；额外轮 6 白×3=18 → 34（可能再加流血，视阶段）
+	assert_true(cs.do_fire())
+	# 主匣剩余 5 白×3=15 + 超级1 + 额外轮至少 +1 白×3 → ≥19
 	var dealt: int = hp0 - cs.enemies[0].hp
-	assert_gte(dealt, 30, "extra autofire should add white damage, dealt=%d" % dealt)
-	assert_true(_log_has(cs, "额外装填回合"))
-	assert_true(_log_has(cs, "整匣打完"))
+	assert_gte(dealt, 19, "extra autofire should add at least one white, dealt=%d" % dealt)
+	assert_true(_log_has(cs, "额外装填回合") or _log_has(cs, "额外轮"))
 	assert_eq(cs.pending_gold_autofires(), 0)
 
 
@@ -81,7 +92,14 @@ func test_two_super_rounds_grant_two_extra_cycles() -> void:
 		Magazine.EMPTY,
 	] as Array[int])
 	assert_true(cs.do_fire())
-	assert_true(_log_has(cs, "待追加 2 轮") or _log_has(cs, "追加 2 轮"))
+	# rush! 点射模型：两发超级回合各记一次待追加（可能分两条日志），额外轮打完 pending=0
+	var grants := 0
+	for line in cs.last_log:
+		if "待追加" in str(line) and "超级回合" in str(line):
+			grants += 1
+		elif "超级回合子弹：射击后获得额外" in str(line):
+			grants += 1
+	assert_gte(grants, 2, "two super rounds should each grant an extra")
 	assert_eq(cs.pending_gold_autofires(), 0)
 
 
@@ -105,7 +123,8 @@ func test_extra_round_super_round_nests_with_cap() -> void:
 	assert_eq(cs.pending_gold_autofires(), 0)
 	var finished := 0
 	for line in cs.last_log:
-		if "额外装填回合射击完毕" in str(line):
+		var line_s := str(line)
+		if "额外轮单发射击完毕" in line_s or "额外装填回合射击完毕" in line_s or "额外轮射击完毕" in line_s:
 			finished += 1
 	assert_gt(finished, 1, "nested extras from id=21 in bonus round should run, got %d" % finished)
 	assert_lte(finished, CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN)
@@ -149,9 +168,7 @@ func test_endless_win_keeps_super_round() -> void:
 	cs.enemies[0].hp = 1
 	cs.enemies[0].max_hp = 1
 	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
-	assert_true(cs.begin_fire())
-	while cs.phase == CombatState.Phase.FIRING:
-		cs.fire_next_shot()
+	assert_true(cs.do_fire())
 	assert_eq(cs.phase, CombatState.Phase.WON)
 	var n := 0
 	for id in cs.bag:
@@ -178,20 +195,16 @@ func test_tombstone_then_super_round_still_grants_extra() -> void:
 		FireResolver.ID_SUPER_ROUND,
 		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())  # tombstone
-	assert_true(cs.fire_next_shot())  # super round amid ghosts
+	_shot_one(cs)  # tombstone → 填幽灵入匣
+	_shot_one(cs)  # super round（匣内下一发）
 	assert_eq(cs.pending_gold_autofires(), 1)
-	var guard := 0
-	while cs.phase == CombatState.Phase.FIRING and guard < 20:
-		cs.fire_next_shot()
-		guard += 1
-	assert_true(_log_has(cs, "额外装填回合") or _log_has(cs, "超级回合子弹"))
+	assert_true(cs.do_fire())  # 打完幽灵 + 同步额外轮
+	assert_true(_log_has(cs, "额外装填回合") or _log_has(cs, "超级回合子弹") or _log_has(cs, "额外轮"))
 	assert_eq(cs.pending_gold_autofires(), 0)
 
 
 func test_extra_round_sync_load_triggers_wrath_pack() -> void:
-	## 同步额外轮装匣：袋内愤怒≥3 须自伤 6（此前 _auto_load 跳过惩罚）。
+	## rush! 额外轮只补 1 发：单发愤怒不触发≥3 包；普通装满会话仍会惩罚（见手装测）。
 	var cs := CombatState.new(2127)
 	cs.start_rush(2127, FireResolver.ID_WRATH)
 	cs.enemies[0].hp = 999
@@ -208,12 +221,12 @@ func test_extra_round_sync_load_triggers_wrath_pack() -> void:
 	cs._in_gold_extra_round = true
 	var hp0: int = cs.player_hp
 	assert_true(cs._auto_load_and_fire_once())
-	assert_eq(cs.player_hp, hp0 - 6, "wrath≥3 in gold/extra sync load must self-damage 6")
-	assert_true(_log_has(cs, "罪孽[愤怒]"))
+	assert_eq(cs.player_hp, hp0, "single-chamber extra must not sin-pack")
+	assert_eq(cs.magazine.loaded_count() + cs.discard.size(), 1)
 
 
 func test_extra_round_stepwise_load_triggers_wrath_pack() -> void:
-	## UI 逐步额外装：装完匣后同样触发愤怒≥3 自伤。
+	## UI 金色额外：begin 后只补 1 发即结束会话（不拉满匣、不因单发愤怒包伤）。
 	var cs := CombatState.new(2128)
 	cs.start_rush(2128, FireResolver.ID_WRATH)
 	cs.enemies[0].hp = 999
@@ -226,6 +239,7 @@ func test_extra_round_stepwise_load_triggers_wrath_pack() -> void:
 	]:
 		cs.bag.append(id)
 		cs.bag_temp.append(false)
+	cs.magazine.clear()
 	cs._pending_gold_autofires = 1
 	var hp0: int = cs.player_hp
 	assert_true(cs.begin_gold_extra_load())
@@ -236,14 +250,14 @@ func test_extra_round_stepwise_load_triggers_wrath_pack() -> void:
 		steps += 1
 		if not bool(r.get("done", false)):
 			cs.apply_load_rotate()
-		assert_lte(steps, CombatConstants.MAGAZINE_SIZE + 1)
-	assert_eq(cs.player_hp, hp0 - 6)
-	assert_true(_log_has(cs, "罪孽[愤怒]"))
-	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
+		assert_lte(steps, 2)
+	assert_eq(steps, 1)
+	assert_eq(cs.player_hp, hp0)
+	assert_eq(cs.magazine.loaded_count(), 1)
 
 
 func test_super_round_chain_extra_loads_sin_pack() -> void:
-	## 实打：主匣超级回合 → 额外轮从袋装入≥3 愤怒 → 自伤生效。
+	## 实打：主匣超级回合 → 额外轮只补 1 发愤怒，不触发≥3 包；仍应跑额外轮。
 	var cs := CombatState.new(2129)
 	cs.start_rush(2129, FireResolver.ID_WRATH)
 	cs.enemies[0].hp = 999
@@ -264,6 +278,5 @@ func test_super_round_chain_extra_loads_sin_pack() -> void:
 	] as Array[int])
 	var hp0: int = cs.player_hp
 	assert_true(cs.do_fire())
-	assert_eq(cs.player_hp, hp0 - 6, "sin pack in super-round extra must punish")
-	assert_true(_log_has(cs, "罪孽[愤怒]"))
-	assert_true(_log_has(cs, "额外装填回合"))
+	assert_eq(cs.player_hp, hp0, "single-chamber extra must not sin-pack")
+	assert_true(_log_has(cs, "额外装填回合") or _log_has(cs, "额外轮"))

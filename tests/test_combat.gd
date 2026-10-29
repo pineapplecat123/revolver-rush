@@ -1,4 +1,18 @@
 extends GutTest
+
+func _shot_one(cs: CombatState, resolve_enemy: bool = false) -> void:
+	## rush!：打 1 发并 finalize；默认不进怪回合（保留枪口，方便测跨发枪口）。
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	if cs.post_fire_enemy_pending():
+		if resolve_enemy:
+			cs.resolve_post_fire_enemy_turn()
+		else:
+			cs._post_fire_enemy_pending = false
+
+
 ## 战斗骨架：抽弹、随机 ROLL、白弹、邻接攻击、空弹失败、逐步射击。
 
 
@@ -101,9 +115,10 @@ func test_stepwise_fire_api() -> void:
 	while cs.phase == CombatState.Phase.FIRING:
 		cs.fire_next_shot()
 		shots += 1
-		assert_lte(shots, 8)
-	assert_eq(shots, 6)
-	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
+		assert_lte(shots, 4)
+	# rush! 单发：1 次规划 + 1 次 finalize；匣内仍有弹 → AWAIT_ACTION
+	assert_eq(shots, 2)
+	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 
 
 func test_roll_ends_turn_and_enemy_advances() -> void:
@@ -256,8 +271,8 @@ func test_force_load_yellow_and_fire() -> void:
 	cs.enemies[0].max_hp = 100
 	cs.dev_force_load([4, 4, 4, 4, 4, 4] as Array[int])
 	assert_true(cs.do_fire())
-	# 6 黄每发 5 → 30；生物被命中 6 次叠 6 层流血，怪回合结算再 -6 → 64，层数剩 5
-	assert_eq(cs.enemies[0].hp, 64)
+	# rush! 单发：黄梯随匣内剩余递减 5+5+4+3+2+1=20；6 次命中流血，怪回合 -6 → 74，层数剩 5
+	assert_eq(cs.enemies[0].hp, 74)
 	assert_eq(cs.enemies[0].bleed_stacks, 5)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
 
@@ -610,7 +625,9 @@ func test_fire_consumes_top_chamber_then_advances() -> void:
 	var top_before: int = cs.magazine.start_index
 	assert_eq(top_before, 2)
 	assert_eq(cs.magazine.slots[2], CombatConstants.WHITE_AMMO_ID)
-	assert_true(cs.fire_next_shot())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
 	assert_eq(cs.magazine.slots[2], Magazine.EMPTY)
 	assert_eq(cs.magazine.start_index, 3)
 
@@ -653,8 +670,9 @@ func test_fire_consumes_fire_port_chamber() -> void:
 	cs.magazine.set_start(4)
 	assert_eq(cs.magazine.chamber_at_fire_port(), 4)
 	assert_eq(cs.magazine.slots[4], FireResolver.ID_PURPLE)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
 	assert_eq(cs.last_fired_slot, 4)
 	assert_eq(cs.magazine.slots[4], Magazine.EMPTY)
 	assert_eq(cs.magazine.start_index, 5)
@@ -772,7 +790,9 @@ func test_blank_chamber_skips_to_nearest_ammo() -> void:
 	var hp_before: int = cs.enemies[0].hp
 	assert_true(cs.begin_fire())
 	assert_eq(cs.peek_blank_skip_steps(), peek)
-	assert_true(cs.fire_next_shot())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
 	# 从空仓 2 前进到有弹仓（0 或 1，视 FIRE_PORT 与 start）并实弹结算
 	assert_false(cs.last_shot_was_blank)
 	assert_eq(cs.last_blank_skip_steps, peek)
@@ -810,8 +830,7 @@ func test_partial_mag_manual_load_blank_skip_peek() -> void:
 	var peek: int = cs.peek_blank_skip_steps()
 	assert_gte(peek, 1)
 	assert_lte(peek, 5)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_false(cs.last_shot_was_blank)
 	assert_eq(cs.last_blank_skip_steps, peek)
 	assert_eq(cs.discard.size(), 1)
@@ -832,14 +851,14 @@ func test_muzzle_fire_persists_for_rest_of_turn() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())  # 火
+	# rush! 点射：不 resolve 怪回合，枪口跨点射保留
+	_shot_one(cs)
 	var burn1: int = cs.enemies[0].burn_stacks
 	assert_gt(burn1, 0)
-	assert_true(cs.fire_next_shot())  # 白+枪口火
+	_shot_one(cs)  # 白+枪口火
 	var burn2: int = cs.enemies[0].burn_stacks
 	assert_gt(burn2, burn1)
-	assert_true(cs.fire_next_shot())  # 白+枪口火（旧逻辑此处不应再烧）
+	_shot_one(cs)  # 白+枪口火
 	var burn3: int = cs.enemies[0].burn_stacks
 	assert_gt(burn3, burn2)
 
@@ -871,8 +890,7 @@ func test_muzzle_resets_after_fire_turn() -> void:
 	e.burn_stacks = 0
 	e.hp = 999
 	e.max_hp = 999
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_eq(e.burn_stacks, 0, "muzzle should be clear on new fire turn")
 
 
@@ -899,14 +917,13 @@ func test_muzzle_pierce_applies_to_later_whites() -> void:
 			back = e
 	assert_not_null(back)
 	var hp_back0: int = back.hp
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())  # pierce
+	_shot_one(cs)  # pierce
 	assert_lt(back.hp, hp_back0)
 	var hp_back1: int = back.hp
-	assert_true(cs.fire_next_shot())  # white + muzzle pierce
+	_shot_one(cs)  # white + muzzle pierce
 	assert_lt(back.hp, hp_back1)
 	var hp_back2: int = back.hp
-	assert_true(cs.fire_next_shot())  # white + muzzle pierce again
+	_shot_one(cs)  # white + muzzle pierce again
 	assert_lt(back.hp, hp_back2)
 
 
@@ -928,8 +945,7 @@ func test_enemy_damaged_signal_emits_per_hit() -> void:
 	var hits: Array = []
 	cs.enemy_damaged.connect(func(cell: int, amount: int, kind: String=""): hits.append([cell, amount, kind]))
 	cs.dev_force_load([1, 1, 1, 1, 1, 1] as Array[int])
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_gt(hits.size(), 0)
 	assert_gt(hits[0][1], 0)
 
@@ -1038,8 +1054,7 @@ func test_last_shot_hit_and_muzzle_outline_ids() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_eq(cs.last_shot_ammo_id, FireResolver.ID_WRATH)
 	assert_eq(cs.last_shot_hit_cell, cs.enemies[0].cell)
 	assert_gt(cs.last_shot_dealt, 0)
@@ -1068,8 +1083,7 @@ func test_outline_excludes_just_mounted_pride_keeps_prefire_wrath_pierce() -> vo
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_eq(cs.last_shot_ammo_id, FireResolver.ID_PRIDE)
 	assert_true(cs.last_shot_muzzle_outline_ids.has(FireResolver.ID_WRATH))
 	assert_true(cs.last_shot_muzzle_outline_ids.has(FireResolver.ID_ARMOR_PIERCE))
@@ -1086,9 +1100,7 @@ func test_blank_shot_clears_last_shot_hit() -> void:
 	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
 	# 只 1 发，转锤到空仓再射会快跳；打完后匣空再射路径清 last_shot
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	while cs.phase == CombatState.Phase.FIRING:
-		cs.fire_next_shot()
+	assert_true(cs.do_fire())
 	assert_eq(cs.magazine.loaded_count(), 0)
 
 
@@ -1112,8 +1124,7 @@ func test_pierce_shot_records_all_hit_cells() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	_shot_one(cs)
 	assert_true(cs.last_shot_was_pierce)
 	assert_eq(cs.last_shot_ammo_id, FireResolver.ID_PIERCE)
 	assert_gte(cs.last_shot_hit_cells.size(), 2)
@@ -1202,7 +1213,8 @@ func test_pace_damage_applies_only_on_resolve() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	assert_true(cs.begin_fire())
-	assert_true(cs.fire_next_shot())
+	cs.fire_next_shot()
+	assert_true(cs.has_paced_shot_pending())
 	assert_eq(cs.enemies[0].hp, hp0)
 	var dealt: int = cs.resolve_paced_hit(0)
 	assert_gt(dealt, 0)

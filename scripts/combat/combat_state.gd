@@ -1,5 +1,6 @@
 class_name CombatState
-## 战斗状态机。清场后奖励三选一，结算后再下一波；ROLL/FIRE/UNLOAD 均结束玩家行动（怪前进）；LOAD 可逐步装填。ROLL 不清空弹匣：怪回合后若匣内仍有弹则回 AWAIT_ACTION。
+## 战斗状态机（rush!）：清场后奖励三选一，结算后再下一波。
+## 随时装弹 / 随时单发射击：每次射击只打锤位 1 发，随后怪回合；装弹不倾倒已上膛子弹，可在有空仓时随时补弹。
 
 enum Phase {
 	AWAIT_LOAD,
@@ -166,6 +167,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	rush_shop_done = true
 	encounter_kind = EncounterKind.NORMAL
 	last_reward_base_gold = 0
+	pace_after_fire = true
 	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	_clear_all_sin_muzzle(true)
@@ -192,14 +194,11 @@ func _consolidate_ammo_into_bag() -> void:
 
 func _reset_fire_session() -> void:
 	## 仅清射击队列；枪口效果跨金色额外轮保留，回合结束由 _reset_muzzle 清。
-	## 注意：保留 last_shot_* 命中/VFX 字段，供 UI 播完末发弹点后再用；下一发开火时会重写。
+	## 保留 last_shot_* / last_fired_slot / last_blank_skip_steps 供 UI 播完末发；下一发开火时会重写。
 	_fire_queue.clear()
 	_fire_damages.clear()
 	_fire_index = 0
 	_fire_total_damage = 0
-	last_shot_was_blank = false
-	last_blank_skip_steps = 0
-	last_fired_slot = -1
 	_paced_shot.clear()
 
 
@@ -756,16 +755,28 @@ func is_busy_loading() -> bool:
 
 
 func can_load() -> bool:
-	return phase == Phase.AWAIT_LOAD and not _load_session_active
+	## 可开新装填会话：玩家回合（装弹/行动）且未满匣、未在会话中。
+	if _load_session_active:
+		return false
+	if phase != Phase.AWAIT_LOAD and phase != Phase.AWAIT_ACTION:
+		return false
+	if magazine != null and magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
+		return false
+	return true
 
 
 func can_manual_load() -> bool:
-	## 手装：可开新装填会话，或在会话中继续装 1 发（袋有弹且未满匣）。
+	## 手装：随时可开新会话或在会话中继续装 1 发（袋有弹且未满匣）。
+	## 不要求先打空转轮；AWAIT_ACTION 下也可补弹。
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
 		return false
+	if bag.is_empty():
+		return false
+	if magazine != null and magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
+		return false
 	if _load_session_active:
-		return not bag.is_empty() and _load_next_slot < CombatConstants.MAGAZINE_SIZE
-	return can_load() and not bag.is_empty()
+		return true
+	return can_load()
 
 
 func _has_ammo_ready_to_act() -> bool:
@@ -773,14 +784,15 @@ func _has_ammo_ready_to_act() -> bool:
 
 
 func _can_act_with_partial_load() -> bool:
-	## 手装中途：匣内已有弹时可提交会话后开火 / ROLL / 卸除。
+	## 手装中途：匣内已有弹时可提交会话后开火。
 	return phase == Phase.AWAIT_LOAD and _load_session_active and _has_ammo_ready_to_act()
 
 
 func can_fire() -> bool:
+	## 锤位有弹（或匣内有弹可转到锤位）即可开火；装弹会话中也可先提交再射。
 	if not _has_ammo_ready_to_act():
 		return false
-	return phase == Phase.AWAIT_ACTION or _can_act_with_partial_load()
+	return phase == Phase.AWAIT_ACTION or phase == Phase.AWAIT_LOAD or _can_act_with_partial_load()
 
 
 func can_unload() -> bool:
@@ -827,24 +839,38 @@ func do_load() -> bool:
 ## 约定：start_index = 正上击发仓；上弹口=左上=(start+LOAD_PORT_OFFSET)%6。
 ## 下回合洗回：先归还膛内未耗弹（ROLL 后），再按标记/袋空把弃牌洗回袋；本回合仍能抽几发装几发。
 func begin_load() -> bool:
+	## rush!：不倾倒已上膛弹药；空匣开局对齐上弹口，半匣则转到最近空仓对准上弹口。
 	if not can_load():
 		return false
-	_return_magazine_to_bag()
 	_reshuffle_if_needed_for_load()
-	magazine.clear()
+	var topping_up := magazine != null and not magazine.is_empty()
 	_load_session_active = true
 	_load_next_slot = 0
 	_load_raw_ids.clear()
 	_load_resolved_ids.clear()
-	# 仓 0 对准左上上弹口
-	magazine.start_index = CombatConstants.LOAD_SESSION_INITIAL_START
-	turn_index += 1
-	wave_player_turns += 1
-	_log("第 %d 回合：开始装填（上弹口=左上，击发点=正上）…" % turn_index)
+	if topping_up:
+		_align_load_port_to_empty()
+		_log("继续装填：匣内已有 %d 发，补空仓（上弹口=左上）。" % magazine.loaded_count())
+	else:
+		# 空匣：仓 0 对准左上上弹口
+		magazine.start_index = CombatConstants.LOAD_SESSION_INITIAL_START
+		turn_index += 1
+		wave_player_turns += 1
+		_log("第 %d 回合：开始装填（上弹口=左上，击发点=正上）…" % turn_index)
 	_emit()
 	if bag.is_empty():
 		return _finish_load_session_empty()
 	return true
+
+
+func _align_load_port_to_empty() -> void:
+	## 顺时针把上弹口转到最近空仓；满匣则不动。
+	if magazine == null or magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
+		return
+	for _i in CombatConstants.MAGAZINE_SIZE:
+		if magazine.slots[magazine.chamber_at_load_port()] == Magazine.EMPTY:
+			return
+		magazine.start_index = (magazine.start_index + 1) % CombatConstants.MAGAZINE_SIZE
 
 
 ## 装入当前上弹口（左上）那一仓。不立即转盘：UI 先展示入弹，再调用 apply_load_rotate。
@@ -862,7 +888,7 @@ func load_next_chamber() -> Dictionary:
 	}
 	if not _load_session_active:
 		return fail
-	if _load_next_slot >= CombatConstants.MAGAZINE_SIZE or bag.is_empty():
+	if magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE or bag.is_empty() or _load_next_slot >= CombatConstants.MAGAZINE_SIZE:
 		return _complete_load_session()
 	var drawn: Array[int] = _draw_random_from_bag(1)
 	var raw_id: int = drawn[0]
@@ -879,7 +905,14 @@ func load_next_chamber() -> Dictionary:
 	_load_next_slot += 1
 	if bag.is_empty():
 		needs_reshuffle_next_load = true
-	var more: bool = _load_next_slot < CombatConstants.MAGAZINE_SIZE and not bag.is_empty()
+	var more: bool = (
+		_load_next_slot < CombatConstants.MAGAZINE_SIZE
+		and magazine.loaded_count() < CombatConstants.MAGAZINE_SIZE
+		and not bag.is_empty()
+	)
+	# rush! 金色/超级回合额外轮：每次只补 1 发，不一次拉满匣（避免锁控）
+	if _in_gold_extra_round:
+		more = false
 	if more:
 		var rotate_to: int = (magazine.start_index + 1) % CombatConstants.MAGAZINE_SIZE
 		_emit()
@@ -1064,18 +1097,10 @@ func _fill_empty_chambers_with_ghosts() -> int:
 
 
 func _apply_tombstone_on_fire() -> void:
-	## 墓碑击发：幽灵入袋 → 立即填空仓 → 按当前膛内剩余重建射击队列（爆发续射）。
+	## 墓碑击发：幽灵入袋 → 立即填空仓。rush! 不重建本发射击队列——幽灵留在匣内，由玩家继续点射。
 	_bag_append(FireResolver.ID_GHOST, false)
 	var filled: int = _fill_empty_chambers_with_ghosts()
-	_log("墓碑弹药：生成幽灵入袋，并用幽灵填入空仓 ×%d。" % filled)
-	if magazine == null or magazine.is_empty():
-		_fire_queue = []
-		_fire_damages = []
-		_fire_index = 0
-		return
-	_fire_queue = magazine.fire_order()
-	_fire_damages = FireResolver.compute_shot_damages(_fire_queue, pink_bonus)
-	_fire_index = 0
+	_log("墓碑弹药：生成幽灵入袋，并用幽灵填入空仓 ×%d（可继续点射）。" % filled)
 
 
 func _purge_ghost_ammo() -> int:
@@ -1109,6 +1134,8 @@ func _purge_ghost_ammo() -> int:
 
 
 func begin_fire() -> bool:
+	## rush!：每次只打锤位方向最近的 1 发；打完该发后收束，由 UI 进怪回合。
+	## 伤害仍按当前匣内 fire_order 全文计算（旧彩弹组合修正），但队列仅含首发。
 	if not can_fire():
 		return false
 	commit_load_session_if_active()
@@ -1116,14 +1143,18 @@ func begin_fire() -> bool:
 	if not _in_gold_extra_round:
 		_extra_autofires_granted_this_chain = 0
 	_reset_fire_session()
-	_fire_queue = magazine.fire_order()
-	_fire_damages = FireResolver.compute_shot_damages(_fire_queue, pink_bonus)
+	var full_order: Array[int] = magazine.fire_order()
+	if full_order.is_empty():
+		return false
+	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
+	_fire_queue = [full_order[0]] as Array[int]
+	_fire_damages = [full_dmg[0]] as Array[int]
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
-	_log("开始射击（共 %d 发）…" % _fire_queue.size())
-	if FireResolver.black_triggers(_fire_queue):
+	_log("射击 1 发[%s]（匣内剩余将保留，可继续装/射）。" % _ammo_name(full_order[0]))
+	if FireResolver.black_triggers(full_order):
 		_log("黑色弹药触发：本匣全伤害 ×3。")
-	if FireResolver.blue_doubles_all(_fire_queue):
+	if FireResolver.blue_doubles_all(full_order):
 		_log("蓝色弹药触发：6 种不同 → 本匣全伤害 ×2。")
 	_emit()
 	return true
@@ -1225,8 +1256,7 @@ func fire_next_shot() -> bool:
 	_mount_muzzle_from(flags)
 	if ammo_id == FireResolver.ID_TOMBSTONE:
 		_apply_tombstone_on_fire()
-	else:
-		_fire_index += 1
+	_fire_index += 1
 
 	if pace_after_fire:
 		# 只规划命中路径；扣血/飘字等拖尾飞到怪身上再 resolve_paced_hit
@@ -1568,16 +1598,19 @@ func _consume_hammer_chamber(expected_id: int) -> void:
 
 
 func _finish_fire() -> void:
-	## 整匣打完（或无剩余实弹）后的收束。金色按本匣击发数在此追加额外轮。
-	magazine.clear()
+	## 单发（或额外轮单发）收束。不 clear 弹匣——未击发弹药留在转轮里，可继续装/射。
 	if _in_gold_extra_round:
 		_in_gold_extra_round = false
-		_log("额外装填回合射击完毕。总伤害 %d。" % _fire_total_damage)
+		_log("额外轮射击完毕。总伤害 %d。匣内剩余 %d。" % [
+			_fire_total_damage, magazine.loaded_count() if magazine != null else 0
+		])
 		_reset_fire_session()
-		_set_phase(Phase.AWAIT_ACTION)
+		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
 		_emit()
 		return
-	_log("射击结算完毕，总伤害 %d。" % _fire_total_damage)
+	_log("本发射击完毕，伤害累计 %d。匣内剩余 %d。" % [
+		_fire_total_damage, magazine.loaded_count() if magazine != null else 0
+	])
 	_reset_fire_session()
 	if pace_after_fire:
 		# 保留枪口与待追加金，供 UI 播额外轮；怪回合延后。离开 FIRING 以免动画环再次 finish。
@@ -1588,12 +1621,12 @@ func _finish_fire() -> void:
 			_emit()
 			return
 		_post_fire_enemy_pending = true
-		_set_phase(Phase.AWAIT_ACTION)
+		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
 		_emit()
 		return
-	_run_pending_gold_autofires("整匣打完")
+	_run_pending_gold_autofires("单发射击后")
 	_pending_gold_autofires = 0
-	_reset_muzzle()  # 本回合射击结束，重置枪口
+	_reset_muzzle()  # 本发结束，重置枪口（额外轮已处理）
 	if _check_end_after_player():
 		_emit()
 		return
@@ -1642,14 +1675,14 @@ func _queue_extra_autofire_from_shot(ammo_id: int) -> void:
 			return
 		_pending_gold_autofires += 1
 		_extra_autofires_granted_this_chain += 1
-		_log("金色弹药：本匣已击发金 ×%d（整匣后再额外轮）。" % _pending_gold_autofires)
+		_log("金色弹药：击发金 → 待追加额外轮 ×%d。" % _pending_gold_autofires)
 	elif ammo_id == FireResolver.ID_SUPER_ROUND:
 		if _extra_autofires_granted_this_chain >= cap:
 			_log("超级回合子弹：额外轮已达上限（%d），本发不再追加。" % cap)
 			return
 		_pending_gold_autofires += 1
 		_extra_autofires_granted_this_chain += 1
-		_log("超级回合子弹：射击后获得额外装填回合（待追加 ×%d）。" % _pending_gold_autofires)
+		_log("超级回合子弹：射击后获得额外补弹射击（待追加 ×%d）。" % _pending_gold_autofires)
 
 
 func pending_gold_autofires() -> int:
@@ -1677,13 +1710,19 @@ func begin_gold_extra_load() -> bool:
 		return false
 	_pending_gold_autofires -= 1
 	_in_gold_extra_round = true
-	magazine.clear()
-	_load_session_active = true
+	# rush!：不倾倒玩家已上膛弹药；只往空仓补，满匣则直接可射
+	_load_session_active = false
 	_load_next_slot = 0
 	_load_raw_ids.clear()
 	_load_resolved_ids.clear()
-	magazine.start_index = CombatConstants.LOAD_SESSION_INITIAL_START
-	_log("额外装填回合：额外自动装填（逐步入匣，剩余待追加 %d）。" % _pending_gold_autofires)
+	if magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
+		_log("额外轮：匣已满，直接射击（剩余待追加 %d）。" % _pending_gold_autofires)
+		_set_phase(Phase.AWAIT_ACTION)
+		_emit()
+		return true
+	_align_load_port_to_empty()
+	_load_session_active = true
+	_log("额外轮：自动补 1 发（不倾倒匣内弹，剩余待追加 %d）。" % _pending_gold_autofires)
 	_set_phase(Phase.AWAIT_LOAD)
 	_emit()
 	return true
@@ -1731,31 +1770,35 @@ func _run_pending_gold_autofires(reason: String) -> void:
 
 
 func _auto_load_and_fire_once() -> bool:
-	## 金色/超级回合额外轮：从袋抽满匣并立刻同步打完（无 UI 延迟）。枪口跨轮保留。
-	## 超级回合可再入队；金色额外轮内不叠。中途清场则停并归还未击发。
-	## 暂存调用方匣状态，避免 load_sequence 冲掉尚未恢复的主匣弹药。
+	## rush! 额外轮（同步）：不倾倒主匣；若有空仓从袋补 1 发，再同步打 1 发。枪口跨轮保留。
 	_reshuffle_if_needed_for_load()
-	var draw_n: int = mini(CombatConstants.MAGAZINE_SIZE, bag.size())
-	if draw_n <= 0:
-		_log("额外装填回合：无弹药可装。")
+	if magazine == null:
 		return false
-	var saved_slots: Array[int] = magazine.slots.duplicate()
-	var saved_start: int = magazine.start_index
-	var saved_queue: Array[int] = _fire_queue.duplicate()
-	var saved_damages: Array[int] = _fire_damages.duplicate()
-	var saved_index: int = _fire_index
-	var drawn: Array[int] = _draw_random_from_bag(draw_n)
-	var drawn_temps: Array = _last_drawn_temps.duplicate()
-	var prev := last_load_ids.duplicate()
-	last_load_ids = drawn.duplicate()
-	var resolved := _resolve_black_white_with_prev(drawn, prev)
-	magazine.load_sequence(resolved, drawn_temps)
-	# 额外轮同步装匣：同样结算装≥3 罪孽惩罚
-	_resolve_sin_pack_on_load(resolved)
-	if bag.is_empty():
-		needs_reshuffle_next_load = true
-	_fire_queue = magazine.fire_order()
-	_fire_damages = FireResolver.compute_shot_damages(_fire_queue, pink_bonus)
+	if magazine.loaded_count() < CombatConstants.MAGAZINE_SIZE and not bag.is_empty():
+		_align_load_port_to_empty()
+		var port: int = magazine.chamber_at_load_port()
+		if magazine.slots[port] == Magazine.EMPTY:
+			var drawn: Array[int] = _draw_random_from_bag(1)
+			if drawn.is_empty():
+				_log("额外装填回合：无弹药可装。")
+				return false
+			var raw_temp: bool = bool(_last_drawn_temps[0]) if not _last_drawn_temps.is_empty() else false
+			var resolved_arr: Array[int] = _resolve_black_white_with_prev(drawn, last_load_ids)
+			var resolved: int = resolved_arr[0]
+			magazine.set_slot(port, resolved, raw_temp)
+			last_load_ids = drawn.duplicate()
+			_resolve_sin_pack_on_load([resolved] as Array[int])
+			if bag.is_empty():
+				needs_reshuffle_next_load = true
+			_log("额外轮：补 1 发[%s]。" % _ammo_name(resolved))
+	if magazine.is_empty():
+		_log("额外装填回合：无弹药可射。")
+		return false
+	# 同步打 1 发（与 begin_fire 单发一致）
+	var full_order: Array[int] = magazine.fire_order()
+	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
+	_fire_queue = [full_order[0]] as Array[int]
+	_fire_damages = [full_dmg[0]] as Array[int]
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
 	while _fire_index < _fire_queue.size():
@@ -1773,9 +1816,9 @@ func _auto_load_and_fire_once() -> bool:
 			break
 		var ammo_id: int = _fire_queue[_fire_index]
 		var base_dmg: int = _fire_damages[_fire_index]
+		var shot_temp: bool = magazine.is_slot_temporary(hammer)
 		_consume_hammer_chamber(ammo_id)
 		var flags := FireResolver.inherits_from(ammo_id)
-		# 描边：开火前已在枪口的贡献色（不含本发刚挂上的罪孽）
 		last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 		_mount_sin_muzzle_from(flags)
 		var pierce := _muzzle_pierce or bool(flags["pierce"])
@@ -1790,38 +1833,60 @@ func _auto_load_and_fire_once() -> bool:
 		last_shot_hit_cells.clear()
 		last_shot_hit_amounts.clear()
 		last_shot_was_pierce = pierce
-		var gold_temp: bool = magazine.is_slot_temporary(hammer)
 		_fire_total_damage += _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
-		_discard_append(ammo_id, gold_temp)
+		_discard_append(ammo_id, shot_temp)
 		_mount_muzzle_from(flags)
 		if ammo_id == FireResolver.ID_TOMBSTONE:
 			_apply_tombstone_on_fire()
-		else:
-			_fire_index += 1
+		_fire_index += 1
 		_queue_extra_autofire_from_shot(ammo_id)
 		_remove_dead()
-	# 额外轮未打完的弹归袋（中途清场时）
-	if not magazine.is_empty():
-		_return_magazine_to_bag()
-	else:
-		magazine.clear()
-	_log("额外装填回合射击完毕。")
-	# 恢复主匣未击发弹药与射击队列进度
-	magazine.slots = saved_slots
-	magazine.start_index = saved_start
-	_fire_queue = saved_queue
-	_fire_damages = saved_damages
-	_fire_index = saved_index
+	_log("额外轮单发射击完毕。")
 	last_shot_was_blank = false
 	last_fired_slot = -1
+	_set_phase(Phase.AWAIT_ACTION if not magazine.is_empty() else Phase.AWAIT_LOAD)
 	return true
 
 
+
 func do_fire() -> bool:
+	## 测试/同步路径：把匣内剩余弹一发发打完。
+	## 每发后若有超级回合/金色额外轮，同步打完额外轮；怪回合 defer 到整段打完（避免测试被怪打死）。
+	var any := false
+	while can_fire():
+		if not begin_fire():
+			break
+		any = true
+		while phase == Phase.FIRING:
+			fire_next_shot()
+		# 额外轮：同步自动装填射击（_auto_load_and_fire_once）
+		if _pending_gold_autofires > 0:
+			_run_pending_gold_autofires("do_fire")
+		if phase == Phase.WON or phase == Phase.LOST:
+			_post_fire_enemy_pending = false
+			return any
+		# 吞掉单发后的怪回合标记，最后统一打一次
+		if _post_fire_enemy_pending:
+			_post_fire_enemy_pending = false
+	if any and phase != Phase.WON and phase != Phase.LOST:
+		_pending_gold_autofires = 0
+		_reset_muzzle()
+		if not _check_end_after_player():
+			_run_enemy_turn()
+		_emit()
+	return any
+
+
+## 测试辅助：只打 1 发并立刻结算怪回合（对齐 UI 点射一次）。
+func do_fire_one() -> bool:
 	if not begin_fire():
 		return false
 	while phase == Phase.FIRING:
 		fire_next_shot()
+	if _pending_gold_autofires > 0:
+		_run_pending_gold_autofires("do_fire_one")
+	if _post_fire_enemy_pending:
+		resolve_post_fire_enemy_turn()
 	return true
 
 
@@ -2209,6 +2274,7 @@ func start_next_wave() -> bool:
 		return false
 	wave_index += 1
 	enemies.clear()
+	pace_after_fire = true
 	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	lose_reason = LoseReason.NONE
@@ -2227,7 +2293,6 @@ func start_next_wave() -> bool:
 	_log("—— 第 %d 波开始：敌人已刷新，请装填。——" % wave_index)
 	_emit()
 	return true
-
 
 func _configure_rush_wave_encounter() -> void:
 	## rush!：按敌人生成池表；10 的倍数为超级僵尸 Boss 波。
