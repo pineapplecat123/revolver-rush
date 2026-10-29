@@ -247,18 +247,6 @@ func test_unblocked_mid_step_waits_for_next_step_no_teleport() -> void:
 	assert_almost_eq(cs.enemy_glide_fraction(b), 0.6, 0.0001)
 
 
-func test_glide_stops_after_win_and_resets_next_wave() -> void:
-	var cs := _rush()
-	cs.advance_enemy_glide(0.5)
-	for e in cs.enemies:
-		e.hp = 0
-	cs._remove_dead()
-	cs._enter_won()
-	assert_eq(cs.advance_enemy_glide(2.0), 0)
-
-
-# ---------- 转轮 ×1.5 ----------
-
 func test_wheel_anim_speed_is_1_5x() -> void:
 	assert_almost_eq(CombatUIScript.WHEEL_SPEED_MULT, 1.5, 0.0001)
 	assert_almost_eq(CombatUIScript.STEP_ROT_DURATION, 0.12, 0.0001)
@@ -317,18 +305,6 @@ func test_step_outside_firing_does_not_clear_wrath() -> void:
 	cs.reset_enemy_glide()
 	cs.advance_enemy_glide(1.0)
 	assert_eq(cs._muzzle_wrath, 2, "落格拍不再清愤怒")
-
-
-func test_win_mid_load_session_ends_session() -> void:
-	var cs := _rush()
-	_fill_bag_white(cs, 10)
-	assert_true(_manual_load_one(cs))
-	assert_true(cs.is_busy_loading())
-	for e in cs.enemies:
-		e.hp = 0
-	cs._remove_dead()
-	cs._enter_won()
-	assert_false(cs.is_busy_loading(), "清场后不得悬挂装填会话")
 
 
 func test_lose_mid_load_session_ends_session() -> void:

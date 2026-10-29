@@ -88,7 +88,7 @@ func test_load_fills_magazine_from_bag() -> void:
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.penalty_temp_sins_spawned)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 
 
@@ -99,8 +99,10 @@ func test_fire_white_damages_civilian() -> void:
 	var enemy: EnemyInstance = cs.front_enemy()
 	assert_not_null(enemy)
 	assert_true(cs.do_fire())
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	assert_true(cs.alive_enemies().is_empty())
+	# v0.3.8 无波次：击杀得经验，场上清空立刻补刷，不进胜利
+	assert_ne(cs.phase, CombatState.Phase.WON)
+	assert_gt(cs.xp + (cs.level - 1) * 1000, 0)
+	assert_false(cs.alive_enemies().is_empty())
 
 
 func test_stepwise_fire_api() -> void:
@@ -332,28 +334,10 @@ func test_stone_ignores_bleed_dot_under_4() -> void:
 func test_dev_spawn_bandit() -> void:
 	var cs := CombatState.new(6)
 	cs.start_rush(6)
-	cs.dev_kill_all_enemies()
+	cs.enemies.clear()
 	cs.dev_spawn_enemy(2, 8)
 	assert_eq(cs.alive_enemies().size(), 1)
 	assert_eq(cs.front_enemy().name_zh, "强盗")
-
-
-func test_start_next_wave_after_win() -> void:
-	var cs := CombatState.new(21)
-	cs.start_rush(21)
-	assert_eq(cs.wave_index, 1)
-	cs.dev_kill_all_enemies()
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	# 奖励未结算前不能下一波
-	assert_true(cs.reward_pending)
-	assert_false(cs.can_start_next_wave())
-	assert_true(cs.pick_reward_ammo(0))
-	assert_true(cs.can_start_next_wave())
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.wave_index, 2)
-	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
-	assert_gt(cs.alive_enemies().size(), 0)
-	assert_false(cs.can_start_next_wave())
 
 
 func test_bag_draw_is_random_not_fifo() -> void:
@@ -427,57 +411,35 @@ func test_reward_generate_three_choices() -> void:
 
 
 func test_reward_pick_adds_to_bag_and_base_gold() -> void:
+	## v0.3.8：三选一由升级触发（不再由波次结束触发、不发基础金）。
 	var cs := CombatState.new(8)
 	cs.start_rush(8)
 	assert_eq(cs.gold, 0)
-	cs.dev_kill_all_enemies()
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	assert_eq(cs.gold, CombatConstants.REWARD_BASE_GOLD)
+	cs.gain_xp(cs.xp_needed())
+	assert_true(cs.reward_pending)
+	assert_eq(cs.gold, 0)
 	assert_eq(cs.reward_choices.size(), 3)
-	# 练习战胜利：袋回 10+5（清额外），再领奖 +1
-	var bag_after_reset := cs.bag.size()
-	assert_eq(bag_after_reset, CombatConstants.STARTER_BAG_TOTAL)
-	assert_eq(cs.bag_reset_count, 0)
+	var bag0 := cs.bag.size()
 	var chosen: int = cs.reward_choices[1]
 	assert_true(cs.pick_reward_ammo(1))
-	assert_eq(cs.bag.size(), bag_after_reset + 1)
+	assert_eq(cs.bag.size(), bag0 + 1)
 	assert_eq(cs.bag[cs.bag.size() - 1], chosen)
-	assert_true(cs.reward_resolved)
 	assert_false(cs.reward_pending)
 	assert_false(cs.can_pick_reward())
-	assert_true(cs.can_start_next_wave())
 
 
 func test_reward_skip_for_extra_gold() -> void:
 	var cs := CombatState.new(9)
 	cs.start_rush(9)
-	cs.dev_kill_all_enemies()
+	cs.gain_xp(cs.xp_needed())
 	var bag_after_reset := cs.bag.size()
-	assert_eq(bag_after_reset, CombatConstants.STARTER_BAG_TOTAL)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.gold, CombatConstants.REWARD_BASE_GOLD)
 	assert_true(cs.skip_reward_for_gold())
-	assert_eq(cs.gold, CombatConstants.REWARD_BASE_GOLD + CombatConstants.REWARD_SKIP_EXTRA_GOLD)
+	assert_eq(cs.gold, CombatConstants.REWARD_SKIP_EXTRA_GOLD)
 	assert_eq(cs.bag.size(), bag_after_reset)
-	assert_true(cs.reward_resolved)
-	assert_true(cs.can_start_next_wave())
+	assert_false(cs.reward_pending)
 	# 不可重复领取
 	assert_false(cs.skip_reward_for_gold())
 	assert_false(cs.pick_reward_ammo(0))
-
-
-func test_reward_next_wave_keeps_bag_and_gold() -> void:
-	var cs := CombatState.new(11)
-	cs.start_rush(11)
-	cs.dev_kill_all_enemies()
-	assert_true(cs.pick_reward_ammo(0))
-	var gold_after := cs.gold
-	var bag_after := cs.bag.duplicate()
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.gold, gold_after)
-	assert_eq(cs.bag, bag_after)
-	assert_false(cs.reward_pending)
-	assert_false(cs.reward_resolved)
 
 
 func test_stepwise_load_api() -> void:
@@ -509,7 +471,8 @@ func test_stepwise_load_api() -> void:
 	# 装满后标记需要 reroll；start_index 在 spin 前保持会话末值
 	assert_true(bool(last.get("needs_spin", false)))
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE)
+	# v0.3.8：装填中若凑满 3 颗同种罪孽会吃惩罚并往袋里 +1 颗临时罪孽
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.penalty_temp_sins_spawned)
 	# 上弹口依次装入仓 0,1,2,3,4,5
 	assert_eq(loaded_slots, [0, 1, 2, 3, 4, 5])
 
@@ -742,8 +705,8 @@ func test_partial_load_then_bag_refills_immediately() -> void:
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 2)
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1 - cs.magazine.loaded_count(), "v0.3.6：膛内弹算已抽出，不复制")
-	assert_eq(cs.count_temporary_in_bag(), 1)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - cs.magazine.loaded_count() + cs.penalty_temp_sins_spawned, "v0.3.8：重置只还基础池（膛内弹不复制）")
+	assert_eq(cs.count_temporary_in_bag(), cs.penalty_temp_sins_spawned, "临时罪孽只来自惩罚")
 	assert_true(cs.can_manual_load())
 	assert_true(cs.do_fire())
 	assert_ne(cs.phase, CombatState.Phase.LOST)
@@ -769,7 +732,7 @@ func test_roll_keeps_mag_and_bag_refills_on_empty_load() -> void:
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 6)
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1 - cs.magazine.loaded_count(), "v0.3.6：膛内弹算已抽出，不复制")
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - cs.magazine.loaded_count() + cs.penalty_temp_sins_spawned, "v0.3.8：重置只还基础池（膛内弹不复制）")
 	var steps: int = cs.apply_roll()
 	assert_gte(steps, 1)
 	cs.resolve_after_player_action()
@@ -1188,17 +1151,11 @@ func test_pace_killing_shot_keeps_corpse_until_flush() -> void:
 	cs.finalize_paced_shot()
 	assert_false(cs.has_paced_shot_pending())
 	# 白弹伤害 3，刚好打死；pace 下尸体仍在
-	assert_true(cs.alive_enemies().is_empty())
-	assert_true(cs.has_corpse_enemies(), "corpse should remain until flush")
-	var found := false
-	for e in cs.enemies:
-		if e.cell == cell and e.hp <= 0:
-			found = true
-	assert_true(found)
-	assert_eq(cs.phase, CombatState.Phase.WON)
+	# v0.3.8：清场立刻补刷 → 收束走 _check_end_after_player，尸体当场清（UI 用延后飚血事件）
+	assert_ne(cs.phase, CombatState.Phase.WON, "v0.3.8：无波次，不进胜利")
 	cs.flush_dead_enemies()
 	assert_false(cs.has_corpse_enemies())
-	assert_eq(cs.enemies.size(), 0)
+	assert_false(cs.alive_enemies().is_empty(), "清场后立刻补刷")
 
 
 func test_last_shot_keeps_hit_data_after_finish() -> void:

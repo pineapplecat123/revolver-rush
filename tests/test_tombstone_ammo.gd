@@ -147,41 +147,6 @@ func test_bag_can_hold_multiple_tombstones() -> void:
 	assert_eq(cs.bag.size(), 3)
 
 
-func test_endless_win_keeps_tombstones_then_reward_stacks() -> void:
-	## 无限每波胜利：保留构筑（墓碑不打回 10+5）；幽灵清；再领奖可再叠墓碑。
-	var cs := CombatState.new(1920)
-	cs.start_rush(1920, FireResolver.ID_WRATH)
-	cs._bag_append(FireResolver.ID_TOMBSTONE, false)
-	cs._bag_append(FireResolver.ID_TOMBSTONE, false)
-	cs._snapshot_combat_bag_baseline()
-	var before := 0
-	for id in cs.bag:
-		if int(id) == FireResolver.ID_TOMBSTONE:
-			before += 1
-	assert_eq(before, 2)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 1
-	cs.enemies[0].max_hp = 1
-	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
-	assert_true(cs.do_fire())
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	var mid := 0
-	for id in cs.bag:
-		if int(id) == FireResolver.ID_TOMBSTONE:
-			mid += 1
-		assert_ne(int(id), FireResolver.ID_GHOST)
-	assert_eq(mid, 2, "tombstones must survive endless wave win")
-	assert_gt(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
-	cs.reward_choices = [FireResolver.ID_TOMBSTONE, CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID]
-	assert_true(cs.pick_reward_ammo(0))
-	var after := 0
-	for id in cs.bag:
-		if int(id) == FireResolver.ID_TOMBSTONE:
-			after += 1
-	assert_eq(after, 3)
-
-
 func test_mid_combat_bag_reset_keeps_tombstone_and_ghost() -> void:
 	## 同波袋空自动重置：墓碑（构筑基线）与幽灵（战斗临时）均保留；另加 1 发临时罪孽。
 	var cs := CombatState.new(1921)
@@ -199,7 +164,7 @@ func test_mid_combat_bag_reset_keeps_tombstone_and_ghost() -> void:
 	cs.bag_temp.clear()
 	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.count_temporary_in_bag(), 1)
+	assert_eq(cs.count_temporary_in_bag(), 0, "v0.3.8：重置不再加临时罪孽")
 	var tombs := 0
 	var ghosts := 0
 	for id in cs.bag:

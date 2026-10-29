@@ -121,7 +121,10 @@ func test_entries_no_infinity() -> void:
 	assert_false(CombatState.format_muzzle_countdown(e).contains("∞"))
 
 
-func test_game_version_0_3_7() -> void:
-	assert_eq(GameVersion.STRING, "0.3.7")
+func test_changelog_has_0_3_7() -> void:
 	var d = JSON.parse_string(FileAccess.get_file_as_string("res://data/changelog.json"))
-	assert_eq(str(d["entries"][0]["version"]), "0.3.7")
+	var found := false
+	for e in d["entries"]:
+		if str(e["version"]) == "0.3.7":
+			found = true
+	assert_true(found)

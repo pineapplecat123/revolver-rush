@@ -86,12 +86,12 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 	assert_true(_log_has(cs, "击发金") or _log_has(cs, "金色弹药"))
 	assert_eq(cs.enemies[0].hp, 10)
 	assert_gt(cs.pending_gold_autofires(), 0)
+	var first = cs.enemies[0]
 	assert_true(cs.do_fire())
-	# rush!：流血在自动推进拍结算；补一拍清场
-	if cs.phase != CombatState.Phase.WON:
-		cs.tick_enemy_auto_step()  # may return false when bleed clears the wave
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	assert_true(cs.alive_enemies().is_empty())
+	cs.tick_enemy_auto_step()
+	# v0.3.8 无波次：清场后立刻补刷，不进胜利
+	assert_ne(cs.phase, CombatState.Phase.WON)
+	assert_false(cs.alive_enemies().is_empty())
 
 
 func test_gold_extra_round_keeps_muzzle() -> void:
@@ -118,75 +118,6 @@ func test_gold_extra_round_keeps_muzzle() -> void:
 	assert_gt(cs.enemies[0].burn_stacks, 3, "muzzle fire should apply across gold extra round whites")
 
 
-func test_fire_stops_when_enemies_cleared_mid_magazine() -> void:
-	## 连射中途清场：立刻停射进胜利，不打完剩余弹；未击发归袋（rush! 保留构筑）。
-	var cs := CombatState.new(810)
-	cs.start_rush(810)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 10
-	cs.enemies[0].max_hp = 10
-	cs.dev_force_load([
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	# rush!：do_fire 一发发打，第 4 发致死停射，未击发归袋
-	assert_true(cs.do_fire())
-	# rush!：流血在自动推进拍结算；补一拍清场
-	if cs.phase != CombatState.Phase.WON:
-		cs.tick_enemy_auto_step()  # may return false when bleed clears the wave
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	assert_true(cs.alive_enemies().is_empty())
-	assert_eq(cs.discard.size(), 0)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 6)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.count_temporary_in_bag(), 0)
-
-
-func test_endless_win_keeps_build_clears_temp_sin() -> void:
-	## 无限每波胜利：清 bag_reset_count / 临时额外罪孽与幽灵；保留构筑（不打回 10+5）；奖励叠加；枪口清。
-	var cs := CombatState.new(840)
-	cs.start_rush(840, FireResolver.ID_WRATH)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	assert_eq(cs.bag_reset_count, 0)
-	# 先做一次袋空自动重置，使 count=1（同波内加成仍在）
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	cs._auto_reset_bag_if_empty_at_turn_start()
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.count_temporary_in_bag(), 1)
-	cs.enemies[0].hp = 10
-	cs.enemies[0].max_hp = 10
-	cs.dev_force_load([1, 1, 1, 1, 1, 1] as Array[int])
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	cs._bag_append(FireResolver.ID_GOLD, false)
-	cs._bag_append(FireResolver.ID_FIRE, false)
-	cs._snapshot_combat_bag_baseline()
-	assert_true(cs.do_fire())
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	assert_eq(cs.discard.size(), 0)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.count_temporary_in_bag(), 0)
-	assert_eq(cs._muzzle_pride, 0)
-	assert_eq(cs._muzzle_wrath, 0)
-	# 保留波内构筑：基线含金/火等，不强制 STARTER_BAG_TOTAL
-	assert_true(FireResolver.ID_GOLD in cs.bag or FireResolver.ID_FIRE in cs.bag or cs.bag.size() >= CombatConstants.STARTER_BAG_TOTAL)
-	var size_before_reward: int = cs.bag.size()
-	assert_true(cs.pick_reward_ammo(0))
-	assert_eq(cs.bag.size(), size_before_reward + 1)
-	assert_true(cs.can_start_next_wave())
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.wave_index, 2)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.bag.size(), size_before_reward + 1)
-
-
 func test_stone_enemy_disabled_in_combat_pool() -> void:
 	## 石头人/骷髅禁用：不进刷怪池；设计数据仍在（legacy id）。
 	var def: Dictionary = DataRegistry.get_enemy(105)
@@ -195,10 +126,11 @@ func test_stone_enemy_disabled_in_combat_pool() -> void:
 	assert_false(bool(DataRegistry.get_enemy(104).get("enabled_in_combat", true)))
 	var cs := CombatState.new(821)
 	cs.start_rush(821)
+	# v0.3.8 连续刷怪：各时间段种类池都不含石头人/骷髅
 	for _w in 12:
 		cs.enemies.clear()
-		cs.wave_index = _w + 1
-		cs._spawn_wave_enemies()
+		cs.elapsed_sec = float(_w) * CombatConstants.SPAWN_POOL_STEP_SEC
+		cs._spawn_up_to_cap()
 		for e in cs.enemies:
 			assert_ne(e.def_id, 105, "stone must not spawn when disabled")
 			assert_ne(e.def_id, 104, "skeleton must not spawn when disabled")
@@ -521,71 +453,6 @@ func test_bw_transforms_to_tied_most_common() -> void:
 	assert_true(got == CombatConstants.WHITE_AMMO_ID or got == FireResolver.ID_YELLOW)
 
 
-func test_endless_shop_required_every_5_waves() -> void:
-	## 无限：波 1–4 领奖后可直接下一波；波 5/10 须先逛店。
-	var cs := CombatState.new(905)
-	cs.start_rush(905)
-	for w in [1, 2, 3, 4]:
-		_force_endless_win_at_wave(cs, w)
-		assert_true(cs.pick_reward_ammo(0), "wave %d pick" % w)
-		assert_false(cs.needs_rush_shop(), "wave %d no shop" % w)
-		assert_true(cs.rush_shop_done)
-		assert_true(cs.can_start_next_wave(), "wave %d next" % w)
-	_force_endless_win_at_wave(cs, 5)
-	assert_false(cs.rush_shop_done)
-	assert_true(cs.reward_pending)
-	assert_false(cs.can_start_next_wave())
-	assert_true(cs.pick_reward_ammo(0))
-	assert_true(cs.needs_rush_shop())
-	assert_false(cs.can_start_next_wave())
-	assert_false(cs.start_next_wave())
-	var bag_before: Array = cs.bag.duplicate()
-	var gold_before: int = cs.gold
-	cs.apply_shop_payload({"gold": gold_before + 3, "bag": bag_before})
-	assert_eq(cs.gold, gold_before + 3)
-	cs.mark_rush_shop_done()
-	assert_false(cs.needs_rush_shop())
-	assert_true(cs.can_start_next_wave())
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.wave_index, 6)
-	# 波 10 同样须进店
-	_force_endless_win_at_wave(cs, 10)
-	assert_true(cs.skip_reward_for_gold())
-	assert_true(cs.needs_rush_shop())
-	assert_false(cs.can_start_next_wave())
-	cs.mark_rush_shop_done()
-	assert_true(cs.can_start_next_wave())
-
-
-func _force_endless_win_at_wave(cs: CombatState, wave: int) -> void:
-	cs.phase = CombatState.Phase.AWAIT_LOAD
-	cs._clear_reward_state()
-	cs.rush_shop_done = true
-	cs.wave_index = wave
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 8)
-	assert_gt(cs.alive_enemies().size(), 0)
-	cs.dev_kill_all_enemies()
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	assert_true(cs.reward_pending)
-
-
-func test_endless_shop_payload_writes_bag() -> void:
-	var cs := CombatState.new(906)
-	cs.start_rush(906)
-	_force_endless_win_at_wave(cs, 5)
-	assert_true(cs.skip_reward_for_gold())
-	assert_true(cs.needs_rush_shop())
-	var new_bag: Array = [1, 1, FireResolver.ID_GOLD]
-	cs.apply_shop_payload({"gold": 42, "bag": new_bag})
-	assert_eq(cs.gold, 42)
-	assert_eq(cs.bag.size(), 3)
-	assert_eq(cs.bag[2], FireResolver.ID_GOLD)
-	cs.mark_rush_shop_done()
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.bag.size(), 3)
-
-
 func test_gold_extra_when_bag_empty_after_full_load() -> void:
 	## 袋空时装满匣再开火：整匣打完后弃牌洗回，额外轮应打出实质白伤（不再「白打」）。
 	var cs := CombatState.new(830)
@@ -729,25 +596,6 @@ func test_pierce_thunder_chains_from_wet() -> void:
 	_shot_one(cs)
 	# 穿透伤 + 导电伤，中排应比仅穿透更低；至少被传导打到
 	assert_lt(sorted[1].hp, mid_hp0)
-
-
-func test_endless_spawns_zombies_and_boss_super() -> void:
-	## v0.3.4：第1波平民×2；第10波超级僵尸×2；HP50。
-	var cs := CombatState.new(843)
-	cs.start_rush(843)
-	assert_eq(cs.enemies.size(), 2)
-	assert_eq(cs.enemies[0].def_id, 1)
-	cs.phase = CombatState.Phase.WON
-	cs.reward_resolved = true
-	cs.reward_pending = false
-	cs.rush_shop_done = true
-	cs.wave_index = 9
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.wave_index, 10)
-	assert_eq(cs.encounter_kind, CombatState.EncounterKind.BOSS)
-	assert_eq(cs.enemies.size(), 2)
-	assert_eq(cs.enemies[0].def_id, CombatConstants.SUPER_ZOMBIE_ENEMY_ID)
-	assert_eq(cs.enemies[0].max_hp, 50)
 
 
 func test_super_zombie_summons_behind() -> void:

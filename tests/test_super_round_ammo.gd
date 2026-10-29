@@ -168,25 +168,6 @@ func test_super_round_in_reward_choices_pool() -> void:
 	assert_false(FireResolver.ID_GHOST in pool)
 
 
-func test_endless_win_keeps_super_round() -> void:
-	var cs := CombatState.new(2124)
-	cs.start_rush(2124, FireResolver.ID_WRATH)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs._bag_append(FireResolver.ID_SUPER_ROUND, false)
-	cs._snapshot_combat_bag_baseline()
-	cs.enemies[0].hp = 1
-	cs.enemies[0].max_hp = 1
-	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
-	assert_true(cs.do_fire())
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	var n := 0
-	for id in cs.bag:
-		if int(id) == FireResolver.ID_SUPER_ROUND:
-			n += 1
-	assert_eq(n, 1, "super round must survive endless wave win")
-
-
 func test_tombstone_then_super_round_still_grants_extra() -> void:
 	## 与墓碑爆发共存：同匣先墓碑填幽灵，再超级回合仍应计入额外轮。
 	var cs := CombatState.new(2125)

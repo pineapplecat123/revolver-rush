@@ -23,18 +23,3 @@ func test_can_attack_player_uses_attack_range() -> void:
 
 
 
-func test_rush_wave10_is_boss_with_boss_gold() -> void:
-	var cs := CombatState.new(303)
-	cs.start_rush(303)
-	cs.wave_index = 9
-	cs.phase = CombatState.Phase.WON
-	cs.reward_resolved = true
-	cs.reward_pending = false
-	cs.rush_shop_done = true
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.wave_index, 10)
-	assert_eq(cs.encounter_kind, CombatState.EncounterKind.BOSS)
-	for e in cs.alive_enemies():
-		assert_eq(e.def_id, CombatConstants.SUPER_ZOMBIE_ENEMY_ID)
-	cs.dev_kill_all_enemies()
-	assert_eq(cs.last_reward_base_gold, CombatConstants.REWARD_BOSS_BASE_GOLD)

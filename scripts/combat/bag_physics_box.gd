@@ -28,6 +28,10 @@ var _wall_color := Color(0.55, 0.38, 0.18, 1.0)
 var _floor_color := Color(0.42, 0.28, 0.12, 1.0)
 var _bg_color := Color(0.08, 0.07, 0.06, 0.92)
 var _rim_color := Color(0.92, 0.72, 0.35, 0.85)
+## v0.3.8 临时罪孽寿命：满寿命（画倒计时环用）；消失时的「啵」特效
+var temp_full_life: float = 18.0
+var _pops: Array = []  # {pos, r, t, color}
+const POP_SEC := 0.45
 
 
 func _ready() -> void:
@@ -104,6 +108,41 @@ func _spawn_ball(ammo_id: int, temporary: bool = false) -> void:
 	})
 
 
+func set_temp_lifetimes(by_id: Dictionary) -> void:
+	## by_id: ammo_id -> [剩余秒…]。临时球同 id 互相等价：按顺序把寿命分给各球（升序）。
+	var buckets: Dictionary = {}
+	for k in by_id.keys():
+		var arr: Array = (by_id[k] as Array).duplicate()
+		arr.sort()
+		buckets[int(k)] = arr
+	var used: Dictionary = {}
+	for b in _balls:
+		if not bool(b.get("temp", false)):
+			continue
+		var aid: int = int(b["id"])
+		var arr2: Array = buckets.get(aid, [])
+		var idx: int = int(used.get(aid, 0))
+		b["life"] = float(arr2[idx]) if idx < arr2.size() else 0.0
+		used[aid] = idx + 1
+	queue_redraw()
+
+
+func has_animation() -> bool:
+	return not _pops.is_empty()
+
+
+func _process(delta: float) -> void:
+	if _pops.is_empty():
+		return
+	var i := _pops.size() - 1
+	while i >= 0:
+		_pops[i]["t"] = float(_pops[i]["t"]) + delta
+		if float(_pops[i]["t"]) >= POP_SEC:
+			_pops.remove_at(i)
+		i -= 1
+	queue_redraw()
+
+
 func _remove_one_ball(ammo_id: int, temporary: bool = false) -> void:
 	# 优先移除靠上的同 id+temp 球，看起来像被「抓走」
 	var best_i := -1
@@ -118,6 +157,15 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false) -> void:
 			best_top = float(b["pos"].y)
 			best_i = i
 	if best_i >= 0:
+		var gone: Dictionary = _balls[best_i]
+		if temporary:
+			# 临时罪孽消失：原地「啵」一下
+			var col: Color = Color(1, 0.4, 0.3)
+			if color_lookup.is_valid():
+				var looked = color_lookup.call(ammo_id)
+				if typeof(looked) == TYPE_DICTIONARY:
+					col = looked.get("bg", col)
+			_pops.append({"pos": gone["pos"], "r": float(gone["r"]), "t": 0.0, "color": col})
 		_balls.remove_at(best_i)
 
 
@@ -260,7 +308,8 @@ func _draw() -> void:
 				colors = looked
 		var bg: Color = colors.get("bg", Color(0.85, 0.85, 0.88))
 		var fg: Color = colors.get("fg", Color(0.1, 0.1, 0.1))
-		if bool(b.get("temp", false)):
+		var is_temp_ball: bool = bool(b.get("temp", false))
+		if is_temp_ball:
 			bg.a *= 0.45
 			fg.a *= 0.55
 		# 超级回合：软金色辉光；穿甲：钢青辉光（小尺寸可读；轻脉冲）
@@ -281,6 +330,12 @@ func _draw() -> void:
 			draw_arc(pos, r, 0.0, TAU, 24, Color(0.55, 0.88, 1.0, 0.9), 2.0, true)
 		else:
 			draw_arc(pos, r, 0.0, TAU, 24, Color(0.1, 0.1, 0.12, 0.75), 1.5, true)
+		# v0.3.8 临时罪孽寿命环：从 12 点顺时针缩短；≤25% 变红
+		if is_temp_ball:
+			var life: float = float(b.get("life", temp_full_life))
+			var frac: float = clampf(life / maxf(temp_full_life, 0.01), 0.0, 1.0)
+			var ring_col: Color = Color(1.0, 0.3, 0.25, 0.95) if frac <= 0.25 else Color(1.0, 0.95, 0.8, 0.9)
+			draw_arc(pos, r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, true)
 		var glyph := "?"
 		if name_lookup.is_valid():
 			glyph = str(name_lookup.call(aid))
@@ -292,6 +347,15 @@ func _draw() -> void:
 			var ascent := font.get_ascent(fsize)
 			var text_pos := Vector2(pos.x - ts.x * 0.5, pos.y - ts.y * 0.5 + ascent)
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+	# 临时罪孽消失特效：扩散淡出圈
+	for pp in _pops:
+		var k: float = clampf(float(pp["t"]) / POP_SEC, 0.0, 1.0)
+		var pc: Color = pp["color"]
+		pc.a = 0.85 * (1.0 - k)
+		draw_arc(pp["pos"], float(pp["r"]) * (1.0 + 1.6 * k), 0.0, TAU, 28, pc, 3.0 * (1.0 - k) + 1.0, true)
+		var pc2: Color = pc
+		pc2.a = 0.35 * (1.0 - k)
+		draw_circle(pp["pos"], float(pp["r"]) * (1.0 - 0.6 * k), pc2)
 	# empty hint
 	if _balls.is_empty():
 		var font2 := get_theme_default_font()

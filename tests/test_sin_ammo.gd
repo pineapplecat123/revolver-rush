@@ -235,54 +235,6 @@ func test_manual_load_one_then_can_continue_and_fire() -> void:
 	assert_eq(cs.phase, CombatState.Phase.FIRING)
 
 
-func test_bag_reset_bonus_sin_accumulates_then_clears_on_new_combat() -> void:
-	## 战斗内袋空重置两次 → +1、+2 临时罪孽；练习战胜利清零；新开无额外。
-	var cs := CombatState.new(921)
-	cs.start_rush(921, FireResolver.ID_GREED)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.count_temporary_in_bag(), 1)
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
-	assert_eq(cs.bag_reset_count, 2)
-	assert_eq(cs.count_temporary_in_bag(), 2)
-	var sin2 := 0
-	for id in cs.bag:
-		if int(id) == FireResolver.ID_GREED:
-			sin2 += 1
-	assert_eq(sin2, CombatConstants.STARTER_SIN_COUNT + 2)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 2)
-	# 练习战胜利 = 战斗结束：清额外
-	cs.dev_kill_all_enemies()
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.count_temporary_in_bag(), 0)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
-	# 新开一场亦无额外
-	cs.start_rush(922, FireResolver.ID_GREED)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
-	assert_eq(cs.count_temporary_in_bag(), 0)
-
-
-func test_win_clears_all_sin_muzzle_including_pride() -> void:
-	var cs := CombatState.new(923)
-	cs.start_rush(923, FireResolver.ID_PRIDE)
-	cs._muzzle_pride = 3
-	cs._muzzle_wrath = 2
-	cs._muzzle_greed = 1
-	cs._muzzle_fire = true
-	cs.dev_kill_all_enemies()
-	assert_eq(cs._muzzle_pride, 0)
-	assert_eq(cs._muzzle_wrath, 0)
-	assert_eq(cs._muzzle_greed, 0)
-	assert_eq(cs._muzzle_fire, false)
-
-
 func test_pride_pack_four_or_more_also_pulls() -> void:
 	## 口头：≥3 触发；4 发傲慢也应拉近。
 	var cs := CombatState.new(930)
@@ -360,17 +312,6 @@ func test_lose_clears_pride_muzzle() -> void:
 	assert_eq(cs._muzzle_wrath, 0)
 
 
-func test_next_wave_clears_pride() -> void:
-	var cs := CombatState.new(935)
-	cs.start_rush(935, FireResolver.ID_PRIDE)
-	cs._muzzle_pride = 3
-	cs.dev_kill_all_enemies()
-	assert_eq(cs._muzzle_pride, 0)
-	assert_true(cs.skip_reward_for_gold())
-	assert_true(cs.start_next_wave())
-	assert_eq(cs._muzzle_pride, 0)
-
-
 func test_greed_gold_gained_signal_emits_amount() -> void:
 	var cs := CombatState.new(936)
 	cs.start_rush(936, FireResolver.ID_GREED)
@@ -395,36 +336,8 @@ func test_empty_bag_at_turn_start_auto_resets_nonempty_skips() -> void:
 	cs.bag_temp.clear()
 	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + 1)
-	assert_eq(cs.count_temporary_in_bag(), 1)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL, "v0.3.8：重置只还基础池，不再 +N")
+	assert_eq(cs.count_temporary_in_bag(), 0)
 	assert_true(cs.can_manual_load())
 
-
-func test_endless_wave_end_clears_reset_count_same_wave_bonus_stays() -> void:
-	## 同波内袋空重置仍 +N；波胜利清临时额外并保留构筑；下一波内再重置可重新累加。
-	var cs := CombatState.new(941)
-	cs.start_rush(941, FireResolver.ID_PRIDE)
-	var build_size: int = cs.bag.size()
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	cs._auto_reset_bag_if_empty_at_turn_start()
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.count_temporary_in_bag(), 1)
-	cs.dev_kill_all_enemies()
-	# 无限每波胜利：清额外临时，保留构筑基线
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.count_temporary_in_bag(), 0)
-	assert_eq(cs.bag.size(), build_size)
-	assert_true(cs.skip_reward_for_gold())
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.bag_reset_count, 0)
-	# 下一波内再袋空：重新从 +1 起
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.count_temporary_in_bag(), 1)
-	cs.start_rush(942, FireResolver.ID_PRIDE)
-	assert_eq(cs.bag_reset_count, 0)
-	assert_eq(cs.count_temporary_in_bag(), 0)
 

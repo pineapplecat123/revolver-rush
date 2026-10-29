@@ -57,3 +57,26 @@ const MUZZLE_DURATION_GREED_SEC := 4.0
 const MUZZLE_DURATION_ELEMENT_SEC := 4.0  ## 穿甲/汽油/火/水/雷
 ## v0.3.7：傲慢也计时，明显长于其它枪口（口头「计时比较久」→ 选 12 秒）。
 const MUZZLE_DURATION_PRIDE_SEC := 12.0
+
+
+## ——— v0.3.8 无波次 / 经验值 / 临时罪孽寿命 ———
+## 临时罪孽（三罪孽惩罚每触发一次 +1 颗同种）寿命：18 秒（战斗秒 × 速度，暂停时停）。
+const TEMP_SIN_LIFETIME_SEC := 18.0
+## 经验：击杀得 XP = 敌人 max_hp（Boss/超级僵尸 ×2）。
+const XP_BOSS_MULT := 2
+## 升级阈值：need(L) = XP_BASE + XP_LINEAR*(L-1) + XP_QUAD*(L-1)^2  → L1 30, L2 55, L3 90, L4 135, L5 190 …
+const XP_BASE := 30
+const XP_LINEAR := 20
+const XP_QUAD := 5
+## 连续刷怪：间隔 = max(SPAWN_INTERVAL_MIN, SPAWN_INTERVAL_START - SPAWN_INTERVAL_DECAY*秒)
+const SPAWN_INTERVAL_START := 4.0
+const SPAWN_INTERVAL_MIN := 1.2
+const SPAWN_INTERVAL_DECAY := 0.02
+## 场上存活上限 = min(BOARD_SIZE-1, ceil((1 + 秒/SPAWN_CAP_GROW_SEC) × WAVE_SPAWN_COUNT_MULT))
+const SPAWN_CAP_GROW_SEC := 45.0
+## 种类池按「伪波次」= 1 + floor(秒/SPAWN_POOL_STEP_SEC) 沿用原波次表
+const SPAWN_POOL_STEP_SEC := 30.0
+## Boss：每 BOSS_EVERY_SEC 秒刷 ceil(k×1.5) 只超级僵尸（k=第几次 Boss）
+const BOSS_EVERY_SEC := 180.0
+## 只在最右 SPAWN_LANE_CELLS 格内刷（尊重占格）
+const SPAWN_LANE_CELLS := 3

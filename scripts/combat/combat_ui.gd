@@ -141,6 +141,7 @@ var _in_flight_shots: int = 0
 var _fire_ring: Panel = null
 var _load_marker: Label = null
 var _muzzle_label: Label = null  ## 「枪口：」框外标签
+const MUZZLE_SLOT_W := 300.0
 var _muzzle_slot: Control = null  ## 固定占位，防枪口状态撑开 MagCol
 var _combat_speed: float = COMBAT_SPEED_DEFAULT
 var _speed_row: HBoxContainer = null
@@ -175,7 +176,10 @@ var _reward_delaying: bool = false
 var _reward_delay_token: int = 0
 var _wave_banner_label: Label = null
 var _wave_banner_dimmer: ColorRect = null
-var _wave_bannering: bool = false
+var _wave_bannering: bool = false  ## v0.3.8 无波次：恒 false（保留字段供旧门控）
+var _xp_bar_root: Control = null
+var _xp_bar_fill: ColorRect = null
+var _xp_bar_label: Label = null
 var _ammo_detail_panel: PanelContainer = null
 var _ammo_detail_body: RichTextLabel = null
 var _shop: ShopState = ShopState.new()
@@ -268,7 +272,7 @@ func _ready() -> void:
 	_fit_modals_portrait()
 	# rush!（唯一模式）：先选罪孽，再开第 1 波
 	btn_menu.text = "返回主菜单"
-	btn_next_wave.text = "下一波 NEXT"
+	btn_next_wave.text = "重新开始 rush!"
 	state.pace_after_fire = true
 	_open_sin_pick()
 
@@ -545,6 +549,14 @@ func _ensure_muzzle_hud() -> void:
 			mag_col.move_child(_muzzle_slot, mag_title.get_index() + 1)
 	else:
 		add_child(_muzzle_slot)
+	# v0.3.8 修「转轮被状态顶歪」：芯片槽固定宽 MUZZLE_SLOT_W（＝整列宽），转轮/标题/速度条在列内水平居中；
+	# 转轮位置与芯片数量/宽度完全无关（芯片超出则裁剪）。
+	_muzzle_slot.custom_minimum_size = Vector2(MUZZLE_SLOT_W, 32)
+	_muzzle_slot.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if mag_wheel != null:
+		mag_wheel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if mag_title != null:
+		mag_title.size_flags_horizontal = Control.SIZE_FILL
 	_muzzle_panel.mouse_entered.connect(_on_muzzle_hover_enter)
 	_muzzle_panel.mouse_exited.connect(_on_muzzle_hover_exit)
 	_muzzle_panel.gui_input.connect(_on_muzzle_gui_input)
@@ -597,12 +609,27 @@ func _update_muzzle_countdowns() -> void:
 		var lab: Label = node.get("label") as Label
 		if lab != null and is_instance_valid(lab):
 			lab.text = CombatState.format_muzzle_countdown(e)
-		var bar: ColorRect = node.get("bar") as ColorRect
-		if bar != null and is_instance_valid(bar):
-			var total: float = float(e.get("total", -1.0))
-			var ratio: float = 1.0 if total <= 0.0 else clampf(float(e.get("remaining", 0.0)) / total, 0.0, 1.0)
+		var bars: Array = node.get("bars", [])
+		var layers: Array = e.get("layers", [e.get("remaining", 0.0)])
+		var total: float = float(e.get("total", -1.0))
+		for li in bars.size():
+			var bar: ColorRect = bars[li] as ColorRect
+			if bar == null or not is_instance_valid(bar) or li >= layers.size():
+				continue
+			var ratio: float = 1.0 if total <= 0.0 else clampf(float(layers[li]) / total, 0.0, 1.0)
 			bar.anchor_right = ratio
-			bar.color = _muzzle_bar_color(ratio, total < 0.0)
+			bar.color = _muzzle_layer_color(ratio)
+
+
+const MUZZLE_LAYER_ALPHA := 0.38
+const MUZZLE_LAYER_ALPHA_LOW := 0.45  ## 快到期（≤25%）那层更红更实
+
+
+func _muzzle_layer_color(ratio: float) -> Color:
+	## v0.3.8：每层一条半透明条叠在同一位置；叠越多越实。快到期那层偏红。
+	if ratio <= 0.25:
+		return Color(1.0, 0.18, 0.12, MUZZLE_LAYER_ALPHA_LOW)
+	return Color(1.0, 0.78, 0.3, MUZZLE_LAYER_ALPHA)
 
 
 func _muzzle_bar_color(ratio: float, infinite: bool) -> Color:
@@ -639,26 +666,33 @@ func _make_muzzle_chip(entry) -> PanelContainer:
 	vb.add_child(lab)
 	var track := Control.new()
 	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	track.custom_minimum_size = Vector2(0, 3)
+	track.custom_minimum_size = Vector2(0, 5)
 	var bg := ColorRect.new()
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	bg.color = Color(0.0, 0.0, 0.0, 0.45)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
 	track.add_child(bg)
-	var bar := ColorRect.new()
-	bar.name = "CountdownBar"
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	bar.anchor_left = 0.0
-	bar.anchor_top = 0.0
-	bar.anchor_bottom = 1.0
+	# 每层一条半透明条，全部叠在同一位置（叠加 alpha 显层数，每条长度=该层剩余）
 	var total: float = float(e.get("total", -1.0))
-	var ratio: float = 1.0 if total <= 0.0 else clampf(float(e.get("remaining", 0.0)) / total, 0.0, 1.0)
-	bar.anchor_right = ratio
-	bar.color = _muzzle_bar_color(ratio, total < 0.0)
-	track.add_child(bar)
+	var layers: Array = e.get("layers", [e.get("remaining", 0.0)])
+	var bars: Array = []
+	for li in layers.size():
+		var bar := ColorRect.new()
+		bar.name = "LayerBar%d" % li
+		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.anchor_left = 0.0
+		bar.anchor_top = 0.0
+		bar.anchor_bottom = 1.0
+		var ratio: float = 1.0 if total <= 0.0 else clampf(float(layers[li]) / total, 0.0, 1.0)
+		bar.anchor_right = ratio
+		bar.color = _muzzle_layer_color(ratio)
+		bars.append(bar)
+	# 长的先画、短的后画在最上：快到期的红色那层不会被其它层盖住
+	for bi in range(bars.size() - 1, -1, -1):
+		track.add_child(bars[bi])
 	vb.add_child(track)
 	chip.add_child(vb)
-	_muzzle_chip_nodes.append({"label": lab, "bar": bar})
+	_muzzle_chip_nodes.append({"label": lab, "bar": bars[0] if not bars.is_empty() else null, "bars": bars})
 	return chip
 
 
@@ -1054,6 +1088,10 @@ func _process(delta: float) -> void:
 	# 枪口持续时间：与怪滑行同一套暂停条件；按战斗速度缩放逻辑秒。
 	var logic_dt: float = delta * maxf(_combat_speed, 0.01)
 	var muzzle_changed: bool = state.tick_muzzle_durations(logic_dt)
+	# v0.3.8：存活时间 / 连续刷怪 / 临时罪孽寿命（同一套暂停条件）
+	if state.tick_combat_time(logic_dt):
+		_consume_expired_temp_events()
+		_refresh()
 	var alive_before: bool = not state.alive_enemies().is_empty()
 	var steps: int = state.advance_enemy_glide(delta * _enemy_glide_cells_per_sec())
 	if steps > 0 and alive_before:
@@ -1064,6 +1102,7 @@ func _process(delta: float) -> void:
 			_refresh_muzzle_hud()
 			_refresh_hud_only()
 	_update_muzzle_countdowns()
+	_update_temp_sin_timers()
 
 
 func _enemy_glide_px(cell: int) -> float:
@@ -2066,25 +2105,13 @@ func _on_menu_pressed() -> void:
 
 
 func _on_reward_continue() -> void:
-	if state.needs_rush_shop():
-		_open_rush_shop()
-	else:
-		_on_next_wave()
+	_set_reward_open(false)
 
 
 func _on_next_wave() -> void:
-	if _busy() or _shop_open:
-		return
-	# rush! 战败：同一按钮重开一局（回到罪孽选择）
+	## v0.3.8 无波次：此按钮只在战败后作「重新开始」。
 	if state.phase == CombatState.Phase.LOST:
 		get_tree().reload_current_scene()
-		return
-	if not state.can_start_next_wave():
-		return
-	state.start_next_wave()
-	btn_next_wave.text = "下一波 NEXT"
-	_set_reward_open(false)
-	await _play_wave_banner(state.wave_index)
 
 
 func _toggle_dev() -> void:
@@ -2124,12 +2151,11 @@ func _refresh_reward_panel() -> void:
 	for c in reward_choices.get_children():
 		c.queue_free()
 	var pending := state.can_pick_reward()
-	var resolved := state.phase == CombatState.Phase.WON and state.reward_resolved
+	var resolved := false
 	var enc_title := state.encounter_label() if state != null else "战斗"
-	reward_title.text = ("%s胜利 · 选择奖励" % enc_title) if pending else "奖励已领取"
+	reward_title.text = ("升级！Lv%d · 选择奖励%s" % [state.level, ("（还有 %d 次）" % (state.pending_levelups - 1)) if state.pending_levelups > 1 else ""]) if pending else "奖励已领取"
 	reward_title.add_theme_color_override("font_color", COL_REWARD_TITLE)
-	var base_shown: int = state.last_reward_base_gold if state.last_reward_base_gold > 0 else state.reward_base_gold_for_encounter()
-	reward_gold_label.text = "基础金币 +%d 已入账 · 当前金币 %d" % [base_shown, state.gold]
+	reward_gold_label.text = "当前金币 %d · 选完继续战斗" % state.gold
 	reward_gold_label.add_theme_color_override("font_color", COL_GOLD)
 	reward_hint.add_theme_color_override("font_color", COL_REWARD_HINT)
 	_style_reward_action_button(btn_reward_skip)
@@ -2159,18 +2185,9 @@ func _refresh_reward_panel() -> void:
 			btn.pressed.connect(func(): _on_reward_pick(idx))
 			reward_choices.add_child(btn)
 	elif resolved:
-		if state.needs_rush_shop():
-			reward_hint.text = "第 %d 波已清：请先进入商店（每 5 波一次），逛完后再开下一波。牌库跨波保留。" % state.wave_index
-			btn_reward_next.text = "进入商店 SHOP"
-		else:
-			reward_hint.text = "可继续下一波（rush!：牌库与奖励弹药跨波保留）。"
-			btn_reward_next.text = "下一波 NEXT"
+		reward_hint.text = ""
 		btn_reward_skip.visible = false
-		btn_reward_next.visible = true
-		if state.needs_rush_shop():
-			btn_reward_next.disabled = false
-		else:
-			btn_reward_next.disabled = not state.can_start_next_wave()
+		btn_reward_next.visible = false
 	else:
 		reward_hint.text = ""
 		btn_reward_skip.visible = false
@@ -2466,7 +2483,7 @@ func _build_rush_shop_panel() -> void:
 
 
 func _open_rush_shop() -> void:
-	if state == null or not state.needs_rush_shop():
+	if state == null or true:  # v0.3.8：商店入口已停用（原「每 5 波」无自然触发）
 		return
 	if _shop_panel == null:
 		_build_rush_shop_panel()
@@ -2602,8 +2619,7 @@ func _on_rush_shop_leave() -> void:
 	if not _shop.open:
 		return
 	var payload: Dictionary = _shop.end_session()
-	state.apply_shop_payload(payload)
-	state.mark_rush_shop_done()
+	pass  # v0.3.8：商店停用
 	_shop_open = false
 	if _shop_panel != null:
 		_shop_panel.visible = false
@@ -2692,16 +2708,21 @@ func _style_reward_choice_button(btn: Button, ammo_bg: Color) -> void:
 
 func _on_reward_pick(index: int) -> void:
 	if state.pick_reward_ammo(index):
-		_refresh_reward_panel()
-		if state.needs_rush_shop():
-			_open_rush_shop()
+		_after_levelup_reward_choice()
 
 
 func _on_reward_skip() -> void:
 	if state.skip_reward_for_gold():
+		_after_levelup_reward_choice()
+
+
+func _after_levelup_reward_choice() -> void:
+	## v0.3.8：还有排队的升级 → 换新三选一；否则关面板继续战斗。
+	if state.reward_pending:
 		_refresh_reward_panel()
-		if state.needs_rush_shop():
-			_open_rush_shop()
+	else:
+		_set_reward_open(false)
+	_refresh()
 
 
 func _bag_inventory_fingerprint(inv: Dictionary) -> String:
@@ -2771,8 +2792,77 @@ func _refresh_bag_list() -> void:
 		ids.append(int(state.bag[i]))
 		temps.append(state.is_bag_index_temporary(i))
 	_bag_physics.sync_ammo_ids(ids, temps)
+	_update_temp_sin_timers()
 	if _detail_open and _hover_ammo_id >= 0:
 		_show_ammo_detail(_hover_ammo_id, _bag_physics, true, false)
+
+
+func _update_temp_sin_timers() -> void:
+	## v0.3.8：袋内临时罪孽球画寿命环；转轮仓显示剩余秒数。
+	if state == null:
+		return
+	if _bag_physics != null:
+		_bag_physics.temp_full_life = CombatConstants.TEMP_SIN_LIFETIME_SEC
+		var by_id: Dictionary = {}
+		var lifes: Array = state.temp_lifetimes_in_bag()
+		for i in state.bag.size():
+			var lv: float = float(lifes[i]) if i < lifes.size() else 0.0
+			if lv <= 0.0:
+				continue
+			var aid: int = int(state.bag[i])
+			if not by_id.has(aid):
+				by_id[aid] = []
+			by_id[aid].append(lv)
+		_bag_physics.set_temp_lifetimes(by_id)
+	if state.magazine == null:
+		return
+	for s in mini(_chamber_panels.size(), state.magazine.slots.size()):
+		var panel: Control = _chamber_panels[s]
+		if panel == null or not is_instance_valid(panel):
+			continue
+		var lab: Label = panel.get_node_or_null("TempLife") as Label
+		var life: float = state.magazine.slot_temp_life(s)
+		if life <= 0.0:
+			if lab != null:
+				lab.visible = false
+			continue
+		if lab == null:
+			lab = Label.new()
+			lab.name = "TempLife"
+			lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			lab.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+			lab.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
+			lab.add_theme_font_size_override("font_size", 14)
+			lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
+			lab.add_theme_constant_override("outline_size", 5)
+			lab.z_index = 3
+			panel.add_child(lab)
+		lab.visible = true
+		# 临时仓整体半透明（modulate 0.48），秒数要抵消回不透明才看得清
+		lab.modulate = Color(1, 1, 1, 1.0 / maxf(panel.modulate.a, 0.2))
+		lab.text = "%ds" % int(ceil(life))
+		var low: bool = life <= CombatConstants.TEMP_SIN_LIFETIME_SEC * 0.25
+		lab.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3) if low else Color(1.0, 0.97, 0.85))
+
+
+func _consume_expired_temp_events() -> void:
+	## 临时罪孽到期：转轮仓闪一下再变空；袋内球由物理盒「啵」掉（sync 时）。
+	if state == null or state.expired_temp_events.is_empty():
+		return
+	for ev in state.expired_temp_events:
+		if str(ev.get("where", "")) != "mag":
+			continue
+		var s: int = int(ev.get("slot", -1))
+		if s < 0 or s >= _chamber_panels.size():
+			continue
+		var panel: Control = _chamber_panels[s]
+		if panel == null or not is_instance_valid(panel):
+			continue
+		var tw := create_tween()
+		panel.modulate = Color(1.6, 1.3, 1.2, 1.0)
+		tw.tween_property(panel, "modulate", Color(1, 1, 1, 1), 0.35)
+	state.expired_temp_events.clear()
 
 
 func _ammo_bag_glyph(ammo_id: int) -> String:
@@ -3170,7 +3260,6 @@ func _on_sin_picked(sin_ammo_id: int) -> void:
 	state.start_rush(0, sin_ammo_id)
 	state.pace_after_fire = true
 	_refresh()
-	await _play_wave_banner(state.wave_index)
 
 
 func _wire_dev_buttons() -> void:
@@ -3306,11 +3395,11 @@ func _start_reward_show_delay() -> void:
 	_reward_delaying = false
 	if state == null:
 		return
-	if state.phase != CombatState.Phase.WON or not state.reward_pending or _reward_open:
+	if state.phase == CombatState.Phase.LOST or not state.reward_pending or _reward_open:
 		return
 	_set_reward_open(true)
 	if result_label != null:
-		result_label.text = "本波清空！请选择奖励"
+		result_label.text = "升级！Lv%d · 请选择奖励" % state.level
 		result_label.visible = true
 
 
@@ -3398,41 +3487,20 @@ func _refresh() -> void:
 	discard_label.add_theme_color_override("font_color", COL_DISCARD)
 	gold_label.text = "金币 %d" % state.gold
 	gold_label.add_theme_color_override("font_color", COL_GOLD)
-	turn_label.text = "回合 %d · 第 %d 波 · %s" % [state.turn_index, state.wave_index, ("rush!" if state.encounter_kind != CombatState.EncounterKind.BOSS else state.encounter_label())]
+	turn_label.text = _status_line_text()
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or not state.can_manual_load()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
-	btn_next_wave.disabled = busy or not state.can_start_next_wave()
+	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
 	if not _wheel_animating:
 		_refresh_mag()
 	_refresh_bag_list()
 	_refresh_muzzle_hud()
+	_refresh_xp_bar()
 	match state.phase:
-		CombatState.Phase.WON:
-			if state.reward_pending:
-				if _reward_open:
-					result_label.text = "本波清空！请选择奖励"
-					_refresh_reward_panel()
-				else:
-					# 怪死后先留 1 秒给飙血/死亡表现，再弹三选一
-					result_label.text = "本波清空！"
-					if not _reward_delaying:
-						_start_reward_show_delay()
-			elif state.reward_resolved:
-				_cancel_reward_show_delay()
-				if state.needs_rush_shop():
-					result_label.text = "奖励已领取 · 请先逛商店"
-				else:
-					result_label.text = "奖励已领取 · 可开下一波"
-				if _reward_open:
-					_refresh_reward_panel()
-			else:
-				result_label.text = "本波清空！"
-			result_label.visible = true
-			btn_next_wave.visible = state.reward_resolved
 		CombatState.Phase.LOST:
 			_cancel_reward_show_delay()
 			if state.lose_reason == CombatState.LoseReason.AMMO_EXHAUSTED:
@@ -3447,11 +3515,82 @@ func _refresh() -> void:
 			if _reward_open:
 				_set_reward_open(false)
 		_:
-			_cancel_reward_show_delay()
-			result_label.visible = false
 			btn_next_wave.visible = false
-			if _reward_open:
-				_set_reward_open(false)
+			# v0.3.8：经验满 → 暂停并弹三选一（多级排队，逐个弹）
+			if state.reward_pending:
+				result_label.text = "升级！Lv%d · 请选择奖励" % state.level
+				result_label.visible = true
+				if _reward_open:
+					_refresh_reward_panel()
+				elif not _reward_delaying:
+					_start_reward_show_delay()
+			else:
+				_cancel_reward_show_delay()
+				result_label.visible = false
+				if _reward_open:
+					_set_reward_open(false)
+
+
+func _status_line_text() -> String:
+	## v0.3.8：无波次 → 显示等级 / 经验 / 存活时间（不再显示回合与第 N 波）。
+	var sec: int = int(state.elapsed_sec)
+	var tag: String = "Boss!" if state.encounter_kind == CombatState.EncounterKind.BOSS else "rush!"
+	return "Lv%d · XP %d/%d · %d:%02d · %s" % [state.level, state.xp, state.xp_needed(), sec / 60, sec % 60, tag]
+
+
+func _ensure_xp_bar() -> void:
+	## 战斗区（上 1/3）底部一条细经验条，放在 BoardRow 之后。
+	if _xp_bar_root != null and is_instance_valid(_xp_bar_root):
+		return
+	if board_row == null or board_row.get_parent() == null:
+		return
+	var parent: Node = board_row.get_parent()
+	_xp_bar_root = Control.new()
+	_xp_bar_root.name = "XpBar"
+	_xp_bar_root.custom_minimum_size = Vector2(0, 16)
+	_xp_bar_root.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_xp_bar_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var bg := ColorRect.new()
+	bg.name = "XpBg"
+	bg.color = Color(0.0, 0.0, 0.0, 0.55)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bg.offset_top = 5
+	bg.offset_bottom = -3
+	_xp_bar_root.add_child(bg)
+	_xp_bar_fill = ColorRect.new()
+	_xp_bar_fill.name = "XpFill"
+	_xp_bar_fill.color = Color(0.35, 0.85, 1.0, 0.95)
+	_xp_bar_fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_xp_bar_fill.anchor_left = 0.0
+	_xp_bar_fill.anchor_top = 0.0
+	_xp_bar_fill.anchor_bottom = 1.0
+	_xp_bar_fill.anchor_right = 0.0
+	_xp_bar_fill.offset_top = 5
+	_xp_bar_fill.offset_bottom = -3
+	_xp_bar_root.add_child(_xp_bar_fill)
+	_xp_bar_label = Label.new()
+	_xp_bar_label.name = "XpLabel"
+	_xp_bar_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_xp_bar_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_xp_bar_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_xp_bar_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_xp_bar_label.add_theme_font_size_override("font_size", 11)
+	_xp_bar_label.add_theme_color_override("font_color", Color(0.92, 0.97, 1.0))
+	_xp_bar_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
+	_xp_bar_label.add_theme_constant_override("outline_size", 4)
+	_xp_bar_root.add_child(_xp_bar_label)
+	parent.add_child(_xp_bar_root)
+	parent.move_child(_xp_bar_root, board_row.get_index() + 1)
+
+
+func _refresh_xp_bar() -> void:
+	_ensure_xp_bar()
+	if _xp_bar_fill == null or state == null:
+		return
+	var need: int = maxi(1, state.xp_needed())
+	_xp_bar_fill.anchor_right = clampf(float(state.xp) / float(need), 0.0, 1.0)
+	_xp_bar_label.text = "Lv%d  经验 %d / %d" % [state.level, state.xp, need]
 
 
 func _refresh_board() -> void:
@@ -3548,13 +3687,13 @@ func _refresh_hud_only() -> void:
 	discard_label.add_theme_color_override("font_color", COL_DISCARD)
 	gold_label.text = "金币 %d" % state.gold
 	gold_label.add_theme_color_override("font_color", COL_GOLD)
-	turn_label.text = "回合 %d · 第 %d 波 · %s" % [state.turn_index, state.wave_index, ("rush!" if state.encounter_kind != CombatState.EncounterKind.BOSS else state.encounter_label())]
+	turn_label.text = _status_line_text()
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or not state.can_manual_load()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
-	btn_next_wave.disabled = busy or not state.can_start_next_wave()
+	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
 	_refresh_bag_list()
 	_refresh_muzzle_hud()

@@ -37,9 +37,9 @@ var player_hp: int = CombatConstants.PLAYER_MAX_HP
 var player_max_hp: int = CombatConstants.PLAYER_MAX_HP
 var bag: Array[int] = []
 ## 与 bag 平行：战斗内额外罪孽（半透明）
-var bag_temp: Array[bool] = []
+var bag_temp: Array = []  ## v0.3.8：临时罪孽剩余寿命秒（0=永久）
 var discard: Array[int] = []
-var discard_temp: Array[bool] = []
+var discard_temp: Array = []
 var magazine: Magazine = Magazine.new()
 var enemies: Array = []
 var turn_index: int = 0
@@ -48,7 +48,18 @@ var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_log: PackedStringArray = PackedStringArray()
 var lose_reason: int = LoseReason.NONE
 var gold: int = 0
-var wave_index: int = 1
+var wave_index: int = 1  ## v0.3.8 起无波次：保留字段兼容，UI 不显示
+
+## v0.3.8 经验值 / 连续刷怪
+var xp: int = 0
+var level: int = 1
+var pending_levelups: int = 0
+var elapsed_sec: float = 0.0
+var _spawn_timer: float = 0.0
+var _boss_spawned: int = 0
+var penalty_temp_sins_spawned: int = 0
+## UI 用：最近到期消失的临时罪孽 [{where:"bag"/"discard"/"mag", slot, id}]（UI 取走后清空）
+var expired_temp_events: Array = []
 
 ## 战斗胜利奖励（灰盒：基础金币 + 弹药三选一；可放弃换额外金）
 var reward_pending: bool = false
@@ -339,9 +350,18 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	pace_after_fire = true
 	auto_enemy_advance = true
 	reset_enemy_glide()
-	_configure_rush_wave_encounter()
-	_spawn_wave_enemies()
+	xp = 0
+	level = 1
+	pending_levelups = 0
+	elapsed_sec = 0.0
+	_boss_spawned = 0
+	penalty_temp_sins_spawned = 0
+	expired_temp_events.clear()
+	encounter_kind = EncounterKind.NORMAL
 	_clear_all_sin_muzzle(true)
+	# v0.3.8：无波次，开局按连续刷怪规则先刷满存活上限（t=0 → 2 只，同旧第 1 波 ×1.5）
+	_spawn_up_to_cap()
+	_spawn_timer = spawn_interval_now()
 	_set_phase(Phase.AWAIT_LOAD)
 	_log("rush!：平庸 ×%d + %s ×%d · 第 %d 波。" % [
 		CombatConstants.STARTER_WHITE_COUNT,
@@ -353,11 +373,11 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 func _consolidate_ammo_into_bag() -> void:
 	if not magazine.is_empty():
 		for entry in magazine.unload_all_entries():
-			_bag_append(int(entry.get("id", Magazine.EMPTY)), bool(entry.get("temp", false)))
+			_bag_append(int(entry.get("id", Magazine.EMPTY)), entry.get("temp", 0.0))
 	if not discard.is_empty():
 		_sync_temp_arrays()
 		for i in discard.size():
-			_bag_append(discard[i], bool(discard_temp[i]) if i < discard_temp.size() else false)
+			_bag_append(discard[i], discard_temp[i] if i < discard_temp.size() else 0.0)
 		discard.clear()
 		discard_temp.clear()
 
@@ -397,25 +417,26 @@ func muzzle_status_parts() -> PackedStringArray:
 
 
 func muzzle_status_entries() -> Array:
-	## UI 倒计时：[{name, remaining, total, stacks}]；remaining = 最短层剩余（即将到期那一层）。
+	## UI 倒计时：[{name, remaining(最短层), total, stacks, layers(各层剩余，升序)}]。
 	var out: Array = []
 	var el: float = CombatConstants.MUZZLE_DURATION_ELEMENT_SEC
-	if _muzzle_pierce:
-		out.append({"name": "穿甲", "remaining": _muzzle_pierce_t, "total": el, "stacks": _muzzle_pierce_layers.size()})
-	if _muzzle_gas:
-		out.append({"name": "汽油", "remaining": _muzzle_gas_t, "total": el, "stacks": _muzzle_gas_layers.size()})
-	if _muzzle_fire:
-		out.append({"name": "火", "remaining": _muzzle_fire_t, "total": el, "stacks": _muzzle_fire_layers.size()})
-	if _muzzle_water:
-		out.append({"name": "水", "remaining": _muzzle_water_t, "total": el, "stacks": _muzzle_water_layers.size()})
-	if _muzzle_thunder:
-		out.append({"name": "雷", "remaining": _muzzle_thunder_t, "total": el, "stacks": _muzzle_thunder_layers.size()})
-	if _muzzle_wrath > 0:
-		out.append({"name": "愤怒", "remaining": _muzzle_wrath_t, "total": CombatConstants.MUZZLE_DURATION_WRATH_SEC, "stacks": _muzzle_wrath})
-	if _muzzle_pride > 0:
-		out.append({"name": "傲慢", "remaining": _muzzle_pride_t, "total": CombatConstants.MUZZLE_DURATION_PRIDE_SEC, "stacks": _muzzle_pride})
-	if _muzzle_greed > 0:
-		out.append({"name": "贪婪", "remaining": _muzzle_greed_t, "total": CombatConstants.MUZZLE_DURATION_GREED_SEC, "stacks": _muzzle_greed})
+	var defs: Array = [
+		["穿甲", _muzzle_pierce_layers, el],
+		["汽油", _muzzle_gas_layers, el],
+		["火", _muzzle_fire_layers, el],
+		["水", _muzzle_water_layers, el],
+		["雷", _muzzle_thunder_layers, el],
+		["愤怒", _muzzle_wrath_layers, CombatConstants.MUZZLE_DURATION_WRATH_SEC],
+		["傲慢", _muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC],
+		["贪婪", _muzzle_greed_layers, CombatConstants.MUZZLE_DURATION_GREED_SEC],
+	]
+	for d in defs:
+		var layers: Array = d[1]
+		if layers.is_empty():
+			continue
+		var sorted: Array = layers.duplicate()
+		sorted.sort()
+		out.append({"name": d[0], "remaining": float(sorted[0]), "total": float(d[2]), "stacks": layers.size(), "layers": sorted})
 	return out
 
 
@@ -586,14 +607,14 @@ func _apply_sin_choice(sin_ammo_id: int, refill_bag: bool = true) -> void:
 		_emit()
 
 
-func _bag_append(ammo_id: int, temporary: bool = false) -> void:
+func _bag_append(ammo_id: int, temporary = false) -> void:
 	bag.append(ammo_id)
-	bag_temp.append(temporary)
+	bag_temp.append(Magazine.temp_value(temporary))
 
 
-func _discard_append(ammo_id: int, temporary: bool = false) -> void:
+func _discard_append(ammo_id: int, temporary = false) -> void:
 	discard.append(ammo_id)
-	discard_temp.append(temporary)
+	discard_temp.append(Magazine.temp_value(temporary))
 
 
 func _sync_temp_arrays() -> void:
@@ -628,7 +649,7 @@ func _snapshot_combat_bag_baseline() -> void:
 		var id: int = int(bag[i])
 		if DataRegistry.is_ammo_ephemeral(id):
 			continue
-		if i < bag_temp.size() and bool(bag_temp[i]):
+		if i < bag_temp.size() and Magazine.temp_value(bag_temp[i]) > 0.0:
 			continue
 		_combat_bag_baseline.append(id)
 
@@ -638,7 +659,7 @@ func _strip_temporary_ammo_from_bag() -> void:
 	_sync_temp_arrays()
 	var i := bag.size() - 1
 	while i >= 0:
-		if bool(bag_temp[i]):
+		if Magazine.temp_value(bag_temp[i]) > 0.0:
 			bag.remove_at(i)
 			bag_temp.remove_at(i)
 		i -= 1
@@ -675,7 +696,7 @@ func _shuffle_bag() -> void:
 		var tmp_id := bag[i]
 		bag[i] = bag[j]
 		bag[j] = tmp_id
-		var tmp_t := bag_temp[i]
+		var tmp_t = bag_temp[i]
 		bag_temp[i] = bag_temp[j]
 		bag_temp[j] = tmp_t
 
@@ -693,14 +714,15 @@ func _bag_reset_pool(next_reset_count: int) -> Array:
 	else:
 		for id in _combat_bag_baseline:
 			pool.append({"id": int(id), "temp": false})
-	for _i in maxi(next_reset_count, 0):
-		pool.append({"id": selected_sin_ammo_id, "temp": true})
+	# v0.3.8：袋重置只还基础池；临时罪孽改为「每吃一次三罪孽惩罚 +1」（见 _spawn_penalty_temp_sin），不再随重置次数加。
 	if magazine != null:
 		for i in magazine.slots.size():
 			var mid: int = int(magazine.slots[i])
 			if mid == Magazine.EMPTY or mid == FireResolver.ID_GHOST:
 				continue
 			var mt: bool = magazine.is_slot_temporary(i)
+			if mt:
+				continue  # 临时罪孽不属于基础池
 			var k: int = _pool_find(pool, mid, mt)
 			if k < 0:
 				k = _pool_find(pool, mid, not mt)
@@ -734,23 +756,40 @@ func can_refill_bag() -> bool:
 	## 纯查询：袋空时能否战斗内重置出至少 1 发（不改任何状态）。
 	if not bag.is_empty():
 		return true
-	return not _bag_reset_pool(bag_reset_count + 1).is_empty() or _count_ghosts_bag_and_discard() > 0
+	return (not _bag_reset_pool(bag_reset_count + 1).is_empty()) or _count_ghosts_bag_and_discard() > 0 or count_temporary_in_discard() > 0
+
+
+func count_temporary_in_discard() -> int:
+	var n := 0
+	for x in discard_temp:
+		if Magazine.temp_value(x) > 0.0:
+			n += 1
+	return n
 
 
 func _reset_bag_in_combat() -> bool:
 	## 战斗内袋重置：次数 +1；整池 = 构筑基线 + N 临时罪孽（扣除仍在膛内的弹）；幽灵保留至波/战斗结束。
 	## 重置后袋若仍为空（膛内已占满整池）则不重置、不计次数，防止反复触发叠罪孽。
 	var pool: Array = _bag_reset_pool(bag_reset_count + 1)
-	if pool.is_empty() and _count_ghosts_bag_and_discard() == 0:
+	if pool.is_empty() and _count_ghosts_bag_and_discard() == 0 and count_temporary_in_discard() == 0:
 		return false
 	bag_reset_count += 1
 	var ghost_n: int = _extract_ghosts_from_bag_and_discard()
+	# v0.3.8：弃牌里仍在寿命内的临时罪孽带回新袋（各自计时继续）
+	var live_temps: Array = []
+	_sync_temp_arrays()
+	for i in discard.size():
+		var tv: float = Magazine.temp_value(discard_temp[i])
+		if tv > 0.0:
+			live_temps.append({"id": int(discard[i]), "temp": tv})
 	bag.clear()
 	bag_temp.clear()
 	discard.clear()
 	discard_temp.clear()
 	for entry in pool:
-		_bag_append(int(entry["id"]), bool(entry["temp"]))
+		_bag_append(int(entry["id"]), entry["temp"])
+	for entry in live_temps:
+		_bag_append(int(entry["id"]), entry["temp"])
 	for _i in ghost_n:
 		_bag_append(FireResolver.ID_GHOST, false)
 	_shuffle_bag()
@@ -776,13 +815,13 @@ func total_ammo_count(ammo_id: int) -> int:
 func is_bag_index_temporary(index: int) -> bool:
 	if index < 0 or index >= bag_temp.size() or index >= bag.size():
 		return false
-	return bool(bag_temp[index])
+	return Magazine.temp_value(bag_temp[index]) > 0.0
 
 
 func count_temporary_in_bag() -> int:
 	var n := 0
 	for t in bag_temp:
-		if t:
+		if Magazine.temp_value(t) > 0.0:
 			n += 1
 	return n
 
@@ -909,6 +948,20 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 	if greed_n >= 3:
 		gold -= 6
 		_log("罪孽[贪婪]：本匣贪婪 ×%d（≥3）→ 金币 -6（现 %d）。" % [greed_n, gold])
+	# v0.3.8：每吃一次三罪孽惩罚 → 袋里 +1 颗同种临时罪孽（寿命 TEMP_SIN_LIFETIME_SEC）
+	if phase != Phase.LOST:
+		if wrath_n >= 3:
+			_spawn_penalty_temp_sin(FireResolver.ID_WRATH)
+		if pride_n >= 3:
+			_spawn_penalty_temp_sin(FireResolver.ID_PRIDE)
+		if greed_n >= 3:
+			_spawn_penalty_temp_sin(FireResolver.ID_GREED)
+
+
+func _spawn_penalty_temp_sin(sin_id: int) -> void:
+	_bag_append(sin_id, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	penalty_temp_sins_spawned += 1
+	_log("罪孽惩罚：袋内 +1 颗临时%s（%.0f 秒后消失）。" % [_ammo_name(sin_id), CombatConstants.TEMP_SIN_LIFETIME_SEC])
 
 
 const SIN_PENALTY_THRESHOLD := 3
@@ -1029,7 +1082,7 @@ func ammo_inventory_by_id() -> Dictionary:
 
 ## 弹药袋无顺序：每次从现存弹药中均匀随机抽取（数量加权=逐发随机下标），不按数组 FIFO。
 ## 最近一次 _draw_random_from_bag 对应的临时标记（与返回数组等长）
-var _last_drawn_temps: Array[bool] = []
+var _last_drawn_temps: Array = []
 
 
 func _draw_random_from_bag(count: int) -> Array[int]:
@@ -1040,7 +1093,7 @@ func _draw_random_from_bag(count: int) -> Array[int]:
 	for _i in n:
 		var idx: int = rng.randi_range(0, bag.size() - 1)
 		drawn.append(bag[idx])
-		_last_drawn_temps.append(bool(bag_temp[idx]) if idx < bag_temp.size() else false)
+		_last_drawn_temps.append(bag_temp[idx] if idx < bag_temp.size() else 0.0)
 		bag.remove_at(idx)
 		if idx < bag_temp.size():
 			bag_temp.remove_at(idx)
@@ -1115,6 +1168,8 @@ func can_manual_load() -> bool:
 	## 不要求先打空转轮；AWAIT_ACTION 下也可补弹。袋空则立刻补后再判。
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
 		return false
+	if reward_pending:
+		return false
 	# v0.3.6：查询不改状态；袋空时只判断「能否补」，真正补袋在 begin_load / 会话结束 / 怪步
 	if bag.is_empty() and not can_refill_bag():
 		return false
@@ -1135,7 +1190,9 @@ func _can_act_with_partial_load() -> bool:
 
 
 func can_fire() -> bool:
-	## 锤位有弹（或匣内有弹可转到锤位）即可开火；装弹会话中也可先提交再射。
+	## 锤位有弹（或匣内有弹可转到锤位）即可开火；装弹会话中也可先提交再射。升级三选一期间暂停。
+	if reward_pending:
+		return false
 	if not _has_ammo_ready_to_act():
 		return false
 	return phase == Phase.AWAIT_ACTION or phase == Phase.AWAIT_LOAD or _can_act_with_partial_load()
@@ -1245,7 +1302,7 @@ func load_next_chamber() -> Dictionary:
 			return _complete_load_session()
 	var drawn: Array[int] = _draw_random_from_bag(1)
 	var raw_id: int = drawn[0]
-	var raw_temp: bool = bool(_last_drawn_temps[0]) if not _last_drawn_temps.is_empty() else false
+	var raw_temp = _last_drawn_temps[0] if not _last_drawn_temps.is_empty() else 0.0
 	_load_raw_ids.append(raw_id)
 	var resolved_arr: Array[int] = _resolve_black_white_with_prev([raw_id], last_load_ids)
 	var resolved: int = resolved_arr[0]
@@ -1411,7 +1468,7 @@ func _return_magazine_to_bag() -> void:
 	for i in magazine.slots.size():
 		var id: int = magazine.slots[i]
 		if id != Magazine.EMPTY:
-			_bag_append(id, magazine.is_slot_temporary(i))
+			_bag_append(id, magazine.slot_temp_life(i))
 			n += 1
 	magazine.clear()
 	if n > 0:
@@ -1442,7 +1499,7 @@ func _reshuffle_discard_into_bag() -> void:
 	_sync_temp_arrays()
 	for i in discard.size():
 		var id: int = discard[i]
-		var t: bool = bool(discard_temp[i]) if i < discard_temp.size() else false
+		var t = discard_temp[i] if i < discard_temp.size() else 0.0
 		_bag_append(id, t)
 	discard.clear()
 	discard_temp.clear()
@@ -1608,7 +1665,7 @@ func fire_next_shot() -> bool:
 
 	last_shot_was_blank = false
 	last_fired_slot = hammer
-	var shot_temp: bool = magazine.is_slot_temporary(hammer)
+	var shot_temp: float = magazine.slot_temp_life(hammer)
 	var ammo_id: int = _fire_queue[_fire_index]
 	var base_dmg: int = _fire_damages[_fire_index]
 	_consume_hammer_chamber(ammo_id)
@@ -1676,7 +1733,7 @@ func fire_next_shot() -> bool:
 	_emit()
 
 	# 中途清场：立刻停射进胜利，未击发归袋
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_abort_fire_cleared()
 		return false
 
@@ -1793,7 +1850,7 @@ func finalize_paced_shot() -> void:
 	var await_finish: bool = bool(_paced_shot.get("await_finish", false))
 	_paced_shot.clear()
 	# pace：仍留尸体给 UI 飚血后再 flush；此处只判断存活
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_abort_fire_cleared()
 		return
 	if await_finish:
@@ -2227,7 +2284,7 @@ func tick_enemy_auto_step() -> bool:
 			e.burn_stacks = maxi(0, e.burn_stacks - 1)
 			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
 	_remove_dead()
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_enter_won()
 		_emit()
 		return false
@@ -2250,7 +2307,7 @@ func tick_enemy_auto_step() -> bool:
 	_tick_bleed_end_of_enemy_turn()
 	_tick_zombie_regen_end_of_enemy_turn()
 	_remove_dead()
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_enter_won()
 		_emit()
 		return false
@@ -2310,7 +2367,7 @@ func _auto_load_and_fire_once() -> bool:
 			if drawn.is_empty():
 				_log("额外装填回合：无弹药可装。")
 				return false
-			var raw_temp: bool = bool(_last_drawn_temps[0]) if not _last_drawn_temps.is_empty() else false
+			var raw_temp = _last_drawn_temps[0] if not _last_drawn_temps.is_empty() else 0.0
 			var resolved_arr: Array[int] = _resolve_black_white_with_prev(drawn, last_load_ids)
 			var resolved: int = resolved_arr[0]
 			magazine.set_slot(port, resolved, raw_temp)
@@ -2344,7 +2401,7 @@ func _auto_load_and_fire_once() -> bool:
 			break
 		var ammo_id: int = _fire_queue[_fire_index]
 		var base_dmg: int = _fire_damages[_fire_index]
-		var shot_temp: bool = magazine.is_slot_temporary(hammer)
+		var shot_temp: float = magazine.slot_temp_life(hammer)
 		_consume_hammer_chamber(ammo_id)
 		var flags := FireResolver.inherits_from(ammo_id)
 		last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
@@ -2516,7 +2573,7 @@ func do_unload() -> bool:
 	var had_pink := false
 	for entry in removed_entries:
 		var id: int = int(entry.get("id", Magazine.EMPTY))
-		var is_temp: bool = bool(entry.get("temp", false))
+		var is_temp = entry.get("temp", 0.0)
 		_discard_append(id, is_temp)
 		if id == FireResolver.ID_PINK:
 			had_pink = true
@@ -2540,7 +2597,7 @@ func do_unload() -> bool:
 
 func _check_end_after_player() -> bool:
 	_remove_dead()
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_enter_won()
 		return true
 	if player_hp <= 0:
@@ -2556,7 +2613,231 @@ func _remove_dead() -> void:
 			kept.append(e)
 		else:
 			_log("%s 被击败。" % e.name_zh)
+			gain_xp(xp_for_enemy(e))
 	enemies = kept
+
+
+# ——— v0.3.8 经验值 ———
+
+static func xp_needed_for_level(lv: int) -> int:
+	var k: int = maxi(lv, 1) - 1
+	return CombatConstants.XP_BASE + CombatConstants.XP_LINEAR * k + CombatConstants.XP_QUAD * k * k
+
+
+func xp_needed() -> int:
+	return xp_needed_for_level(level)
+
+
+func xp_for_enemy(e) -> int:
+	if e == null:
+		return 0
+	var v: int = maxi(1, int(e.max_hp))
+	if int(e.def_id) == CombatConstants.SUPER_ZOMBIE_ENEMY_ID:
+		v *= CombatConstants.XP_BOSS_MULT
+	return v
+
+
+func gain_xp(amount: int) -> void:
+	## 击杀得经验；满了升级（溢出保留），每升一级排队一次三选一。
+	if amount <= 0 or phase == Phase.LOST:
+		return
+	xp += amount
+	var ups := 0
+	while xp >= xp_needed():
+		xp -= xp_needed()
+		level += 1
+		ups += 1
+	if ups <= 0:
+		return
+	pending_levelups += ups
+	_log("经验 +%d → 升到 Lv%d（待选奖励 %d 次）。" % [amount, level, pending_levelups])
+	if not reward_pending:
+		_begin_levelup_reward()
+
+
+func _begin_levelup_reward() -> void:
+	if pending_levelups <= 0:
+		return
+	reward_choices = generate_reward_choices()
+	reward_pending = true
+	reward_resolved = false
+	last_reward_base_gold = 0
+	_emit()
+
+
+func _finish_one_levelup_reward() -> void:
+	pending_levelups = maxi(0, pending_levelups - 1)
+	if pending_levelups > 0:
+		reward_choices = generate_reward_choices()
+		reward_pending = true
+		reward_resolved = false
+	else:
+		reward_pending = false
+		reward_resolved = false
+		reward_choices.clear()
+
+
+func is_paused_for_reward() -> bool:
+	return reward_pending
+
+
+# ——— v0.3.8 连续刷怪 ———
+
+func _field_cleared() -> bool:
+	## 无波次：场上清空 → 立刻按规则补刷（不进胜利、不刷新任何状态）。永远返回 false。
+	if not alive_enemies().is_empty():
+		return false
+	_spawn_up_to_cap(true)
+	_spawn_timer = spawn_interval_now()
+	return false
+
+
+func spawn_interval_now() -> float:
+	return maxf(CombatConstants.SPAWN_INTERVAL_MIN, CombatConstants.SPAWN_INTERVAL_START - CombatConstants.SPAWN_INTERVAL_DECAY * elapsed_sec)
+
+
+func spawn_alive_cap_now() -> int:
+	var c: int = int(ceil((1.0 + elapsed_sec / CombatConstants.SPAWN_CAP_GROW_SEC) * CombatConstants.WAVE_SPAWN_COUNT_MULT))
+	return mini(CombatConstants.BOARD_SIZE - 1, maxi(1, c))
+
+
+func _pseudo_wave_now() -> int:
+	return 1 + int(floor(elapsed_sec / CombatConstants.SPAWN_POOL_STEP_SEC))
+
+
+func _free_spawn_cell() -> int:
+	var occ: Dictionary = {}
+	for c in occupied_cells():
+		occ[int(c)] = true
+	for k in CombatConstants.SPAWN_LANE_CELLS:
+		var cell: int = CombatConstants.BOARD_SIZE - 1 - k
+		if cell <= CombatConstants.PLAYER_CELL:
+			break
+		if not occ.has(cell):
+			return cell
+	return -1
+
+
+func _spawn_enemy_at_lane(eid: int) -> bool:
+	var cell: int = _free_spawn_cell()
+	if cell < 0:
+		return false
+	var def: Dictionary = DataRegistry.get_enemy(eid)
+	if def.is_empty():
+		return false
+	var e: EnemyInstance = _make_scaled_enemy(def, cell)
+	enemies.append(e)
+	_log("刷怪：%s 出现在格 %d（HP%d，%.0f 秒）。" % [e.name_zh, cell, e.max_hp, elapsed_sec])
+	return true
+
+
+func _pick_spawn_enemy_id() -> int:
+	var pool: Array[int] = _spawn_pool_for_wave(_pseudo_wave_now())
+	return pool[rng.randi_range(0, pool.size() - 1)]
+
+
+func _spawn_up_to_cap(force_one: bool = false) -> int:
+	var n := 0
+	var cap: int = spawn_alive_cap_now()
+	if force_one and alive_enemies().size() >= cap:
+		cap = alive_enemies().size() + 1
+	var guard := 12
+	while alive_enemies().size() < cap and guard > 0:
+		guard -= 1
+		if not _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
+			break
+		n += 1
+	return n
+
+
+func tick_combat_time(delta_sec: float) -> bool:
+	## UI 每帧（战斗秒×速度，暂停/奖励期间不调用）：累计时长、刷怪、Boss、临时罪孽寿命。返回是否有变化。
+	if delta_sec <= 0.0 or phase == Phase.LOST or phase == Phase.WON or reward_pending:
+		return false
+	var changed := false
+	elapsed_sec += delta_sec
+	changed = tick_temp_sin_lifetimes(delta_sec) or changed
+	var boss_due: int = int(floor(elapsed_sec / CombatConstants.BOSS_EVERY_SEC))
+	if boss_due > _boss_spawned:
+		_boss_spawned = boss_due
+		var bn: int = mini(int(ceil(float(boss_due) * CombatConstants.WAVE_SPAWN_COUNT_MULT)), CombatConstants.SPAWN_LANE_CELLS)
+		var made := 0
+		for _i in bn:
+			if _spawn_enemy_at_lane(CombatConstants.SUPER_ZOMBIE_ENEMY_ID):
+				made += 1
+		if made > 0:
+			encounter_kind = EncounterKind.BOSS
+			_log("Boss 来袭：超级僵尸 ×%d（%.0f 秒）。" % [made, elapsed_sec])
+			changed = true
+	_spawn_timer -= delta_sec
+	if _spawn_timer <= 0.0:
+		if alive_enemies().size() < spawn_alive_cap_now() and _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
+			changed = true
+			_spawn_timer = spawn_interval_now()
+		else:
+			_spawn_timer = 0.25  # 满员或刷怪口被占：稍后重试
+	if changed:
+		_emit()
+	return changed
+
+
+func tick_temp_sin_lifetimes(delta_sec: float) -> bool:
+	## 每颗临时罪孽独立寿命；到期从所在处移除（袋 / 弃牌 / 转轮仓→变空仓）。
+	if delta_sec <= 0.0:
+		return false
+	var changed := false
+	_sync_temp_arrays()
+	var i := bag.size() - 1
+	while i >= 0:
+		var tv: float = Magazine.temp_value(bag_temp[i])
+		if tv > 0.0:
+			tv -= delta_sec
+			if tv <= 0.0:
+				expired_temp_events.append({"where": "bag", "slot": -1, "id": int(bag[i])})
+				_log("临时%s到期消失（袋）。" % _ammo_name(int(bag[i])))
+				bag.remove_at(i)
+				bag_temp.remove_at(i)
+				changed = true
+			else:
+				bag_temp[i] = tv
+		i -= 1
+	i = discard.size() - 1
+	while i >= 0:
+		var dv: float = Magazine.temp_value(discard_temp[i])
+		if dv > 0.0:
+			dv -= delta_sec
+			if dv <= 0.0:
+				expired_temp_events.append({"where": "discard", "slot": -1, "id": int(discard[i])})
+				discard.remove_at(i)
+				discard_temp.remove_at(i)
+				changed = true
+			else:
+				discard_temp[i] = dv
+		i -= 1
+	if magazine != null:
+		for s in magazine.slots.size():
+			if not magazine.is_slot_temporary(s):
+				continue
+			var mv: float = magazine.slot_temp_life(s) - delta_sec
+			if mv <= 0.0:
+				expired_temp_events.append({"where": "mag", "slot": s, "id": int(magazine.slots[s])})
+				_log("临时%s到期消失（转轮仓 %d → 空仓）。" % [_ammo_name(int(magazine.slots[s])), s])
+				magazine.set_slot(s, Magazine.EMPTY)
+				changed = true
+			else:
+				magazine.temp_slots[s] = mv
+	if changed:
+		_emit()
+	return changed
+
+
+func temp_lifetimes_in_bag() -> Array:
+	## UI：袋内临时罪孽剩余寿命（与 bag 同序，永久弹 0）。
+	var out: Array = []
+	for i in bag.size():
+		out.append(Magazine.temp_value(bag_temp[i]) if i < bag_temp.size() else 0.0)
+	return out
+
 
 
 func flush_dead_enemies() -> void:
@@ -2584,7 +2865,7 @@ func _run_enemy_turn() -> void:
 			e.burn_stacks = maxi(0, e.burn_stacks - 1)
 			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
 	_remove_dead()
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_enter_won()
 		return
 	var order: Array = enemies_sorted_by_cell()
@@ -2605,7 +2886,7 @@ func _run_enemy_turn() -> void:
 	_tick_bleed_end_of_enemy_turn()
 	_tick_zombie_regen_end_of_enemy_turn()
 	_remove_dead()
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_enter_won()
 		return
 	# 超级僵尸：每怪物回合在面前召唤一只僵尸
@@ -2711,61 +2992,9 @@ func _clear_reward_state() -> void:
 	reward_choices.clear()
 
 
-## 进入胜利：发基础金币并生成三选一；无伤/三回合额外金灰盒预留钩子暂不结算。
 func _enter_won() -> void:
-	if phase == Phase.WON and (reward_pending or reward_resolved):
-		return
-	_set_phase(Phase.WON)
-	# 手装会话中途清场（如落格拍 DoT 致死）：结束会话，避免悬挂到奖励/下一波
-	_reset_load_session()
-	_log("胜利：敌人全灭。")
-	# 枪口一律清；幽灵等 ephemeral 清；每波保留构筑仅清临时
-	_clear_all_sin_muzzle(true)
-	_reset_muzzle()
-	_purge_ghost_ammo()
-	_end_wave_keep_build_ammo()
-	# rush!：每 5 波（5/10/15…）奖励后须进商店，逛完才可下一波
-	if wave_index > 0 and wave_index % 5 == 0:
-		rush_shop_done = false
-	else:
-		rush_shop_done = true
-	_begin_reward()
-
-
-func _end_wave_keep_build_ammo() -> void:
-	## rush! 每波胜利：保留构筑（奖励/墓碑/商店等）；幽灵已由 _purge_ghost_ammo 清除；
-	## 清 bag_reset_count 与临时额外罪孽；匣/弃并回袋。不打回 10+5。
-	_consolidate_ammo_into_bag()
-	_strip_temporary_ammo_from_bag()
-	bag_reset_count = 0
-	magazine = Magazine.new()
-	discard.clear()
-	discard_temp.clear()
-	needs_reshuffle_next_load = false
-	last_load_ids.clear()
-	_reset_fire_session()
-	_pending_gold_autofires = 0
-	_extra_autofires_granted_this_chain = 0
-	_reset_load_session()
-	_snapshot_combat_bag_baseline()
-	_log("rush!：本波结束，保留构筑（%d 发）；临时召唤物与额外罪孽已清。" % bag.size())
-
-
-func _begin_reward() -> void:
-	reward_choices = generate_reward_choices()
-	reward_pending = true
-	reward_resolved = false
-	var base_g: int = reward_base_gold_for_encounter()
-	last_reward_base_gold = base_g
-	gold += base_g
-	_log("奖励（%s）：基础金币 +%d（现 %d）。请三选一弹药，或放弃换额外金币。" % [
-		encounter_label(), base_g, gold
-	])
-	# 灰盒预留钩子（数值为 0 / 未启用）：
-	# var no_dmg := _hook_no_damage_bonus_gold()
-	# var fast := _hook_fast_clear_bonus_gold()
-	_emit()
-
+	## v0.3.8：已无波次胜利。旧调用点等价于「场上清空 → 立刻补刷」，不清任何状态。
+	_field_cleared()
 
 ## 从启用弹药表随机抽 3 个（池≥3 时去重；不足则允许重复）。同名可多份入袋。
 func generate_reward_choices() -> Array[int]:
@@ -2790,7 +3019,8 @@ func generate_reward_choices() -> Array[int]:
 
 
 func can_pick_reward() -> bool:
-	return phase == Phase.WON and reward_pending and not reward_resolved
+	## v0.3.8：升级三选一，与阶段无关（战斗暂停中）。
+	return reward_pending and not reward_resolved and phase != Phase.LOST
 
 
 ## 选择三选一中的第 index 发（0..2），加入弹药袋。
@@ -2801,10 +3031,11 @@ func pick_reward_ammo(index: int) -> bool:
 		return false
 	var ammo_id: int = reward_choices[index]
 	_bag_append(ammo_id, false)
-	_snapshot_combat_bag_baseline()
-	reward_pending = false
-	reward_resolved = true
-	_log("奖励：选择 %s 加入弹药袋（袋内 %d）。" % [_ammo_name(ammo_id), bag.size()])
+	# 不重拍基线（袋此刻只是部分池）：直接把奖励弹记入构筑基线
+	if not DataRegistry.is_ammo_ephemeral(ammo_id):
+		_combat_bag_baseline.append(ammo_id)
+	_log("升级奖励：选择 %s 加入弹药袋（袋内 %d，Lv%d）。" % [_ammo_name(ammo_id), bag.size(), level])
+	_finish_one_levelup_reward()
 	_emit()
 	return true
 
@@ -2815,8 +3046,7 @@ func skip_reward_for_gold() -> bool:
 		return false
 	var extra: int = CombatConstants.REWARD_SKIP_EXTRA_GOLD
 	gold += extra
-	reward_pending = false
-	reward_resolved = true
+	_finish_one_levelup_reward()
 	_log("奖励：放弃三选一，额外金币 +%d（现 %d）。" % [extra, gold])
 	_emit()
 	return true
@@ -2836,154 +3066,17 @@ func _hook_fast_clear_bonus_gold() -> int:
 	return CombatConstants.REWARD_FAST_CLEAR_EXTRA_GOLD
 
 
-func needs_rush_shop() -> bool:
-	return phase == Phase.WON and reward_resolved and not reward_pending and not rush_shop_done
-
-
-func mark_rush_shop_done() -> void:
-	rush_shop_done = true
-	_emit()
-
-
-func apply_shop_payload(payload: Dictionary) -> void:
-	## rush! 离店：写回金币与袋（匣/弃牌不变）。
-	gold = int(payload.get("gold", gold))
-	bag.clear()
-	bag_temp.clear()
-	for x in payload.get("bag", []):
-		_bag_append(int(x), false)
-	_snapshot_combat_bag_baseline()
-	_emit()
-
-
-func can_start_next_wave() -> bool:
-
-	## 奖励结算完成后才可下一波；逢 5 波须先逛完商店。胜利保留构筑。
-	return phase == Phase.WON and reward_resolved and not reward_pending and rush_shop_done
-
-
-## 清场后开始下一波：随机/轮换现有启用敌人；不回主菜单。袋沿用胜利重置+奖励后的状态；枪口全清。
-func start_next_wave() -> bool:
-	if not can_start_next_wave():
-		return false
-	wave_index += 1
-	enemies.clear()
-	pace_after_fire = true
-	auto_enemy_advance = true
-	reset_enemy_glide()
-	_configure_rush_wave_encounter()
-	_spawn_wave_enemies()
-	lose_reason = LoseReason.NONE
-	_reset_fire_session()
-	_reset_muzzle()
-	_clear_all_sin_muzzle(true)
-	_pending_gold_autofires = 0
-	_extra_autofires_granted_this_chain = 0
-	_post_fire_enemy_pending = false
-	_in_gold_extra_round = false
-	_reset_load_session()
-	_clear_reward_state()
-	wave_took_damage = false
-	wave_player_turns = 0
-	_set_phase(Phase.AWAIT_LOAD)
-	_log("—— 第 %d 波开始：敌人已刷新，请装填。——" % wave_index)
-	_emit()
-	return true
-
-func _configure_rush_wave_encounter() -> void:
-	## rush!：按敌人生成池表；10 的倍数为超级僵尸 Boss 波。
-	if wave_index > 0 and wave_index % 10 == 0:
-		encounter_kind = EncounterKind.BOSS
-	else:
-		encounter_kind = EncounterKind.NORMAL
-
-
-func _rush_wave_enemy_ids() -> Array[int]:
-	## 波次→种类数字串→数量；再 × WAVE_SPAWN_COUNT_MULT（ceil，上限 BOARD_SIZE-1）。
-	## 10 的倍数：超级僵尸 × ceil((波次/10)*倍率)。
-	var w: int = wave_index
-	var out: Array[int] = []
-	var cap: int = CombatConstants.BOARD_SIZE - 1
-	var mult: float = CombatConstants.WAVE_SPAWN_COUNT_MULT
-	if w > 0 and w % 10 == 0:
-		var n: int = maxi(1, int(ceil(float(w / 10) * mult)))
-		n = mini(n, cap)
-		for _i in n:
-			out.append(CombatConstants.SUPER_ZOMBIE_ENEMY_ID)
-		return out
-	var pool: Array[int] = []
-	var count: int = 1
-	if w == 1:
-		pool = [1]
-		count = 1
-	elif w == 2:
-		pool = [1, 2]
-		count = 1
-	elif w == 3:
-		pool = [1, 2, 3]
-		count = 2
-	elif w == 4:
-		pool = [4]
-		count = 2
-	elif w == 5 or w == 6:
-		pool = [1, 2, 3, 4]
-		count = 2
-	elif w == 7 or w == 8 or w == 9:
-		pool = [1, 2, 3, 4]
-		count = 3
-	elif w == 11:
-		pool = [1]
-		count = 3
-	elif w == 12:
-		pool = [1, 2]
-		count = 3
-	elif w == 13:
-		pool = [1, 2, 3]
-		count = 3
-	elif w == 14:
-		pool = [4]
-		count = 3
-	elif w == 15 or w == 16 or w == 17:
-		pool = [1, 2, 3, 4]
-		count = 4
-	elif w == 18 or w == 19:
-		pool = [1, 2, 3, 4]
-		count = 5
-	else:
-		# >20 且非 10 倍数
-		pool = [1, 2, 3, 4]
-		count = 5
-	count = maxi(1, int(ceil(float(count) * mult)))
-	count = mini(count, cap)
-	for _j in count:
-		out.append(pool[rng.randi_range(0, pool.size() - 1)])
-	return out
-
-
-func _spawn_wave_enemies(force_ids: Array = []) -> void:
-	var ids: Array[int] = []
-	if force_ids.size() > 0:
-		for x in force_ids:
-			ids.append(int(x))
-	else:
-		ids.append_array(_rush_wave_enemy_ids())
-	var cell: int = CombatConstants.BOARD_SIZE - 1
-	for eid in ids:
-		if cell <= CombatConstants.PLAYER_CELL:
-			break
-		while occupied_cells().has(cell) and cell > CombatConstants.PLAYER_CELL + 1:
-			cell -= 1
-		if occupied_cells().has(cell) or cell <= CombatConstants.PLAYER_CELL:
-			break
-		var def: Dictionary = DataRegistry.get_enemy(eid)
-		if def.is_empty():
-			continue
-		var e: EnemyInstance = _make_scaled_enemy(def, cell)
-		enemies.append(e)
-		_log("波次 %d：%s 出现在格 %d（HP%d 攻%d 移%d 射程%d）。" % [
-			wave_index, e.name_zh, cell, e.max_hp, e.atk, e.mobility, e.attack_range
-		])
-		cell -= 1
+func _spawn_pool_for_wave(w: int) -> Array[int]:
+	## 沿用原波次表的种类池（非 Boss）；Boss 改为按时间单独刷。
+	if w <= 1:
+		return [1] as Array[int]
+	if w == 2:
+		return [1, 2] as Array[int]
+	if w == 3:
+		return [1, 2, 3] as Array[int]
+	if w == 4:
+		return [4] as Array[int]
+	return [1, 2, 3, 4] as Array[int]
 
 
 func encounter_label() -> String:
@@ -3049,7 +3142,7 @@ func dev_kill_all_enemies() -> void:
 		e.hp = 0
 	_remove_dead()
 	_log("[开发] 一键杀敌")
-	if alive_enemies().is_empty():
+	if _field_cleared():
 		_enter_won()
 	_emit()
 

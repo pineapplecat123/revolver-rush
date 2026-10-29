@@ -5,8 +5,8 @@ class_name Magazine
 const EMPTY := -1
 
 var slots: Array[int] = []
-## 与 slots 平行：该仓是否为战斗内临时额外罪孽（半透明）
-var temp_slots: Array[bool] = []
+## 与 slots 平行：临时罪孽剩余寿命（秒，>0=临时；0/false=永久）。v0.3.8 起存 float；兼容 bool。
+var temp_slots: Array = []
 var start_index: int = 0
 
 
@@ -39,18 +39,18 @@ func clear() -> void:
 	for i in slots.size():
 		slots[i] = EMPTY
 		if i < temp_slots.size():
-			temp_slots[i] = false
+			temp_slots[i] = 0.0
 		else:
-			temp_slots.append(false)
+			temp_slots.append(0.0)
 	start_index = 0
 
 
 ## 写入单个仓位（逐步装填用）。
-func set_slot(index: int, ammo_id: int, temporary: bool = false) -> void:
+func set_slot(index: int, ammo_id: int, temporary = false) -> void:
 	assert(index >= 0 and index < slots.size())
 	slots[index] = ammo_id
 	_ensure_temp_size()
-	temp_slots[index] = temporary and ammo_id != EMPTY
+	temp_slots[index] = temp_value(temporary) if ammo_id != EMPTY else 0.0
 
 
 ## 按顺序填入 ammo_ids（从槽 0 起）；返回实际装入数量。
@@ -59,10 +59,10 @@ func load_sequence(ammo_ids: Array[int], temporary_flags: Array = []) -> int:
 	var n: int = mini(ammo_ids.size(), slots.size())
 	for i in n:
 		slots[i] = ammo_ids[i]
-		var is_temp := false
+		var tv: float = 0.0
 		if i < temporary_flags.size():
-			is_temp = bool(temporary_flags[i])
-		temp_slots[i] = is_temp and ammo_ids[i] != EMPTY
+			tv = temp_value(temporary_flags[i])
+		temp_slots[i] = tv if ammo_ids[i] != EMPTY else 0.0
 	start_index = 0
 	return n
 
@@ -133,10 +133,26 @@ func _ensure_temp_size() -> void:
 		temp_slots.append(false)
 
 
+static func temp_value(v) -> float:
+	## 临时标记统一成剩余寿命：true → 默认寿命；false/null → 0；数字原样。
+	if v is bool:
+		return CombatConstants.TEMP_SIN_LIFETIME_SEC if v else 0.0
+	if v == null:
+		return 0.0
+	return maxf(0.0, float(v))
+
+
 func is_slot_temporary(index: int) -> bool:
 	if index < 0 or index >= temp_slots.size():
 		return false
-	return bool(temp_slots[index]) and slots[index] != EMPTY
+	return temp_value(temp_slots[index]) > 0.0 and slots[index] != EMPTY
+
+
+func slot_temp_life(index: int) -> float:
+	## 该仓临时罪孽剩余秒（永久弹/空仓 0）。
+	if not is_slot_temporary(index):
+		return 0.0
+	return temp_value(temp_slots[index])
 
 
 ## 卸除：返回 [{id, temp}, ...]
@@ -144,6 +160,6 @@ func unload_all_entries() -> Array:
 	var out: Array = []
 	for i in slots.size():
 		if slots[i] != EMPTY:
-			out.append({"id": slots[i], "temp": is_slot_temporary(i)})
+			out.append({"id": slots[i], "temp": slot_temp_life(i)})
 	clear()
 	return out

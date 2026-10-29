@@ -63,5 +63,4 @@ func test_rush_is_only_mode() -> void:
 	assert_false("from_map_run" in cs)
 	assert_false(cs.has_method("start_graybox"))
 	assert_false(cs.has_method("start_from_run"))
-	assert_eq(cs.wave_index, 1)
 	assert_eq(cs.enemies.size(), 2)

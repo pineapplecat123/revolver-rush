@@ -25,30 +25,6 @@ func test_enemy_hp_halved() -> void:
 	assert_eq(cs.enemies[0].max_hp, 10)
 
 
-func test_wave_spawn_count_mult_1_5() -> void:
-	assert_almost_eq(CombatConstants.WAVE_SPAWN_COUNT_MULT, 1.5, 0.001)
-	var cs := _rush(3402)
-	assert_eq(cs.enemies.size(), 2, "wave1: 1×1.5 → 2")
-	# wave 3 → 2×1.5=3
-	cs.phase = CombatState.Phase.WON
-	cs.reward_resolved = true
-	cs.reward_pending = false
-	cs.rush_shop_done = true
-	cs.wave_index = 2
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.wave_index, 3)
-	assert_eq(cs.enemies.size(), 3)
-	# boss wave 10 → ceil(1×1.5)=2
-	cs.phase = CombatState.Phase.WON
-	cs.reward_resolved = true
-	cs.reward_pending = false
-	cs.rush_shop_done = true
-	cs.wave_index = 9
-	assert_true(cs.start_next_wave())
-	assert_eq(cs.enemies.size(), 2)
-	assert_eq(cs.enemies[0].def_id, CombatConstants.SUPER_ZOMBIE_ENEMY_ID)
-
-
 func test_bag_refills_immediately_on_empty_for_manual_load() -> void:
 	## 袋空时可立刻手装（不必等怪走一格）；v0.3.6：can_manual_load 只是查询不改状态，begin_load 真正补袋。
 	var cs := _rush(3403)
@@ -67,7 +43,7 @@ func test_bag_refills_immediately_on_empty_for_manual_load() -> void:
 	assert_true(cs.begin_load())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_false(cs.bag.is_empty())
-	assert_eq(cs.count_temporary_in_bag(), 1)
+	assert_eq(cs.count_temporary_in_bag(), 0, "v0.3.8：重置不再 +N 临时罪孽")
 
 
 func test_bag_refills_when_load_session_empties_bag() -> void:

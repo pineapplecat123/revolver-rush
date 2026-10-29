@@ -138,25 +138,6 @@ func test_armor_pierce_in_reward_choices_pool() -> void:
 	assert_false(FireResolver.ID_PIERCE in pool, "old pierce ammo stays retired")
 
 
-func test_endless_win_keeps_armor_pierce() -> void:
-	var cs := CombatState.new(2213)
-	cs.start_rush(2213, FireResolver.ID_WRATH)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs._bag_append(FireResolver.ID_ARMOR_PIERCE, false)
-	cs._snapshot_combat_bag_baseline()
-	cs.enemies[0].hp = 1
-	cs.enemies[0].max_hp = 1
-	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
-	assert_true(cs.do_fire())
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	var n := 0
-	for id in cs.bag:
-		if int(id) == FireResolver.ID_ARMOR_PIERCE:
-			n += 1
-	assert_eq(n, 1, "armor pierce must survive endless wave win")
-
-
 func test_muzzle_clears_after_duration() -> void:
 	var cs := CombatState.new(2214)
 	cs.start_rush(2214)
