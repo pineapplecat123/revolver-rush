@@ -301,7 +301,7 @@ func test_pride_pack_four_or_more_also_pulls() -> void:
 
 
 func test_manual_load_three_pride_then_fire_pulls() -> void:
-	## 手装 3 傲慢后提交会话（开火），也应拉近。袋内仅傲慢，避免随机抽偏。
+	## v0.3.5：手装第 3 颗傲慢入膛即刻拉近（不再等提交/开火）。袋内仅傲慢，避免随机抽偏。
 	var cs := CombatState.new(931)
 	cs.start_rush(931, FireResolver.ID_PRIDE)
 	cs.enemies.clear()
@@ -316,7 +316,7 @@ func test_manual_load_three_pride_then_fire_pulls() -> void:
 		if not bool(r.get("done", false)):
 			cs.apply_load_rotate()
 	assert_true(cs.is_busy_loading(), "3/6 手装后会话应仍进行")
-	assert_eq(cs.enemies[0].cell, 8, "提交前尚未拉近")
+	assert_eq(cs.enemies[0].cell, 1, "第 3 颗入膛即拉近，无需提交")
 	assert_true(cs.begin_fire(), "开火应提交装填会话")
 	assert_eq(cs.enemies[0].cell, 1)
 

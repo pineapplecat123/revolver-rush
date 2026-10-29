@@ -244,6 +244,41 @@ func muzzle_status_parts() -> PackedStringArray:
 	return parts
 
 
+func muzzle_status_entries() -> Array:
+	## UI 倒计时：[{name, remaining, total}]；total<0 表示无计时（傲慢整场 ∞）。
+	var out: Array = []
+	var el: float = CombatConstants.MUZZLE_DURATION_ELEMENT_SEC
+	if _muzzle_pierce:
+		out.append({"name": "穿甲", "remaining": _muzzle_pierce_t, "total": el})
+	if _muzzle_gas:
+		out.append({"name": "汽油", "remaining": _muzzle_gas_t, "total": el})
+	if _muzzle_fire:
+		out.append({"name": "火", "remaining": _muzzle_fire_t, "total": el})
+	if _muzzle_water:
+		out.append({"name": "水", "remaining": _muzzle_water_t, "total": el})
+	if _muzzle_thunder:
+		out.append({"name": "雷", "remaining": _muzzle_thunder_t, "total": el})
+	if _muzzle_wrath > 0:
+		out.append({"name": "愤怒", "remaining": _muzzle_wrath_t, "total": CombatConstants.MUZZLE_DURATION_WRATH_SEC, "stacks": _muzzle_wrath})
+	if _muzzle_pride > 0:
+		out.append({"name": "傲慢", "remaining": -1.0, "total": -1.0, "stacks": _muzzle_pride})
+	if _muzzle_greed > 0:
+		out.append({"name": "贪婪", "remaining": _muzzle_greed_t, "total": CombatConstants.MUZZLE_DURATION_GREED_SEC, "stacks": _muzzle_greed})
+	return out
+
+
+static func format_muzzle_countdown(entry: Dictionary) -> String:
+	## 芯片文字：「愤怒×2 3.2s」；无计时显示「∞」。
+	var s: String = str(entry.get("name", ""))
+	var stacks: int = int(entry.get("stacks", 0))
+	if stacks > 1:
+		s += "×%d" % stacks
+	var total: float = float(entry.get("total", -1.0))
+	if total < 0.0:
+		return s + " ∞"
+	return s + " %.1fs" % maxf(0.0, float(entry.get("remaining", 0.0)))
+
+
 func muzzle_status_text() -> String:
 	var parts := muzzle_status_parts()
 	if parts.is_empty():
@@ -679,6 +714,32 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 		_log("罪孽[贪婪]：本匣贪婪 ×%d（≥3）→ 金币 -6（现 %d）。" % [greed_n, gold])
 
 
+const SIN_PENALTY_THRESHOLD := 3
+
+
+func _check_sin_threshold_after_insert(resolved: int) -> void:
+	## v0.3.5 rush!：每装入 1 发罪孽后数转轮内同种罪孽；数量刚达到 3（2→3）立刻触发三罪孽惩罚。
+	## 打掉一些后再装回 3 会再触发；第 4、5 发不重复触发（与旧「一次装填 ≥3 触发一次」一致）。
+	if resolved != FireResolver.ID_WRATH and resolved != FireResolver.ID_PRIDE and resolved != FireResolver.ID_GREED:
+		return
+	if magazine == null:
+		return
+	var n: int = _count_ammo_in(magazine.slots, resolved)
+	if n != SIN_PENALTY_THRESHOLD:
+		return
+	_log("罪孽：转轮内 %s 达到 %d 颗 → 触发惩罚。" % [_ammo_name(resolved), n])
+	var arr: Array[int] = []
+	for _i in n:
+		arr.append(resolved)
+	_resolve_sin_pack_on_load(arr)
+
+
+func sin_count_in_cylinder(ammo_id: int) -> int:
+	if magazine == null:
+		return 0
+	return _count_ammo_in(magazine.slots, ammo_id)
+
+
 func _pull_enemies_to_face(pride_n: int = 3) -> void:
 	## 傲慢装 ≥3：全体敌人尽量贴到玩家面前（格 1、2、3…）。
 	var alive: Array = alive_enemies()
@@ -996,6 +1057,7 @@ func load_next_chamber() -> Dictionary:
 	var slot: int = magazine.chamber_at_load_port()
 	assert(magazine.slots[slot] == Magazine.EMPTY)
 	magazine.set_slot(slot, resolved, raw_temp)
+	_check_sin_threshold_after_insert(resolved)
 	if raw_id == FireResolver.ID_BW and resolved != FireResolver.ID_BW:
 		_log("黑白子弹变形为 %s。" % _ammo_name(resolved))
 	_log("装填上弹口→仓 %d：%s。" % [slot + 1, _ammo_name(resolved)])
@@ -1072,8 +1134,7 @@ func _complete_load_session() -> Dictionary:
 	_log("装填完成：共 %d 发%s。" % [
 		n, "（将随机旋转转轮）" if needs_spin else ""
 	])
-	# 含超级回合/金色额外轮：装填≥3 罪孽仍触发三罪孽惩罚（与普通装弹一致）
-	_resolve_sin_pack_on_load(_load_resolved_ids)
+	# v0.3.5：三罪孽惩罚改在每发入仓时按转轮内数量判定（_check_sin_threshold_after_insert），会话结束不再按会话计数
 	var rotate_to: int = magazine.start_index
 	_reset_load_session()
 	# v0.3.4：装填会话结束袋若空则立刻补，手装按钮不用等怪走一格。
@@ -2058,7 +2119,7 @@ func _auto_load_and_fire_once() -> bool:
 			var resolved: int = resolved_arr[0]
 			magazine.set_slot(port, resolved, raw_temp)
 			last_load_ids = drawn.duplicate()
-			_resolve_sin_pack_on_load([resolved] as Array[int])
+			_check_sin_threshold_after_insert(resolved)
 			if bag.is_empty():
 				needs_reshuffle_next_load = true
 			_log("额外轮：补 1 发[%s]。" % _ammo_name(resolved))
@@ -2146,6 +2207,59 @@ func do_fire() -> bool:
 			_run_enemy_turn()
 		_emit()
 	return any
+
+
+## v0.3.5 rush! 连点射击：一次点击 = 同步结算 1 发（+超级回合/金色额外轮各补1射1），无冷却。
+## 返回本次点击打出的每一发记录（供 UI 并发播放弹道/飚血）；空数组 = 没打出。
+## 逻辑全部在本帧完成，UI 只播表现，连点不会丢发/重发/锤位错位。
+func fire_tap() -> Array:
+	var shots: Array = []
+	if not can_fire():
+		return shots
+	if not begin_fire():
+		return shots
+	_fire_tap_one(shots)
+	var guard: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
+	while _pending_gold_autofires > 0 and guard > 0 and phase != Phase.WON and phase != Phase.LOST:
+		guard -= 1
+		if not begin_gold_extra_load():
+			break
+		if _load_session_active:
+			var lr: Dictionary = load_next_chamber()
+			if bool(lr.get("ok", false)) and not bool(lr.get("done", false)):
+				apply_load_rotate()
+			commit_load_session_if_active()
+		if magazine == null or magazine.is_empty() or not can_fire():
+			break
+		if not begin_fire():
+			break
+		_fire_tap_one(shots, true)
+	if auto_enemy_advance:
+		finalize_post_fire()
+	elif _post_fire_enemy_pending:
+		resolve_post_fire_enemy_turn()
+	return shots
+
+
+func _fire_tap_one(shots: Array, extra: bool = false) -> void:
+	var start_before: int = magazine.start_index if magazine != null else 0
+	while phase == Phase.FIRING:
+		fire_next_shot()
+		if has_paced_shot_pending():
+			var rec := {
+				"extra": extra,
+				"ammo_id": last_shot_ammo_id,
+				"slot": last_fired_slot,
+				"blank_skip": last_blank_skip_steps,
+				"start_before": start_before,
+				"hit_cells": last_shot_hit_cells.duplicate(),
+				"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
+				"pierce": last_shot_was_pierce,
+			}
+			finalize_paced_shot()
+			rec["hit_amounts"] = last_shot_hit_amounts.duplicate()
+			rec["start_after"] = magazine.start_index if magazine != null else 0
+			shots.append(rec)
 
 
 ## 测试辅助：只打 1 发并立刻结算怪回合（对齐 UI 点射一次）。

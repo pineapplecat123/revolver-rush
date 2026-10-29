@@ -23,6 +23,9 @@ const WHEEL_SPEED_MULT := 1.5
 const FIRE_SHOT_DELAY := 0.4 / WHEEL_SPEED_MULT
 const FIRE_FLASH_HOLD := 0.2 / WHEEL_SPEED_MULT
 const POST_FIRE_STATUS_DELAY := 0.45
+## v0.3.5 连点射击：转盘快速补间（可被下一次点击打断），额外轮弹道错开。
+const FIRE_ROT_SEC := 0.06
+const EXTRA_SHOT_STAGGER_SEC := 0.05
 const STEP_ROT_DURATION := 0.18 / WHEEL_SPEED_MULT
 const ROLL_ANIM_BASE := 0.45 / WHEEL_SPEED_MULT
 const ROLL_ANIM_PER_STEP := 0.06 / WHEEL_SPEED_MULT
@@ -132,6 +135,9 @@ var _fire_flash_tween: Tween
 ## 击发黄闪所在仓；仅闪光期间有效，转盘前必须清掉（勿随盘转动）。
 var _fire_flash_slot: int = -1
 var _disk_tween: Tween
+var _fire_disk_tweening: bool = false
+var _fire_disk_target: float = 0.0
+var _in_flight_shots: int = 0
 var _fire_ring: Panel = null
 var _load_marker: Label = null
 var _muzzle_label: Label = null  ## 「枪口：」框外标签
@@ -142,6 +148,8 @@ var _speed_slider: HSlider = null
 var _speed_value_label: Label = null
 var _muzzle_panel: PanelContainer = null  ## 透明命中层（悬停/长按）
 var _muzzle_chips: HBoxContainer = null
+var _muzzle_chip_nodes: Array = []  ## [{label, bar}] 与 muzzle_status_entries 同序
+var _muzzle_chip_sig: String = ""
 var _muzzle_tip_panel: PanelContainer = null
 var _muzzle_tip_body: RichTextLabel = null
 var _muzzle_tip_open: bool = false
@@ -495,7 +503,7 @@ func _ensure_muzzle_hud() -> void:
 	# 固定槽：框外「枪口：」+ 每状态一颗小芯片；高度锁死不撑 MagCol
 	_muzzle_slot = Control.new()
 	_muzzle_slot.name = "MuzzleStatusSlot"
-	_muzzle_slot.custom_minimum_size = Vector2(220, 26)
+	_muzzle_slot.custom_minimum_size = Vector2(330, 32)
 	_muzzle_slot.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_muzzle_slot.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	_muzzle_slot.clip_contents = true
@@ -549,8 +557,9 @@ func _refresh_muzzle_hud() -> void:
 	for c in _muzzle_chips.get_children():
 		_muzzle_chips.remove_child(c)
 		c.queue_free()
-	var parts := state.muzzle_status_parts()
-	if parts.is_empty():
+	_muzzle_chip_nodes.clear()
+	var entries: Array = state.muzzle_status_entries()
+	if entries.is_empty():
 		var empty := Label.new()
 		empty.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		empty.add_theme_font_size_override("font_size", 11)
@@ -558,16 +567,54 @@ func _refresh_muzzle_hud() -> void:
 		empty.text = "—"
 		_muzzle_chips.add_child(empty)
 	else:
-		for name in parts:
-			_muzzle_chips.add_child(_make_muzzle_chip(str(name)))
+		for entry in entries:
+			_muzzle_chips.add_child(_make_muzzle_chip(entry))
+	_muzzle_chip_sig = _muzzle_entries_signature(entries)
 	if _muzzle_slot != null:
 		_muzzle_slot.visible = true
 	if _muzzle_tip_open:
 		_refresh_muzzle_tip_body()
 
 
-func _make_muzzle_chip(name: String) -> PanelContainer:
-	## 单个枪口状态小框：只显示名字，字小边距紧。
+func _muzzle_entries_signature(entries: Array) -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	for e in entries:
+		parts.append("%s%d" % [str(e.get("name", "")), int(e.get("stacks", 0))])
+	return ",".join(parts)
+
+
+func _update_muzzle_countdowns() -> void:
+	## 每帧刷新倒计时文字与进度条；状态集合变化时整行重建。
+	if state == null or _muzzle_chips == null:
+		return
+	var entries: Array = state.muzzle_status_entries()
+	if _muzzle_entries_signature(entries) != _muzzle_chip_sig or entries.size() != _muzzle_chip_nodes.size():
+		_refresh_muzzle_hud()
+		return
+	for i in entries.size():
+		var node: Dictionary = _muzzle_chip_nodes[i]
+		var e: Dictionary = entries[i]
+		var lab: Label = node.get("label") as Label
+		if lab != null and is_instance_valid(lab):
+			lab.text = CombatState.format_muzzle_countdown(e)
+		var bar: ColorRect = node.get("bar") as ColorRect
+		if bar != null and is_instance_valid(bar):
+			var total: float = float(e.get("total", -1.0))
+			var ratio: float = 1.0 if total <= 0.0 else clampf(float(e.get("remaining", 0.0)) / total, 0.0, 1.0)
+			bar.anchor_right = ratio
+			bar.color = _muzzle_bar_color(ratio, total < 0.0)
+
+
+func _muzzle_bar_color(ratio: float, infinite: bool) -> Color:
+	if infinite:
+		return Color(0.7, 0.5, 1.0, 0.95)
+	if ratio <= 0.25:
+		return Color(1.0, 0.35, 0.25, 0.95)
+	return Color(1.0, 0.78, 0.3, 0.95)
+
+
+func _make_muzzle_chip(entry) -> PanelContainer:
+	## 单个枪口状态小框：名字 + 剩余秒数（傲慢 ∞）+ 底部收缩进度条。
 	var chip := PanelContainer.new()
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
@@ -580,12 +627,38 @@ func _make_muzzle_chip(name: String) -> PanelContainer:
 	style.content_margin_top = 1
 	style.content_margin_bottom = 1
 	chip.add_theme_stylebox_override("panel", style)
+	var e: Dictionary = entry if entry is Dictionary else {"name": str(entry), "total": -1.0}
+	var vb := VBoxContainer.new()
+	vb.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	vb.add_theme_constant_override("separation", 0)
 	var lab := Label.new()
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	lab.text = name
-	lab.add_theme_font_size_override("font_size", 11)
+	lab.text = CombatState.format_muzzle_countdown(e)
+	lab.add_theme_font_size_override("font_size", 13)
 	lab.add_theme_color_override("font_color", Color(1.0, 0.88, 0.4))
-	chip.add_child(lab)
+	vb.add_child(lab)
+	var track := Control.new()
+	track.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	track.custom_minimum_size = Vector2(0, 3)
+	var bg := ColorRect.new()
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bg.color = Color(0.0, 0.0, 0.0, 0.45)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	track.add_child(bg)
+	var bar := ColorRect.new()
+	bar.name = "CountdownBar"
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	bar.anchor_left = 0.0
+	bar.anchor_top = 0.0
+	bar.anchor_bottom = 1.0
+	var total: float = float(e.get("total", -1.0))
+	var ratio: float = 1.0 if total <= 0.0 else clampf(float(e.get("remaining", 0.0)) / total, 0.0, 1.0)
+	bar.anchor_right = ratio
+	bar.color = _muzzle_bar_color(ratio, total < 0.0)
+	track.add_child(bar)
+	vb.add_child(track)
+	chip.add_child(vb)
+	_muzzle_chip_nodes.append({"label": lab, "bar": bar})
 	return chip
 
 
@@ -990,6 +1063,7 @@ func _process(delta: float) -> void:
 		if muzzle_changed:
 			_refresh_muzzle_hud()
 			_refresh_hud_only()
+	_update_muzzle_countdowns()
 
 
 func _enemy_glide_px(cell: int) -> float:
@@ -1040,6 +1114,7 @@ func _busy() -> bool:
 
 
 func _on_manual_load() -> void:
+	_snap_fire_disk()
 	if _busy():
 		return
 	if not state.can_manual_load():
@@ -1142,10 +1217,141 @@ func _animate_gold_extra_load() -> void:
 	_refresh_hud_only()
 
 
+func _fire_blocked() -> bool:
+	## v0.3.5：射击只被弹窗/波次大字/ROLL/手装动画挡；不被上一发射击动画挡（无冷却）。
+	return _rolling or _loading or _sin_pick_open or _wave_bannering or _reward_delaying
+
+
 func _on_fire() -> void:
-	if _busy():
+	if _fire_blocked():
 		return
-	_run_fire_sequence()
+	_run_fire_tap()
+
+
+func _snap_fire_disk() -> void:
+	## 连点：上一发的转盘补间直接跳到终点，再开始下一发（可打断、不排队）。
+	if _fire_disk_tweening and _disk_tween != null and _disk_tween.is_valid():
+		_disk_tween.kill()
+	if _fire_disk_tweening:
+		_fire_disk_tweening = false
+		_wheel_animating = false
+		_apply_disk_rotation(fposmod(_fire_disk_target, float(CombatConstants.MAGAZINE_SIZE)))
+
+
+func _run_fire_tap() -> void:
+	## rush! v0.3.5：点一下 = 本帧同步结算 1 发（+额外轮），弹道/飚血/飘字并发播放；转盘快速补间可被下一次点击打断。
+	if state == null or not state.can_fire():
+		_refresh()
+		return
+	_snap_fire_disk()
+	var visual_before: float = _wheel_visual_steps
+	var start_before: int = state.magazine.start_index
+	_pending_hit_vfx.clear()
+	_defer_hit_vfx = true
+	var shots: Array = state.fire_tap()
+	_defer_hit_vfx = false
+	var hit_events: Array = _pending_hit_vfx.duplicate()
+	_pending_hit_vfx.clear()
+	if shots.is_empty():
+		for ev in hit_events:
+			_spawn_hit_event(ev)
+		_refresh()
+		return
+	_begin_fire_flash(-1)
+	# 转盘：按逻辑锤位前进的步数快速补间（额外轮也一并转到最终锤位）
+	var steps: int = 0
+	for rec in shots:
+		var d: int = (int(rec.get("start_after", 0)) - int(rec.get("start_before", 0)) + CombatConstants.MAGAZINE_SIZE) % CombatConstants.MAGAZINE_SIZE
+		if d == 0:
+			d = int(rec.get("blank_skip", 0)) + 1
+		steps += d
+	var start_now: int = state.magazine.start_index if state.magazine != null else 0
+	if not state.magazine.is_empty():
+		# 额外轮装弹会对齐上弹口改变锤位：以逻辑终点为准
+		var drift: int = (start_now - (start_before + steps)) % CombatConstants.MAGAZINE_SIZE
+		drift = (drift + CombatConstants.MAGAZINE_SIZE) % CombatConstants.MAGAZINE_SIZE
+		steps += drift
+	_fire_disk_target = visual_before + float(maxi(steps, 1))
+	_fire_disk_tweening = true
+	_wheel_animating = true
+	if _disk_tween != null and _disk_tween.is_valid():
+		_disk_tween.kill()
+	_disk_tween = create_tween()
+	_disk_tween.tween_method(_apply_disk_rotation, visual_before, _fire_disk_target, _paced(FIRE_ROT_SEC)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	_disk_tween.finished.connect(_on_fire_disk_tween_done.bind(_disk_tween))
+	_refresh_mag_contents()
+	_refresh()
+	# 弹道并发：每发独立飞，命中时播该发的飘字/飚血
+	_in_flight_shots += shots.size()
+	for i in shots.size():
+		_play_tap_shot(shots[i], hit_events if i == 0 else [], i)
+
+
+func _on_fire_disk_tween_done(tw: Tween) -> void:
+	if tw != _disk_tween or not _fire_disk_tweening:
+		return
+	_fire_disk_tweening = false
+	_wheel_animating = false
+	_apply_disk_rotation(fposmod(_fire_disk_target, float(CombatConstants.MAGAZINE_SIZE)))
+	_clear_fire_flash()
+	_refresh_mag_contents()
+
+
+func _spawn_hit_event(ev: Dictionary) -> void:
+	var cell: int = int(ev.get("cell", -1))
+	var amount: int = int(ev.get("amount", 0))
+	_spawn_damage_float(cell, amount, str(ev.get("kind", "")))
+	_spawn_blood_at_cell(cell, amount, _enemy_corpse_at_cell(cell))
+
+
+func _play_tap_shot(rec: Dictionary, events: Array, order: int) -> void:
+	## 单发弹道（不 await 逻辑）：飞到命中格时播放该格延后的飘字/飚血，落地后清尸体。
+	if order > 0:
+		await get_tree().create_timer(_paced(EXTRA_SHOT_STAGGER_SEC) * float(order)).timeout
+	var hit_cells: Array = rec.get("hit_cells", [])
+	var hit_amts: Array = rec.get("hit_amounts", [])
+	var from_g: Vector2 = _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+	if hit_cells.is_empty() or from_g == Vector2.ZERO:
+		for ev in events:
+			_spawn_hit_event(ev)
+		_on_tap_shot_landed()
+		return
+	var end_cell: int = int(hit_cells[hit_cells.size() - 1])
+	var to_g: Vector2 = _cell_unit_global_center(end_cell)
+	if to_g == Vector2.ZERO:
+		to_g = from_g + Vector2(float(CELL_W) * float(maxi(end_cell, 1)), 0.0)
+	var ammo_id: int = int(rec.get("ammo_id", -1))
+	var core_col: Color = _ammo_colors(ammo_id).get("bg", Color(0.95, 0.95, 0.9))
+	var outline_cols: Array[Color] = []
+	for mid in rec.get("muzzle_outline_ids", []):
+		outline_cols.append(_ammo_colors(int(mid)).get("bg", Color(1, 1, 1)))
+	var waypoints: Array = []
+	var remaining: Array = events.duplicate()
+	for i in hit_cells.size():
+		var c: int = int(hit_cells[i])
+		var evs: Array = []
+		for ev in remaining.duplicate():
+			if int(ev.get("cell", -2)) == c:
+				evs.append(ev)
+				remaining.erase(ev)
+		waypoints.append({
+			"g": _cell_unit_global_center(c), "cell": c,
+			"amount": int(hit_amts[i]) if i < hit_amts.size() else 0,
+			"hit_index": -1, "events": evs,
+		})
+	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel)
+	# 非命中格的伤害（雷链等）在落地时播
+	for ev in remaining:
+		_spawn_hit_event(ev)
+	_on_tap_shot_landed()
+
+
+func _on_tap_shot_landed() -> void:
+	_in_flight_shots = maxi(0, _in_flight_shots - 1)
+	if state != null and state.has_corpse_enemies():
+		state.flush_dead_enemies()
+	_refresh()
 
 
 func _run_fire_sequence() -> void:
@@ -1408,6 +1614,8 @@ func _animate_shot_projectile(
 		var hi2: int = int(wp2.get("hit_index", -1))
 		if hi2 >= 0 and state != null and state.has_paced_shot_pending():
 			state.resolve_paced_hit(hi2)
+		for ev2 in wp2.get("events", []):
+			_spawn_hit_event(ev2)
 		# 飙血改由 enemy_damaged 统一触发（含非子弹掉血）
 	if is_instance_valid(host):
 		host.queue_free()
@@ -1507,6 +1715,8 @@ func _shot_projectile_step(t: float, ctx: Dictionary) -> void:
 			if hi >= 0 and state != null and state.has_paced_shot_pending():
 				# 视觉命中瞬间结算伤害（飘字由 enemy_damaged 触发）
 				state.resolve_paced_hit(hi)
+			for ev in wp.get("events", []):
+				_spawn_hit_event(ev)
 			# 飙血改由 enemy_damaged 统一触发
 
 
@@ -3193,7 +3403,7 @@ func _refresh() -> void:
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or not state.can_manual_load()
-	btn_fire.disabled = busy or not state.can_fire()
+	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = busy or not state.can_start_next_wave()
 	_refresh_board()
 	if not _wheel_animating:
@@ -3343,7 +3553,7 @@ func _refresh_hud_only() -> void:
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or not state.can_manual_load()
-	btn_fire.disabled = busy or not state.can_fire()
+	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = busy or not state.can_start_next_wave()
 	_refresh_board()
 	_refresh_bag_list()

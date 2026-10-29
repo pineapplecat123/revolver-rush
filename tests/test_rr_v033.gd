@@ -113,6 +113,9 @@ func test_fuzz_interleaved_fire_and_reload_keeps_ammo() -> void:
 	## 随机交错 手装/开火 200 次：任何一次手装都不改已有弹；匣内弹数守恒。
 	for seed_v in [1, 7, 33, 2026]:
 		var cs := _rush(seed_v)
+		# v0.3.5 补袋会带回罪孽，第 3 颗即自伤：给足血量保证跑满 200 步
+		cs.player_max_hp = 9999
+		cs.player_hp = 9999
 		_fill_bag_white(cs, 30)
 		cs.discard.clear()
 		cs.discard_temp.clear()
@@ -125,6 +128,9 @@ func test_fuzz_interleaved_fire_and_reload_keeps_ammo() -> void:
 				var before := _snapshot(cs)
 				var cnt: int = cs.magazine.loaded_count()
 				if _manual_load_one(cs):
+					if last_loaded_id in [FireResolver.ID_WRATH, FireResolver.ID_PRIDE, FireResolver.ID_GREED]:
+						# v0.3.5：第 3 颗同种罪孽入膛即刻惩罚（可能扣命重置转轮），不在此守恒断言内
+						continue
 					_assert_only_empties_filled(before, _snapshot(cs), "seed%d step%d" % [seed_v, step])
 					var want: int = cnt + (1 if last_loaded_id != Magazine.EMPTY else 0)
 					assert_eq(cs.magazine.loaded_count(), want, "seed%d step%d：装入 1 发弹数应 +1（覆盖则不变）" % [seed_v, step])
