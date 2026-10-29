@@ -552,28 +552,97 @@ func _shuffle_bag() -> void:
 		bag_temp[j] = tmp_t
 
 
-func _reset_bag_in_combat() -> void:
-	## 战斗内袋重置：次数 +1；按构筑基线恢复永久弹（含墓碑等）+ 次数发额外临时罪孽；幽灵保留至波/战斗结束。
+func _bag_reset_pool(next_reset_count: int) -> Array:
+	## v0.3.6 纯函数：第 next_reset_count 次战斗内重置后「袋里应有」的弹 [{id,temp}]（不改状态）。
+	## 整个弹药池 = 构筑基线 + N 临时罪孽（N=重置次数）；**转轮里还在膛的弹算作已从新池抽出**，
+	## 从袋里扣掉，避免膛内弹被复制一份（旧 bug：膛内 6 发 + 整份基线 → 罪孽最多多出 6 颗）。
+	var pool: Array = []
+	if _combat_bag_baseline.is_empty():
+		for _i in CombatConstants.STARTER_WHITE_COUNT:
+			pool.append({"id": CombatConstants.WHITE_AMMO_ID, "temp": false})
+		for _i in CombatConstants.STARTER_SIN_COUNT:
+			pool.append({"id": selected_sin_ammo_id, "temp": false})
+	else:
+		for id in _combat_bag_baseline:
+			pool.append({"id": int(id), "temp": false})
+	for _i in maxi(next_reset_count, 0):
+		pool.append({"id": selected_sin_ammo_id, "temp": true})
+	if magazine != null:
+		for i in magazine.slots.size():
+			var mid: int = int(magazine.slots[i])
+			if mid == Magazine.EMPTY or mid == FireResolver.ID_GHOST:
+				continue
+			var mt: bool = magazine.is_slot_temporary(i)
+			var k: int = _pool_find(pool, mid, mt)
+			if k < 0:
+				k = _pool_find(pool, mid, not mt)
+			if k < 0:
+				# 黑白弹入膛已变形：扣一颗黑白
+				k = _pool_find(pool, FireResolver.ID_BW, false)
+			if k >= 0:
+				pool.remove_at(k)
+	return pool
+
+
+func _pool_find(pool: Array, id: int, temp: bool) -> int:
+	for k in pool.size():
+		if int(pool[k]["id"]) == id and bool(pool[k]["temp"]) == temp:
+			return k
+	return -1
+
+
+func _count_ghosts_bag_and_discard() -> int:
+	var n := 0
+	for x in bag:
+		if int(x) == FireResolver.ID_GHOST:
+			n += 1
+	for x in discard:
+		if int(x) == FireResolver.ID_GHOST:
+			n += 1
+	return n
+
+
+func can_refill_bag() -> bool:
+	## 纯查询：袋空时能否战斗内重置出至少 1 发（不改任何状态）。
+	if not bag.is_empty():
+		return true
+	return not _bag_reset_pool(bag_reset_count + 1).is_empty() or _count_ghosts_bag_and_discard() > 0
+
+
+func _reset_bag_in_combat() -> bool:
+	## 战斗内袋重置：次数 +1；整池 = 构筑基线 + N 临时罪孽（扣除仍在膛内的弹）；幽灵保留至波/战斗结束。
+	## 重置后袋若仍为空（膛内已占满整池）则不重置、不计次数，防止反复触发叠罪孽。
+	var pool: Array = _bag_reset_pool(bag_reset_count + 1)
+	if pool.is_empty() and _count_ghosts_bag_and_discard() == 0:
+		return false
 	bag_reset_count += 1
 	var ghost_n: int = _extract_ghosts_from_bag_and_discard()
 	bag.clear()
 	bag_temp.clear()
 	discard.clear()
 	discard_temp.clear()
-	if _combat_bag_baseline.is_empty():
-		# 兜底：无基线时退回 10+5（旧测试清袋未拍快照时仍可用）
-		for _i in CombatConstants.STARTER_WHITE_COUNT:
-			_bag_append(CombatConstants.WHITE_AMMO_ID, false)
-		for _i in CombatConstants.STARTER_SIN_COUNT:
-			_bag_append(selected_sin_ammo_id, false)
-	else:
-		for id in _combat_bag_baseline:
-			_bag_append(int(id), false)
-	for _i in bag_reset_count:
-		_bag_append(selected_sin_ammo_id, true)
+	for entry in pool:
+		_bag_append(int(entry["id"]), bool(entry["temp"]))
 	for _i in ghost_n:
 		_bag_append(FireResolver.ID_GHOST, false)
 	_shuffle_bag()
+	return true
+
+
+func total_ammo_count(ammo_id: int) -> int:
+	## 测试/UI：袋+膛+弃牌中某弹总数。
+	var n := 0
+	for x in bag:
+		if int(x) == ammo_id:
+			n += 1
+	for x in discard:
+		if int(x) == ammo_id:
+			n += 1
+	if magazine != null:
+		for x in magazine.slots:
+			if int(x) == ammo_id:
+				n += 1
+	return n
 
 
 func is_bag_index_temporary(index: int) -> bool:
@@ -609,7 +678,8 @@ func ensure_bag_refilled_if_empty() -> bool:
 	## 袋一空就补：立刻战斗内重置（构筑基线 + N 临时罪孽，保留幽灵）。弃牌并入重置逻辑。
 	if not bag.is_empty():
 		return false
-	_reset_bag_in_combat()
+	if not _reset_bag_in_combat():
+		return false
 	needs_reshuffle_next_load = false
 	_log("弹药袋已空：立刻战斗内重置（构筑 %d + 临时罪孽 ×%d，第 %d 次）。" % [
 		_combat_bag_baseline.size(), bag_reset_count, bag_reset_count
@@ -918,9 +988,8 @@ func can_manual_load() -> bool:
 	## 不要求先打空转轮；AWAIT_ACTION 下也可补弹。袋空则立刻补后再判。
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
 		return false
-	if bag.is_empty():
-		ensure_bag_refilled_if_empty()
-	if bag.is_empty():
+	# v0.3.6：查询不改状态；袋空时只判断「能否补」，真正补袋在 begin_load / 会话结束 / 怪步
+	if bag.is_empty() and not can_refill_bag():
 		return false
 	if magazine != null and magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
 		return false

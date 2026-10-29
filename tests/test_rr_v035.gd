@@ -306,6 +306,7 @@ func test_ui_n_taps_same_frame_n_shots() -> void:
 		cs.enemies.pop_back()
 	cs.enemies[0].hp = 9999
 	cs.enemies[0].max_hp = 9999
+	_bag_only(cs, WHITE, 10)
 	cs.magazine.clear()
 	for i in 6:
 		cs.magazine.set_slot(i, WHITE)
@@ -335,7 +336,10 @@ func test_ui_n_taps_same_frame_n_shots() -> void:
 	assert_false(ui._wheel_animating)
 
 
-func test_game_version_0_3_5() -> void:
-	assert_eq(GameVersion.STRING, "0.3.5")
+func test_changelog_has_0_3_5() -> void:
 	var d = JSON.parse_string(FileAccess.get_file_as_string("res://data/changelog.json"))
-	assert_eq(str(d["entries"][0]["version"]), "0.3.5")
+	var found := false
+	for e in d["entries"]:
+		if str(e["version"]) == "0.3.5":
+			found = true
+	assert_true(found)

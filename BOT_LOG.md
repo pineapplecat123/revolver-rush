@@ -482,3 +482,7 @@
 - 枪口倒计时：`muzzle_status_entries()` + 芯片「名 x.xs」+收缩条，`_process` 原地刷新；傲慢 ∞（字库已含）。截图 `docs/shots/rr_muzzle_countdown.png`。
 - 连点射击：`CombatState.fire_tap()` 同步结算 1 发(+额外轮)；UI 不再 await/锁 busy，转盘 0.06s 可打断补间，弹道并发、命中格播延后飘字/飙血。
 - GUT：新增 `tests/test_rr_v035.gd`。
+
+## 2026-10-29 — v0.3.6 罪孽变 8 发
+- 根因：`_reset_bag_in_combat` 把整份构筑基线 + N 临时罪孽塞回袋，但膛内未打出的弹原样保留 → 膛内弹被复制。v0.3.4 改成「装填会话一结束袋空就补」，此刻转轮通常满 6 发 → 每次重置最多复制 6 发，罪孽与临时罪孽越滚越多（模拟：第 3 次重置罪孽合计 12，设计 5+3=8）。另外 `can_manual_load` 查询会触发补袋（UI 刷新即改状态）。
+- 修：重置池扣除膛内弹；重置不出弹则不计次；`can_manual_load` 纯查询。GUT `tests/test_rr_v036.gd`。

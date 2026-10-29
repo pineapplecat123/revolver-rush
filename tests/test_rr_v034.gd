@@ -50,7 +50,7 @@ func test_wave_spawn_count_mult_1_5() -> void:
 
 
 func test_bag_refills_immediately_on_empty_for_manual_load() -> void:
-	## 袋空时 can_manual_load 立刻补，不必等怪走一格。
+	## 袋空时可立刻手装（不必等怪走一格）；v0.3.6：can_manual_load 只是查询不改状态，begin_load 真正补袋。
 	var cs := _rush(3403)
 	for e in cs.enemies:
 		e.hp = 9999
@@ -61,7 +61,10 @@ func test_bag_refills_immediately_on_empty_for_manual_load() -> void:
 	cs.discard_temp.clear()
 	assert_true(cs.bag.is_empty())
 	assert_eq(cs.bag_reset_count, 0)
-	assert_true(cs.can_manual_load(), "should refill inside can_manual_load")
+	assert_true(cs.can_manual_load(), "bag empty but refillable → can load")
+	assert_eq(cs.bag_reset_count, 0, "查询不改状态")
+	assert_true(cs.bag.is_empty())
+	assert_true(cs.begin_load())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_false(cs.bag.is_empty())
 	assert_eq(cs.count_temporary_in_bag(), 1)
