@@ -614,7 +614,7 @@ func _muzzle_bar_color(ratio: float, infinite: bool) -> Color:
 
 
 func _make_muzzle_chip(entry) -> PanelContainer:
-	## 单个枪口状态小框：名字 + 剩余秒数（傲慢 ∞）+ 底部收缩进度条。
+	## 单个枪口状态小框：名字 + 最短层剩余秒数（×N）+ 底部收缩进度条。
 	var chip := PanelContainer.new()
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()

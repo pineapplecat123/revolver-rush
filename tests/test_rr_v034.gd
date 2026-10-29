@@ -120,6 +120,7 @@ func test_muzzle_element_lasts_duration_across_shots() -> void:
 
 
 func test_muzzle_wrath_duration_refresh_and_pride_permanent() -> void:
+	## v0.3.7：叠层不刷新旧层；显示最短剩余。傲慢也计时（12s），4s 内仍在。
 	var cs := _rush(3406)
 	cs._muzzle_wrath = 1
 	cs._muzzle_wrath_t = 1.0
@@ -128,13 +129,14 @@ func test_muzzle_wrath_duration_refresh_and_pride_permanent() -> void:
 	assert_eq(cs._muzzle_wrath, 1)
 	assert_almost_eq(cs._muzzle_wrath_t, 0.5, 0.001)
 	assert_eq(cs._muzzle_pride, 2)
-	# 叠层刷新
 	cs._mount_sin_muzzle_from({"wrath": true})
 	assert_eq(cs._muzzle_wrath, 2)
-	assert_almost_eq(cs._muzzle_wrath_t, CombatConstants.MUZZLE_DURATION_WRATH_SEC, 0.01)
+	assert_almost_eq(cs._muzzle_wrath_t, 0.5, 0.01, "最短层仍是旧层")
+	assert_eq(cs._muzzle_wrath_layers.size(), 2)
+	assert_almost_eq(float(cs._muzzle_wrath_layers[1]), CombatConstants.MUZZLE_DURATION_WRATH_SEC, 0.01)
 	cs.tick_muzzle_durations(CombatConstants.MUZZLE_DURATION_WRATH_SEC + 0.01)
 	assert_eq(cs._muzzle_wrath, 0)
-	assert_eq(cs._muzzle_pride, 2, "傲慢整场")
+	assert_eq(cs._muzzle_pride, 2, "傲慢 12s，未随愤怒清掉")
 
 
 func test_muzzle_duration_constants() -> void:

@@ -150,7 +150,10 @@ func test_no_reset_when_magazine_holds_whole_pool() -> void:
 	assert_false(cs.can_manual_load())
 
 
-func test_game_version_0_3_6() -> void:
-	assert_eq(GameVersion.STRING, "0.3.6")
+func test_changelog_has_0_3_6() -> void:
 	var d = JSON.parse_string(FileAccess.get_file_as_string("res://data/changelog.json"))
-	assert_eq(str(d["entries"][0]["version"]), "0.3.6")
+	var found := false
+	for e in d["entries"]:
+		if str(e["version"]) == "0.3.6":
+			found = true
+	assert_true(found)

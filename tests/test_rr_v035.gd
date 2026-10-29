@@ -164,7 +164,8 @@ func test_super_round_extra_load_bringing_third_sin_triggers() -> void:
 
 # ---------------- 枪口倒计时 ----------------
 
-func test_muzzle_entries_countdown_and_pride_infinite() -> void:
+func test_muzzle_entries_countdown_and_pride_timed() -> void:
+	## v0.3.7：傲慢也显示秒数（不再 ∞）；多层显示最短剩余。
 	var cs := _rush(3507)
 	cs._muzzle_wrath = 1
 	cs._muzzle_wrath_t = 3.2
@@ -174,24 +175,26 @@ func test_muzzle_entries_countdown_and_pride_infinite() -> void:
 	assert_eq(str(es[0]["name"]), "愤怒")
 	assert_almost_eq(float(es[0]["remaining"]), 3.2, 0.001)
 	assert_eq(CombatState.format_muzzle_countdown(es[0]), "愤怒 3.2s")
-	assert_true(float(es[1]["total"]) < 0.0)
-	assert_eq(CombatState.format_muzzle_countdown(es[1]), "傲慢×2 ∞")
+	assert_almost_eq(float(es[1]["total"]), CombatConstants.MUZZLE_DURATION_PRIDE_SEC, 0.001)
+	assert_eq(CombatState.format_muzzle_countdown(es[1]), "傲慢×2 %.1fs" % float(es[1]["remaining"]))
 	cs.tick_muzzle_durations(1.0)
 	assert_almost_eq(float(cs.muzzle_status_entries()[0]["remaining"]), 2.2, 0.001, "计时递减")
 
 
-func test_muzzle_countdown_resets_on_refresh() -> void:
+func test_muzzle_countdown_stack_adds_layer_not_refresh() -> void:
 	var cs := _rush(3508)
 	cs._muzzle_wrath = 1
 	cs._muzzle_wrath_t = 0.5
-	# 再次挂载愤怒 → 重置为满时长
+	# 再次挂载愤怒 → 追加新层，旧层不刷新；显示最短=旧层
 	cs.magazine.clear()
 	cs.magazine.set_slot(0, W)
 	cs.magazine.start_index = 0
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	cs.fire_tap()
 	var e: Dictionary = cs.muzzle_status_entries()[0]
-	assert_almost_eq(float(e["remaining"]), CombatConstants.MUZZLE_DURATION_WRATH_SEC, 0.001)
+	assert_eq(int(e["stacks"]), 2)
+	assert_almost_eq(float(e["remaining"]), 0.5, 0.05)
+	assert_almost_eq(float(cs._muzzle_wrath_layers[1]), CombatConstants.MUZZLE_DURATION_WRATH_SEC, 0.01)
 
 
 func test_ui_muzzle_chip_shows_countdown_and_bar() -> void:
@@ -201,6 +204,7 @@ func test_ui_muzzle_chip_shows_countdown_and_bar() -> void:
 	cs._muzzle_wrath = 1
 	cs._muzzle_wrath_t = 2.0
 	cs._muzzle_pride = 1
+	cs._muzzle_pride_t = 6.0
 	ui._refresh_muzzle_hud()
 	assert_eq(ui._muzzle_chip_nodes.size(), 2)
 	var lab: Label = ui._muzzle_chip_nodes[0]["label"]
@@ -211,15 +215,7 @@ func test_ui_muzzle_chip_shows_countdown_and_bar() -> void:
 	ui._update_muzzle_countdowns()
 	assert_eq(lab.text, "愤怒 1.0s", "原地更新不重建")
 	assert_almost_eq(bar.anchor_right, 0.25, 0.01)
-	assert_eq((ui._muzzle_chip_nodes[1]["label"] as Label).text, "傲慢 ∞")
-
-
-func test_charset_has_infinity() -> void:
-	var f := FileAccess.open("res://tools/ui_charset.txt", FileAccess.READ)
-	if f == null:
-		pending("无 ui_charset.txt")
-		return
-	assert_true(f.get_as_text().contains("∞"), "字体子集需含 ∞")
+	assert_eq((ui._muzzle_chip_nodes[1]["label"] as Label).text, "傲慢 6.0s")
 
 
 # ---------------- 连点射击 ----------------

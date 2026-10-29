@@ -74,23 +74,175 @@ var _fire_queue: Array[int] = []
 var _fire_damages: Array[int] = []
 var _fire_index: int = 0
 var _fire_total_damage: int = 0
-var _muzzle_pierce: bool = false
-var _muzzle_gas: bool = false
-var _muzzle_fire: bool = false
-var _muzzle_water: bool = false
-var _muzzle_thunder: bool = false
-## 罪孽枪口层数：愤怒/贪婪按持续时间清；傲慢本场保留，战斗结束/失败/新开/下一波清零。
-var _muzzle_wrath: int = 0
-var _muzzle_pride: int = 0
-var _muzzle_greed: int = 0
-## 枪口剩余时间（秒，战斗速度倍率缩放后的逻辑秒）；傲慢无计时。
-var _muzzle_wrath_t: float = 0.0
-var _muzzle_greed_t: float = 0.0
-var _muzzle_pierce_t: float = 0.0
-var _muzzle_gas_t: float = 0.0
-var _muzzle_fire_t: float = 0.0
-var _muzzle_water_t: float = 0.0
-var _muzzle_thunder_t: float = 0.0
+## v0.3.7：每层枪口独立计时（数组元素 = 该层剩余秒）；层数 = size；UI 显示最短剩余。
+var _muzzle_pierce_layers: Array = []
+var _muzzle_gas_layers: Array = []
+var _muzzle_fire_layers: Array = []
+var _muzzle_water_layers: Array = []
+var _muzzle_thunder_layers: Array = []
+var _muzzle_wrath_layers: Array = []
+var _muzzle_pride_layers: Array = []
+var _muzzle_greed_layers: Array = []
+
+
+func _muzzle_soonest(layers: Array) -> float:
+	if layers.is_empty():
+		return 0.0
+	var m: float = float(layers[0])
+	for x in layers:
+		m = minf(m, float(x))
+	return m
+
+
+func _muzzle_set_stack_count(layers: Array, count: int, default_dur: float) -> void:
+	## 测试/旧代码直接写层数：裁剪或补满时长层。
+	count = maxi(0, count)
+	while layers.size() > count:
+		layers.pop_back()
+	while layers.size() < count:
+		layers.append(default_dur)
+
+
+func _muzzle_set_soonest_or_all(layers: Array, remaining: float, default_dur: float) -> void:
+	## 测试写 _muzzle_*_t：若无层且 remaining>0 补 1 层；否则把所有层设为 remaining（便于整段到期断言）。
+	if remaining <= 0.0:
+		layers.clear()
+		return
+	if layers.is_empty():
+		layers.append(remaining)
+		return
+	for i in layers.size():
+		layers[i] = remaining
+
+
+func _muzzle_set_flag(layers: Array, on: bool, dur: float) -> void:
+	if on:
+		if layers.is_empty():
+			layers.append(dur)
+	else:
+		layers.clear()
+
+
+func _muzzle_add_layer(layers: Array, dur: float, max_layers: int = 99) -> void:
+	## 叠层：追加新层（满时长）；max_layers=1 时改为刷新唯一层。
+	if max_layers <= 1:
+		layers.clear()
+		layers.append(dur)
+		return
+	layers.append(dur)
+
+
+func _muzzle_tick_layers(layers: Array, delta_sec: float) -> int:
+	## 扣减每层；返回到期移除的层数。
+	var expired := 0
+	var i := 0
+	while i < layers.size():
+		var left: float = maxf(0.0, float(layers[i]) - delta_sec)
+		if left <= 0.0:
+			layers.remove_at(i)
+			expired += 1
+		else:
+			layers[i] = left
+			i += 1
+	return expired
+
+
+var _muzzle_pierce: bool:
+	get:
+		return not _muzzle_pierce_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_pierce_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_gas: bool:
+	get:
+		return not _muzzle_gas_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_gas_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_fire: bool:
+	get:
+		return not _muzzle_fire_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_fire_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_water: bool:
+	get:
+		return not _muzzle_water_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_water_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_thunder: bool:
+	get:
+		return not _muzzle_thunder_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_thunder_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_wrath: int:
+	get:
+		return _muzzle_wrath_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_wrath_layers, v, CombatConstants.MUZZLE_DURATION_WRATH_SEC)
+
+var _muzzle_pride: int:
+	get:
+		return _muzzle_pride_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_pride_layers, v, CombatConstants.MUZZLE_DURATION_PRIDE_SEC)
+
+var _muzzle_greed: int:
+	get:
+		return _muzzle_greed_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_greed_layers, v, CombatConstants.MUZZLE_DURATION_GREED_SEC)
+
+var _muzzle_wrath_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_wrath_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_wrath_layers, v, CombatConstants.MUZZLE_DURATION_WRATH_SEC)
+
+var _muzzle_pride_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_pride_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_pride_layers, v, CombatConstants.MUZZLE_DURATION_PRIDE_SEC)
+
+var _muzzle_greed_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_greed_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_greed_layers, v, CombatConstants.MUZZLE_DURATION_GREED_SEC)
+
+var _muzzle_pierce_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_pierce_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_pierce_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_gas_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_gas_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_gas_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_fire_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_fire_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_fire_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_water_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_water_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_water_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_thunder_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_thunder_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_thunder_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
 ## 本局所选罪孽弹药 id（愤怒/傲慢/贪婪之一）
 var selected_sin_ammo_id: int = FireResolver.ID_WRATH
 ## 本场战斗内袋重置次数；每次重置灌袋 = 构筑基线 + 本计数发额外临时罪孽。开局/波末/下场清零。
@@ -245,37 +397,34 @@ func muzzle_status_parts() -> PackedStringArray:
 
 
 func muzzle_status_entries() -> Array:
-	## UI 倒计时：[{name, remaining, total}]；total<0 表示无计时（傲慢整场 ∞）。
+	## UI 倒计时：[{name, remaining, total, stacks}]；remaining = 最短层剩余（即将到期那一层）。
 	var out: Array = []
 	var el: float = CombatConstants.MUZZLE_DURATION_ELEMENT_SEC
 	if _muzzle_pierce:
-		out.append({"name": "穿甲", "remaining": _muzzle_pierce_t, "total": el})
+		out.append({"name": "穿甲", "remaining": _muzzle_pierce_t, "total": el, "stacks": _muzzle_pierce_layers.size()})
 	if _muzzle_gas:
-		out.append({"name": "汽油", "remaining": _muzzle_gas_t, "total": el})
+		out.append({"name": "汽油", "remaining": _muzzle_gas_t, "total": el, "stacks": _muzzle_gas_layers.size()})
 	if _muzzle_fire:
-		out.append({"name": "火", "remaining": _muzzle_fire_t, "total": el})
+		out.append({"name": "火", "remaining": _muzzle_fire_t, "total": el, "stacks": _muzzle_fire_layers.size()})
 	if _muzzle_water:
-		out.append({"name": "水", "remaining": _muzzle_water_t, "total": el})
+		out.append({"name": "水", "remaining": _muzzle_water_t, "total": el, "stacks": _muzzle_water_layers.size()})
 	if _muzzle_thunder:
-		out.append({"name": "雷", "remaining": _muzzle_thunder_t, "total": el})
+		out.append({"name": "雷", "remaining": _muzzle_thunder_t, "total": el, "stacks": _muzzle_thunder_layers.size()})
 	if _muzzle_wrath > 0:
 		out.append({"name": "愤怒", "remaining": _muzzle_wrath_t, "total": CombatConstants.MUZZLE_DURATION_WRATH_SEC, "stacks": _muzzle_wrath})
 	if _muzzle_pride > 0:
-		out.append({"name": "傲慢", "remaining": -1.0, "total": -1.0, "stacks": _muzzle_pride})
+		out.append({"name": "傲慢", "remaining": _muzzle_pride_t, "total": CombatConstants.MUZZLE_DURATION_PRIDE_SEC, "stacks": _muzzle_pride})
 	if _muzzle_greed > 0:
 		out.append({"name": "贪婪", "remaining": _muzzle_greed_t, "total": CombatConstants.MUZZLE_DURATION_GREED_SEC, "stacks": _muzzle_greed})
 	return out
 
 
 static func format_muzzle_countdown(entry: Dictionary) -> String:
-	## 芯片文字：「愤怒×2 3.2s」；无计时显示「∞」。
+	## 芯片文字：「愤怒×2 2.1s」——层数>1 显示 ×N，秒数取最短层。
 	var s: String = str(entry.get("name", ""))
 	var stacks: int = int(entry.get("stacks", 0))
 	if stacks > 1:
 		s += "×%d" % stacks
-	var total: float = float(entry.get("total", -1.0))
-	if total < 0.0:
-		return s + " ∞"
 	return s + " %.1fs" % maxf(0.0, float(entry.get("remaining", 0.0)))
 
 
@@ -343,11 +492,11 @@ func muzzle_damage_tip_text() -> String:
 		lines.append("当前无修正（×1）")
 		lines.append("结算：无倍率，底伤不变")
 	if greed > 0:
-		lines.append("贪婪×%d：造成伤害时每层 30%% 掉等额金（不改倍率）· 剩余 %.1f 秒" % [greed, _muzzle_greed_t])
+		lines.append("贪婪×%d：造成伤害时每层 30%% 掉等额金（不改倍率）· 最短层剩余 %.1f 秒" % [greed, _muzzle_greed_t])
 	if wrath > 0:
-		lines.append("愤怒剩余 %.1f 秒" % _muzzle_wrath_t)
+		lines.append("愤怒最短层剩余 %.1f 秒" % _muzzle_wrath_t)
 	if pride > 0:
-		lines.append("傲慢：整场战斗")
+		lines.append("傲慢剩余 %.1f 秒（每层独立，满时长 %.0f 秒）" % [_muzzle_pride_t, CombatConstants.MUZZLE_DURATION_PRIDE_SEC])
 	var elems: PackedStringArray = PackedStringArray()
 	if _muzzle_pierce:
 		elems.append("穿甲%.1fs" % _muzzle_pierce_t)
@@ -367,81 +516,60 @@ func muzzle_damage_tip_text() -> String:
 
 
 func _reset_muzzle() -> void:
-	## 清全部元素枪口及其计时（胜/败/新波/新开）；平时靠持续时间自然到期。
-	_muzzle_pierce = false
-	_muzzle_gas = false
-	_muzzle_fire = false
-	_muzzle_water = false
-	_muzzle_thunder = false
-	_muzzle_pierce_t = 0.0
-	_muzzle_gas_t = 0.0
-	_muzzle_fire_t = 0.0
-	_muzzle_water_t = 0.0
-	_muzzle_thunder_t = 0.0
+	## 清全部元素枪口层（胜/败/新波/新开）；平时靠每层计时自然到期。
+	_muzzle_pierce_layers.clear()
+	_muzzle_gas_layers.clear()
+	_muzzle_fire_layers.clear()
+	_muzzle_water_layers.clear()
+	_muzzle_thunder_layers.clear()
 
 
 func _clear_turn_sin_muzzle() -> void:
-	## 兼容旧调用名：立即清愤怒/贪婪（及计时）；傲慢保留。持续时间模式下通常由 tick_muzzle_durations 到期。
+	## 兼容旧调用名：立即清愤怒/贪婪层；傲慢保留。通常由 tick_muzzle_durations 逐层到期。
 	if _muzzle_wrath > 0 or _muzzle_greed > 0:
 		_log("枪口：愤怒/贪婪清除（傲慢×%d 保留）。" % _muzzle_pride)
-	_muzzle_wrath = 0
-	_muzzle_greed = 0
-	_muzzle_wrath_t = 0.0
-	_muzzle_greed_t = 0.0
+	_muzzle_wrath_layers.clear()
+	_muzzle_greed_layers.clear()
 
 
 func _clear_all_sin_muzzle(include_pride: bool = true) -> void:
-	## 战斗结束/新开/下一波：清全部罪孽枪口。include_pride 保留兼容；默认与口头「战后清傲慢」一致，始终清零。
-	_muzzle_wrath = 0
-	_muzzle_greed = 0
-	_muzzle_pride = 0
-	_muzzle_wrath_t = 0.0
-	_muzzle_greed_t = 0.0
+	## 战斗结束/新开/下一波：清全部罪孽枪口层。include_pride 保留兼容；始终清零。
+	_muzzle_wrath_layers.clear()
+	_muzzle_greed_layers.clear()
+	_muzzle_pride_layers.clear()
 	if not include_pride:
-		# 旧调用若显式 false 也不再保留傲慢（口头：离场必须清）
 		pass
 
 
 func tick_muzzle_durations(delta_sec: float) -> bool:
-	## 战斗进行中扣减枪口剩余时间（已按战斗速度缩放的逻辑秒）。到期清对应状态。返回是否有变化。
+	## v0.3.7：每层独立扣减；到期只掉那一层，其它层继续。返回是否有层数/状态变化。
 	if delta_sec <= 0.0:
 		return false
 	if phase == Phase.WON or phase == Phase.LOST:
 		return false
 	var changed := false
-	changed = _tick_muzzle_flag("_muzzle_pierce", "_muzzle_pierce_t", delta_sec, "穿甲") or changed
-	changed = _tick_muzzle_flag("_muzzle_gas", "_muzzle_gas_t", delta_sec, "汽油") or changed
-	changed = _tick_muzzle_flag("_muzzle_fire", "_muzzle_fire_t", delta_sec, "火") or changed
-	changed = _tick_muzzle_flag("_muzzle_water", "_muzzle_water_t", delta_sec, "水") or changed
-	changed = _tick_muzzle_flag("_muzzle_thunder", "_muzzle_thunder_t", delta_sec, "雷") or changed
-	if _muzzle_wrath > 0:
-		_muzzle_wrath_t = maxf(0.0, _muzzle_wrath_t - delta_sec)
-		if _muzzle_wrath_t <= 0.0:
-			_log("枪口【愤怒】持续时间结束（曾 ×%d）。" % _muzzle_wrath)
-			_muzzle_wrath = 0
-			_muzzle_wrath_t = 0.0
-			changed = true
-	if _muzzle_greed > 0:
-		_muzzle_greed_t = maxf(0.0, _muzzle_greed_t - delta_sec)
-		if _muzzle_greed_t <= 0.0:
-			_log("枪口【贪婪】持续时间结束（曾 ×%d）。" % _muzzle_greed)
-			_muzzle_greed = 0
-			_muzzle_greed_t = 0.0
-			changed = true
+	changed = _tick_muzzle_named_layers(_muzzle_pierce_layers, delta_sec, "穿甲") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_gas_layers, delta_sec, "汽油") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_fire_layers, delta_sec, "火") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_water_layers, delta_sec, "水") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_thunder_layers, delta_sec, "雷") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_wrath_layers, delta_sec, "愤怒") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_pride_layers, delta_sec, "傲慢") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_greed_layers, delta_sec, "贪婪") or changed
 	return changed
 
 
-func _tick_muzzle_flag(flag_name: String, timer_name: String, delta_sec: float, label: String) -> bool:
-	if not bool(get(flag_name)):
+func _tick_muzzle_named_layers(layers: Array, delta_sec: float, label: String) -> bool:
+	if layers.is_empty():
 		return false
-	var t: float = float(get(timer_name))
-	t = maxf(0.0, t - delta_sec)
-	set(timer_name, t)
-	if t > 0.0:
+	var before: int = layers.size()
+	var expired: int = _muzzle_tick_layers(layers, delta_sec)
+	if expired <= 0:
 		return false
-	set(flag_name, false)
-	set(timer_name, 0.0)
-	_log("枪口【%s】持续时间结束。" % label)
+	if layers.is_empty():
+		_log("枪口【%s】全部层到期（曾 ×%d）。" % [label, before])
+	else:
+		_log("枪口【%s】%d 层到期 → 剩余 ×%d。" % [label, expired, layers.size()])
 	return true
 
 
@@ -723,40 +851,39 @@ func _scale_outgoing_damage(raw: int) -> int:
 
 
 func _mount_muzzle_from(flags: Dictionary) -> void:
-	## 元素枪口：射击后挂上并刷新持续时间；持续期内后续击发附带。
+	## 元素枪口：最多 1 层；再挂则刷新该层满时长（不叠层）。
 	var dur: float = CombatConstants.MUZZLE_DURATION_ELEMENT_SEC
 	if bool(flags.get("pierce", false)):
 		if not _muzzle_pierce:
 			_log("  → 枪口【穿甲】（最多 1 层，%.1f 秒）" % dur)
-		_muzzle_pierce = true
-		_muzzle_pierce_t = dur
+		_muzzle_add_layer(_muzzle_pierce_layers, dur, 1)
 	if bool(flags.get("gas", false)):
-		_muzzle_gas = true
-		_muzzle_gas_t = dur
+		_muzzle_add_layer(_muzzle_gas_layers, dur, 1)
 	if bool(flags.get("fire", false)):
-		_muzzle_fire = true
-		_muzzle_fire_t = dur
+		_muzzle_add_layer(_muzzle_fire_layers, dur, 1)
 	if bool(flags.get("water", false)):
-		_muzzle_water = true
-		_muzzle_water_t = dur
+		_muzzle_add_layer(_muzzle_water_layers, dur, 1)
 	if bool(flags.get("thunder", false)):
-		_muzzle_thunder = true
-		_muzzle_thunder_t = dur
+		_muzzle_add_layer(_muzzle_thunder_layers, dur, 1)
 
 
 func _mount_sin_muzzle_from(flags: Dictionary) -> void:
-	## 罪孽层在本发结算前叠加，使本发即享受加成；愤怒/贪婪刷新持续时间，傲慢本场永久。
+	## v0.3.7：每层独立计时；再挂追加新层（旧层不刷新）。傲慢也计时（12 秒）。
 	if bool(flags.get("wrath", false)):
-		_muzzle_wrath += 1
-		_muzzle_wrath_t = CombatConstants.MUZZLE_DURATION_WRATH_SEC
-		_log("  → 枪口【愤怒】+1（现 %d，%.1f 秒）" % [_muzzle_wrath, _muzzle_wrath_t])
+		_muzzle_add_layer(_muzzle_wrath_layers, CombatConstants.MUZZLE_DURATION_WRATH_SEC)
+		_log("  → 枪口【愤怒】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_wrath, CombatConstants.MUZZLE_DURATION_WRATH_SEC, _muzzle_wrath_t
+		])
 	if bool(flags.get("pride", false)):
-		_muzzle_pride += 1
-		_log("  → 枪口【傲慢】+1（现 %d，本场）" % _muzzle_pride)
+		_muzzle_add_layer(_muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC)
+		_log("  → 枪口【傲慢】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_pride, CombatConstants.MUZZLE_DURATION_PRIDE_SEC, _muzzle_pride_t
+		])
 	if bool(flags.get("greed", false)):
-		_muzzle_greed += 1
-		_muzzle_greed_t = CombatConstants.MUZZLE_DURATION_GREED_SEC
-		_log("  → 枪口【贪婪】+1（现 %d，%.1f 秒）" % [_muzzle_greed, _muzzle_greed_t])
+		_muzzle_add_layer(_muzzle_greed_layers, CombatConstants.MUZZLE_DURATION_GREED_SEC)
+		_log("  → 枪口【贪婪】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_greed, CombatConstants.MUZZLE_DURATION_GREED_SEC, _muzzle_greed_t
+		])
 
 
 func _count_ammo_in(ids: Array, ammo_id: int) -> int:

@@ -118,6 +118,7 @@ func test_greed_pack_subtracts_gold() -> void:
 
 
 func test_pride_persists_greed_clears_by_duration() -> void:
+	## 傲慢时长 12s > 贪婪 4s：贪婪整段到期后傲慢仍在。
 	var cs := CombatState.new(907)
 	cs.start_rush(907, FireResolver.ID_PRIDE)
 	while cs.enemies.size() > 1:
