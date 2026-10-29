@@ -1,6 +1,5 @@
 extends GutTest
 
-const MapGraph = preload("res://scripts/map/map_graph.gd")
 const ShopState = preload("res://scripts/shop/shop_state.gd")
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 ## 商店灰盒：买 / 删 / 递增费用 / 离店重置 / 重随。
@@ -8,7 +7,6 @@ const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 
 func before_each() -> void:
 	DataRegistry.reload()
-	RunState.end_run()
 
 
 func test_buy_adds_ammo_and_spends_gold() -> void:
@@ -70,68 +68,6 @@ func test_reroll_free_then_paid() -> void:
 		assert_false(s)
 	first_stock = first_stock  # silence unused if identical
 
-
-func test_map_shop_enter_leave_writes_back() -> void:
-	RunState.begin_run(7, MapGraph.KIND_SHOP)
-	# 走到节点 3：先打完战斗 1
-	assert_true(RunState.enter_combat_node(1))
-	RunState.apply_combat_result({
-		"gold": 40,
-		"bag": RunState.bag.duplicate(),
-		"player_hp": 20,
-		"player_max_hp": 20,
-		"pink_bonus": 0,
-	}, true)
-	assert_true(RunState.available_node_ids().has(3))
-	var n := MapGraph.node_by_id(RunState.graph, 3)
-	assert_true(MapGraph.is_shop_node(n))
-	assert_true(RunState.enter_shop_node(3))
-	assert_eq(RunState.pending_shop_node_id, 3)
-	# 未离开前节点未完成
-	assert_false(RunState.is_completed(3))
-	var shop := ShopState.new()
-	shop.begin(RunState.gold, RunState.bag, 3, 55)
-	assert_true(shop.buy(0))
-	var bought_id: int = shop.bag[shop.bag.size() - 1]
-	var payload := shop.end_session()
-	var msg := RunState.leave_shop(payload)
-	assert_string_contains(msg, "离开商店")
-	assert_eq(RunState.current_node_id, 3)
-	assert_true(RunState.is_completed(3))
-	assert_eq(RunState.pending_shop_node_id, -1)
-	assert_eq(RunState.gold, int(payload["gold"]))
-	assert_true(RunState.bag.has(bought_id))
-	assert_true(RunState.available_node_ids().has(4))
-
-
-func test_non_shop_placeholder_still_pass_through() -> void:
-	RunState.begin_run(5, "特殊事件")
-	assert_true(RunState.enter_combat_node(1))
-	RunState.apply_combat_result({
-		"gold": 10,
-		"bag": RunState.bag.duplicate(),
-		"player_hp": 20,
-		"player_max_hp": 20,
-		"pink_bonus": 0,
-	}, true)
-	var msg := RunState.visit_placeholder(3)
-	assert_string_contains(msg, "灰盒未开放")
-	assert_eq(RunState.current_node_id, 3)
-
-
-func test_visit_placeholder_rejects_shop() -> void:
-	RunState.begin_run(5, MapGraph.KIND_SHOP)
-	assert_true(RunState.enter_combat_node(1))
-	RunState.apply_combat_result({
-		"gold": 10,
-		"bag": RunState.bag.duplicate(),
-		"player_hp": 20,
-		"player_max_hp": 20,
-		"pink_bonus": 0,
-	}, true)
-	var msg := RunState.visit_placeholder(3)
-	assert_string_contains(msg, "商店")
-	assert_false(RunState.is_completed(3))
 
 func test_cannot_remove_sin_ammo() -> void:
 	## 设计：罪孽弹药不能被删除；商店移除须拦截（平庸仍可删）。

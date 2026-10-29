@@ -16,7 +16,6 @@ func test_main_scene_uses_game_version() -> void:
 func test_no_duplicate_version_const_in_ui_scripts() -> void:
 	var paths := [
 		"res://scripts/main.gd",
-		"res://scripts/map/map_ui.gd",
 		"res://scripts/combat/combat_ui.gd",
 	]
 	for path in paths:

@@ -67,7 +67,7 @@ func _initialize() -> void:
 
 	# wrath pack-of-3 self damage
 	var cs2 = CombatStateScr.new(77)
-	cs2.start_graybox(77, false, ID_WRATH)
+	cs2.start_rush(77, ID_WRATH)
 	cs2.enemies[0].hp = 999
 	cs2.bag.clear()
 	for id in [ID_WRATH, ID_WRATH, ID_WRATH, ID_WHITE, ID_WHITE, ID_WHITE]:
@@ -79,7 +79,7 @@ func _initialize() -> void:
 
 	# wrath muzzle +1 stack, dmg *2 on base 3 white? wrath ammo base — check dealt
 	cs2 = CombatStateScr.new(78)
-	cs2.start_graybox(78, false, ID_WRATH)
+	cs2.start_rush(78, ID_WRATH)
 	cs2.enemies.clear()
 	cs2.dev_spawn_enemy(1, 4)
 	cs2.enemies[0].hp = 200
@@ -96,7 +96,7 @@ func _initialize() -> void:
 
 	# pride pull to front
 	cs2 = CombatStateScr.new(79)
-	cs2.start_graybox(79, false, ID_PRIDE)
+	cs2.start_rush(79, ID_PRIDE)
 	cs2.enemies.clear()
 	cs2.dev_spawn_enemy(1, 8)
 	cs2.dev_spawn_enemy(1, 9)
@@ -110,7 +110,7 @@ func _initialize() -> void:
 
 	# greed gold (3 greed → -6? design was gold -= 2 per greed pack? assert matches test)
 	cs2 = CombatStateScr.new(80)
-	cs2.start_graybox(80, false, ID_GREED)
+	cs2.start_rush(80, ID_GREED)
 	cs2.gold = 1
 	cs2.bag.clear()
 	for id in [ID_GREED, ID_GREED, ID_GREED, ID_WHITE, ID_WHITE, ID_WHITE]:
@@ -121,7 +121,7 @@ func _initialize() -> void:
 
 	# zombie 50hp + super front summon
 	cs2 = CombatStateScr.new(81)
-	cs2.start_graybox(81, true, ID_WRATH)
+	cs2.start_rush(81, ID_WRATH)
 	cs2.enemies.clear()
 	cs2.dev_spawn_enemy(ID_ZOMBIE, 8)
 	assert(cs2.enemies[0].max_hp == 50)

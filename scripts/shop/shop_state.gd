@@ -1,5 +1,5 @@
 class_name ShopState
-## 商店会话逻辑（纯数据）。打开时拷贝 gold/bag；离开时写回 RunState。
+## 商店会话逻辑（纯数据）。打开时拷贝 gold/bag；离开时写回 rush! 战斗状态。
 ## 库存随机、无稀有度权重；购买入袋；移除费用单店递增，离店重置；罪孽弹药不可去除。
 
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")

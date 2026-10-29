@@ -9,7 +9,7 @@ func before_each() -> void:
 
 func test_starter_bag_is_ten_mediocre_plus_five_sin() -> void:
 	var cs := CombatState.new(901)
-	cs.start_graybox(901, false, FireResolver.ID_GREED)
+	cs.start_rush(901, FireResolver.ID_GREED)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	var white := 0
 	var sin_n := 0
@@ -25,7 +25,7 @@ func test_starter_bag_is_ten_mediocre_plus_five_sin() -> void:
 
 func test_choose_sin_refills_bag() -> void:
 	var cs := CombatState.new(902)
-	cs.start_graybox(902, false, FireResolver.ID_WRATH)
+	cs.start_rush(902, FireResolver.ID_WRATH)
 	cs.choose_sin(FireResolver.ID_PRIDE)
 	assert_eq(cs.selected_sin_ammo_id, FireResolver.ID_PRIDE)
 	var pride := 0
@@ -38,7 +38,7 @@ func test_choose_sin_refills_bag() -> void:
 
 func test_wrath_pack_of_three_self_damage() -> void:
 	var cs := CombatState.new(903)
-	cs.start_graybox(903, false, FireResolver.ID_WRATH)
+	cs.start_rush(903, FireResolver.ID_WRATH)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -52,7 +52,7 @@ func test_wrath_pack_of_three_self_damage() -> void:
 
 func test_wrath_muzzle_doubles_damage() -> void:
 	var cs := CombatState.new(904)
-	cs.start_graybox(904, false, FireResolver.ID_WRATH)
+	cs.start_rush(904, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 5)
 	cs.enemies[0].hp = 500
@@ -75,7 +75,7 @@ func test_wrath_muzzle_doubles_damage() -> void:
 
 func test_pride_pack_pulls_enemies_forward() -> void:
 	var cs := CombatState.new(905)
-	cs.start_graybox(905, false, FireResolver.ID_PRIDE)
+	cs.start_rush(905, FireResolver.ID_PRIDE)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 7)
 	cs.dev_spawn_enemy(1, 9)
@@ -92,7 +92,7 @@ func test_pride_pack_pulls_enemies_forward() -> void:
 
 func test_greed_pack_subtracts_gold() -> void:
 	var cs := CombatState.new(906)
-	cs.start_graybox(906, false, FireResolver.ID_GREED)
+	cs.start_rush(906, FireResolver.ID_GREED)
 	cs.gold = 2
 	cs.bag.clear()
 	for id in [FireResolver.ID_GREED, FireResolver.ID_GREED, FireResolver.ID_GREED,
@@ -104,7 +104,7 @@ func test_greed_pack_subtracts_gold() -> void:
 
 func test_pride_persists_greed_clears_end_of_turn() -> void:
 	var cs := CombatState.new(907)
-	cs.start_graybox(907, false, FireResolver.ID_PRIDE)
+	cs.start_rush(907, FireResolver.ID_PRIDE)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.enemies[0].cell = 9
@@ -130,7 +130,7 @@ func test_enemy_table_hp_and_zombie_tag() -> void:
 
 func test_super_zombie_summons_in_front() -> void:
 	var cs := CombatState.new(908)
-	cs.start_graybox(908, true, FireResolver.ID_WRATH)
+	cs.start_rush(908, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(CombatConstants.SUPER_ZOMBIE_ENEMY_ID, 5)
 	cs.do_load()
@@ -148,7 +148,7 @@ func test_super_zombie_summons_in_front() -> void:
 
 func test_zombie_regens_five_hp() -> void:
 	var cs := CombatState.new(909)
-	cs.start_graybox(909, true, FireResolver.ID_WRATH)
+	cs.start_rush(909, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(CombatConstants.ZOMBIE_ENEMY_ID, 8)
 	cs.enemies[0].hp = 20
@@ -160,7 +160,7 @@ func test_zombie_regens_five_hp() -> void:
 
 func test_manual_load_one_chamber_at_a_time() -> void:
 	var cs := CombatState.new(910)
-	cs.start_graybox(910, false, FireResolver.ID_WRATH)
+	cs.start_rush(910, FireResolver.ID_WRATH)
 	cs.bag.clear()
 	for _i in 3:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
@@ -187,7 +187,7 @@ func test_manual_load_one_chamber_at_a_time() -> void:
 func test_manual_load_one_then_can_continue_and_fire() -> void:
 	## 手装 1 发后仍可再装；且可直接开火（提交装填会话）。
 	var cs := CombatState.new(920)
-	cs.start_graybox(920, false, FireResolver.ID_WRATH)
+	cs.start_rush(920, FireResolver.ID_WRATH)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -214,7 +214,7 @@ func test_manual_load_one_then_can_continue_and_fire() -> void:
 func test_bag_reset_bonus_sin_accumulates_then_clears_on_new_combat() -> void:
 	## 战斗内袋空重置两次 → +1、+2 临时罪孽；练习战胜利清零；新开无额外。
 	var cs := CombatState.new(921)
-	cs.start_graybox(921, false, FireResolver.ID_GREED)
+	cs.start_rush(921, FireResolver.ID_GREED)
 	assert_eq(cs.bag_reset_count, 0)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	cs.bag.clear()
@@ -239,7 +239,7 @@ func test_bag_reset_bonus_sin_accumulates_then_clears_on_new_combat() -> void:
 	assert_eq(cs.count_temporary_in_bag(), 0)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	# 新开一场亦无额外
-	cs.start_graybox(922, false, FireResolver.ID_GREED)
+	cs.start_rush(922, FireResolver.ID_GREED)
 	assert_eq(cs.bag_reset_count, 0)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	assert_eq(cs.count_temporary_in_bag(), 0)
@@ -247,7 +247,7 @@ func test_bag_reset_bonus_sin_accumulates_then_clears_on_new_combat() -> void:
 
 func test_win_clears_all_sin_muzzle_including_pride() -> void:
 	var cs := CombatState.new(923)
-	cs.start_graybox(923, false, FireResolver.ID_PRIDE)
+	cs.start_rush(923, FireResolver.ID_PRIDE)
 	cs._muzzle_pride = 3
 	cs._muzzle_wrath = 2
 	cs._muzzle_greed = 1
@@ -262,7 +262,7 @@ func test_win_clears_all_sin_muzzle_including_pride() -> void:
 func test_pride_pack_four_or_more_also_pulls() -> void:
 	## 口头：≥3 触发；4 发傲慢也应拉近。
 	var cs := CombatState.new(930)
-	cs.start_graybox(930, false, FireResolver.ID_PRIDE)
+	cs.start_rush(930, FireResolver.ID_PRIDE)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 7)
 	cs.dev_spawn_enemy(1, 9)
@@ -280,7 +280,7 @@ func test_pride_pack_four_or_more_also_pulls() -> void:
 func test_manual_load_three_pride_then_fire_pulls() -> void:
 	## 手装 3 傲慢后提交会话（开火），也应拉近。袋内仅傲慢，避免随机抽偏。
 	var cs := CombatState.new(931)
-	cs.start_graybox(931, false, FireResolver.ID_PRIDE)
+	cs.start_rush(931, FireResolver.ID_PRIDE)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 8)
 	cs.bag.clear()
@@ -301,7 +301,7 @@ func test_manual_load_three_pride_then_fire_pulls() -> void:
 func test_outgoing_damage_rounds_half_up() -> void:
 	## 傲慢×1 → ×1.25；底伤 3 → 3.75 → 四舍五入 4（旧 floor 会得 3）。
 	var cs := CombatState.new(932)
-	cs.start_graybox(932, false, FireResolver.ID_PRIDE)
+	cs.start_rush(932, FireResolver.ID_PRIDE)
 	cs._muzzle_pride = 1
 	assert_eq(cs._scale_outgoing_damage(3), 4)
 	assert_eq(cs.muzzle_outgoing_multiplier(), 1.25)
@@ -312,7 +312,7 @@ func test_outgoing_damage_rounds_half_up() -> void:
 
 func test_muzzle_damage_tip_no_mod_and_with_stacks() -> void:
 	var cs := CombatState.new(933)
-	cs.start_graybox(933, false, FireResolver.ID_WRATH)
+	cs.start_rush(933, FireResolver.ID_WRATH)
 	var tip0 := cs.muzzle_damage_tip_text()
 	assert_true(tip0.contains("无修正") or tip0.contains("×1"))
 	cs._muzzle_wrath = 2
@@ -326,7 +326,7 @@ func test_muzzle_damage_tip_no_mod_and_with_stacks() -> void:
 
 func test_lose_clears_pride_muzzle() -> void:
 	var cs := CombatState.new(934)
-	cs.start_graybox(934, false, FireResolver.ID_PRIDE)
+	cs.start_rush(934, FireResolver.ID_PRIDE)
 	cs._muzzle_pride = 4
 	cs._muzzle_wrath = 2
 	cs.player_hp = 0
@@ -338,7 +338,7 @@ func test_lose_clears_pride_muzzle() -> void:
 
 func test_next_wave_clears_pride() -> void:
 	var cs := CombatState.new(935)
-	cs.start_graybox(935, true, FireResolver.ID_PRIDE)
+	cs.start_rush(935, FireResolver.ID_PRIDE)
 	cs._muzzle_pride = 3
 	cs.dev_kill_all_enemies()
 	assert_eq(cs._muzzle_pride, 0)
@@ -349,7 +349,7 @@ func test_next_wave_clears_pride() -> void:
 
 func test_greed_gold_gained_signal_emits_amount() -> void:
 	var cs := CombatState.new(936)
-	cs.start_graybox(936, false, FireResolver.ID_GREED)
+	cs.start_rush(936, FireResolver.ID_GREED)
 	cs._muzzle_greed = 10
 	cs.rng.seed = 1
 	var got: Array = []
@@ -363,7 +363,7 @@ func test_greed_gold_gained_signal_emits_amount() -> void:
 
 func test_empty_bag_at_turn_start_auto_resets_nonempty_skips() -> void:
 	var cs := CombatState.new(940)
-	cs.start_graybox(940, false, FireResolver.ID_WRATH)
+	cs.start_rush(940, FireResolver.ID_WRATH)
 	assert_eq(cs.bag_reset_count, 0)
 	assert_false(cs._auto_reset_bag_if_empty_at_turn_start())
 	assert_eq(cs.bag_reset_count, 0)
@@ -379,7 +379,7 @@ func test_empty_bag_at_turn_start_auto_resets_nonempty_skips() -> void:
 func test_endless_wave_end_clears_reset_count_same_wave_bonus_stays() -> void:
 	## 同波内袋空重置仍 +N；波胜利清临时额外并保留构筑；下一波内再重置可重新累加。
 	var cs := CombatState.new(941)
-	cs.start_graybox(941, true, FireResolver.ID_PRIDE)
+	cs.start_rush(941, FireResolver.ID_PRIDE)
 	var build_size: int = cs.bag.size()
 	cs.bag.clear()
 	cs.bag_temp.clear()
@@ -400,7 +400,7 @@ func test_endless_wave_end_clears_reset_count_same_wave_bonus_stays() -> void:
 	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_eq(cs.count_temporary_in_bag(), 1)
-	cs.start_graybox(942, true, FireResolver.ID_PRIDE)
+	cs.start_rush(942, FireResolver.ID_PRIDE)
 	assert_eq(cs.bag_reset_count, 0)
 	assert_eq(cs.count_temporary_in_bag(), 0)
 

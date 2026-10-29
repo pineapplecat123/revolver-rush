@@ -22,7 +22,7 @@ func _run() -> void:
 		return
 	# Force endless for shop shot later
 	if scene.state != null:
-		scene.state.start_graybox(4242, true)
+		scene.state.start_rush(4242)
 		await process_frame
 		await process_frame
 	var bag: Control = scene.get_node("%BagPanel") as Control
@@ -107,8 +107,7 @@ func _run() -> void:
 		var cs = scene.state
 		cs.phase = cs.Phase.AWAIT_LOAD
 		cs._clear_reward_state()
-		cs.endless_mode = true
-		cs.endless_shop_done = true
+		cs.rush_shop_done = true
 		cs.wave_index = 5
 		cs.gold = 40
 		cs.enemies.clear()
@@ -116,7 +115,7 @@ func _run() -> void:
 		cs.dev_kill_all_enemies()
 		cs.skip_reward_for_gold()
 		await process_frame
-		scene._open_endless_shop()
+		scene._open_rush_shop()
 		await process_frame
 		await process_frame
 		await create_timer(0.25).timeout

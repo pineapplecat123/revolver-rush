@@ -1,8 +1,10 @@
-# project001
+# Revolver Rush（RR）
+
+> 从 project001 v0.2.75 分出的新方向：竖屏手机布局，唯一模式 `rush!`。
 
 基于 **Godot 4.7.2**（2D，GL Compatibility 渲染器）的游戏项目。
 
-- 在线试玩（GitHub Pages）：https://pineapplecat123.github.io/project001/
+- 在线试玩（GitHub Pages）：https://pineapplecat123.github.io/revolver-rush/（需在仓库 Settings → Pages 启用 GitHub Actions 部署）
 - 单元测试：[GUT 9.7.1](https://github.com/bitwes/Gut)（已内置在 `addons/gut`）
 
 ## 目录结构

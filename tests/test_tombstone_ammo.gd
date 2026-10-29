@@ -23,7 +23,7 @@ func test_ammo_defs_enabled() -> void:
 
 func test_tombstone_spawns_ghost_and_fills_empty_chambers() -> void:
 	var cs := CombatState.new(1952)
-	cs.start_graybox(1952, false, FireResolver.ID_WRATH)
+	cs.start_rush(1952, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 5)
 	cs.enemies[0].hp = 999
@@ -66,7 +66,7 @@ func test_tombstone_spawns_ghost_and_fills_empty_chambers() -> void:
 
 func test_tombstone_generates_ghost_even_when_mag_full_of_ammo() -> void:
 	var cs := CombatState.new(1953)
-	cs.start_graybox(1953, false, FireResolver.ID_WRATH)
+	cs.start_rush(1953, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 5)
 	cs.enemies[0].hp = 500
@@ -97,44 +97,9 @@ func test_tombstone_generates_ghost_even_when_mag_full_of_ammo() -> void:
 	assert_true(FireResolver.ID_GHOST in cs._fire_queue)
 
 
-func test_win_purges_ghosts_from_map_run_bag() -> void:
-	var cs := CombatState.new(1954)
-	cs.start_from_run({
-		"bag": [
-			CombatConstants.WHITE_AMMO_ID,
-			FireResolver.ID_GHOST,
-			FireResolver.ID_GHOST,
-			FireResolver.ID_WRATH,
-		],
-		"gold": 10,
-		"player_hp": 20,
-		"player_max_hp": 20,
-		"encounter": "normal",
-		"seed": 1954,
-	}, 1954)
-	assert_true(cs.from_map_run)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 3)
-	cs.enemies[0].hp = 1
-	cs.enemies[0].max_hp = 1
-	cs.dev_force_load([
-		CombatConstants.WHITE_AMMO_ID,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	assert_true(cs.begin_fire())
-	# 致死射击可能返回 false（清场 abort），仍应进入胜利并清幽灵
-	cs.fire_next_shot()
-	assert_eq(cs.phase, CombatState.Phase.WON)
-	for id in cs.bag:
-		assert_ne(int(id), FireResolver.ID_GHOST, "ghosts must vanish after combat")
-	for id in cs.discard:
-		assert_ne(int(id), FireResolver.ID_GHOST)
-
-
 func test_ghost_never_in_reward_choices() -> void:
 	var cs := CombatState.new(1955)
-	cs.start_graybox(1955, false, FireResolver.ID_GREED)
+	cs.start_rush(1955, FireResolver.ID_GREED)
 	for _i in 40:
 		var choices: Array[int] = cs.generate_reward_choices()
 		assert_eq(choices.size(), CombatConstants.REWARD_CHOICE_COUNT)
@@ -156,7 +121,7 @@ func test_ghost_damage_is_two() -> void:
 func test_bag_can_hold_multiple_tombstones() -> void:
 	## 设计未限制墓碑唯一；袋可持有多发。奖励/商店入袋可叠加（地图/无限均保留构筑；练习胜利仍回 10+5）。
 	var cs := CombatState.new(1919)
-	cs.start_graybox(1919)
+	cs.start_rush(1919)
 	cs.bag.clear()
 	cs.bag_temp.clear()
 	cs._bag_append(FireResolver.ID_TOMBSTONE, false)
@@ -173,7 +138,7 @@ func test_bag_can_hold_multiple_tombstones() -> void:
 func test_endless_win_keeps_tombstones_then_reward_stacks() -> void:
 	## 无限每波胜利：保留构筑（墓碑不打回 10+5）；幽灵清；再领奖可再叠墓碑。
 	var cs := CombatState.new(1920)
-	cs.start_graybox(1920, true, FireResolver.ID_WRATH)
+	cs.start_rush(1920, FireResolver.ID_WRATH)
 	cs._bag_append(FireResolver.ID_TOMBSTONE, false)
 	cs._bag_append(FireResolver.ID_TOMBSTONE, false)
 	cs._snapshot_combat_bag_baseline()
@@ -208,7 +173,7 @@ func test_endless_win_keeps_tombstones_then_reward_stacks() -> void:
 func test_mid_combat_bag_reset_keeps_tombstone_and_ghost() -> void:
 	## 同波袋空自动重置：墓碑（构筑基线）与幽灵（战斗临时）均保留；另加 1 发临时罪孽。
 	var cs := CombatState.new(1921)
-	cs.start_graybox(1921, true, FireResolver.ID_GREED)
+	cs.start_rush(1921, FireResolver.ID_GREED)
 	cs._bag_append(FireResolver.ID_TOMBSTONE, false)
 	cs._snapshot_combat_bag_baseline()
 	# 模拟打空：永久弹进弃牌，幽灵在弃牌，袋空
@@ -235,11 +200,10 @@ func test_mid_combat_bag_reset_keeps_tombstone_and_ghost() -> void:
 	assert_eq(cs.discard.size(), 0)
 
 
-
 func test_tombstone_fill_keeps_last_fired_slot() -> void:
 	## 幽灵填仓会改槽内容（含刚打空的仓），但 last_fired_slot 仍是本发锤位，不跳到别仓。
 	var cs := CombatState.new(1960)
-	cs.start_graybox(1960, false, FireResolver.ID_WRATH)
+	cs.start_rush(1960, FireResolver.ID_WRATH)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 5)
 	cs.enemies[0].hp = 999

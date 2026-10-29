@@ -1,17 +1,18 @@
 extends Control
-## 灰盒战斗 UI：棋盘 + 大圆转轮（带六小圆）+ LOAD/FIRE/ROLL/UNLOAD + 右侧常驻弹药袋 + 悬停/长按详情 + 胜利奖励 + 角落开发者工具。
+## rush! 战斗 UI（竖屏三等分）：上=战斗区（棋盘/枪线/飙血/飘字/波次横幅），中=转轮+弹药袋，下=操作区（手动装弹 / 射击）。
 ## 转轮：大盘(_disk)带着六小圆整盘转；红击发圈与装弹标挂在 MagWheel 上不转。
-## 击发点=正上固定；上弹口=左上固定；LOAD 装左上→转60°；装满后 reroll；FIRE 射正上→转60°。
-## 无限模式：每 5 波奖励后进商店（复用 ShopState）；受击飘字带弧线轨迹。
+## 击发点=正上固定；上弹口=左上固定；手动装弹装左上→转60°；装满后自动 reroll；射击从正上逐发打空转轮。
+## rush!：每 5 波奖励后进商店（复用 ShopState）；受击飘字带弧线轨迹。无战斗日志。
 
 const ShopState = preload("res://scripts/shop/shop_state.gd")
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 const BagPhysicsBox = preload("res://scripts/combat/bag_physics_box.gd")
 
-const CELL_W := 86
-const CELL_H := 110
-const UNIT_W := 54.0
-const UNIT_H := 70.0
+## 竖屏 720 宽：10 格 × 68 = 680
+const CELL_W := 68
+const CELL_H := 150
+const UNIT_W := 56.0
+const UNIT_H := 96.0
 const GROUND_LINE_H := 4.0
 const WHEEL_SIZE := 220.0
 const CHAMBER_SIZE := 58.0
@@ -33,8 +34,10 @@ const COMBAT_SPEED_STEP := 0.25
 const COMBAT_SPEED_DEFAULT := 1.0
 const BAG_GRID_COLS := 3
 const BAG_CELL_MIN := Vector2(56, 56)
-const ACTION_BTN_SIZE := 76.0
-const LOG_PANEL_MIN := Vector2(154, 280)
+## 竖屏操作区：两颗大按钮（手动装弹 / 射击）
+const ACTION_BTN_FONT := 40
+## 竖屏弹窗最大宽（720 基准视口留边）
+const MODAL_MAX_W := 690.0
 const LONG_PRESS_SEC := 0.45
 const DETAIL_PANEL_W := 360.0
 const DETAIL_PANEL_H := 320.0
@@ -116,7 +119,6 @@ var _bag_inv_fingerprint: String = ""
 var _bag_physics: BagPhysicsBox = null
 var _sin_panel: PanelContainer = null
 var _sin_pick_open: bool = false
-var _pending_start_endless: bool = false
 var _bag_refreshing: bool = false
 var _firing: bool = false
 var _rolling: bool = false
@@ -188,12 +190,8 @@ var _btn_shop_leave: Button = null
 @onready var mag_title: Label = %MagTitle
 @onready var mag_wheel: Control = %MagWheel
 @onready var fire_marker: Label = %FireMarker
-@onready var log_box: RichTextLabel = %LogBox
-@onready var btn_load: Button = %BtnLoad
-var btn_manual_load: Button = null
+@onready var btn_manual_load: Button = %BtnManualLoad
 @onready var btn_fire: Button = %BtnFire
-@onready var btn_roll: Button = %BtnRoll
-@onready var btn_unload: Button = %BtnUnload
 @onready var btn_dev: Button = %BtnDev
 @onready var btn_menu: Button = %BtnMenu
 @onready var result_label: Label = %ResultLabel
@@ -217,15 +215,11 @@ func _ready() -> void:
 	state = CombatState.new()
 	state.phase_changed.connect(func(_p): _refresh())
 	state.state_changed.connect(_refresh)
-	state.log_line.connect(_on_log)
 	state.enemy_damaged.connect(_on_enemy_damaged)
 	state.player_damaged.connect(_on_player_damaged)
 	state.gold_gained.connect(_on_gold_gained)
-	btn_load.pressed.connect(_on_load)
-	# btn_manual_load wired in _ensure_square_action_buttons
+	btn_manual_load.pressed.connect(_on_manual_load)
 	btn_fire.pressed.connect(_on_fire)
-	btn_roll.pressed.connect(_on_roll)
-	btn_unload.pressed.connect(_on_unload)
 	btn_dev.pressed.connect(_toggle_dev)
 	btn_next_wave.pressed.connect(_on_next_wave)
 	btn_menu.pressed.connect(_on_menu_pressed)
@@ -233,17 +227,17 @@ func _ready() -> void:
 	btn_reward_next.pressed.connect(_on_reward_continue)
 	dimmer.gui_input.connect(_on_dimmer_input)
 	version_label.text = "v%s" % GameVersion.STRING
-	mag_title.text = "弹夹转轮"
+	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "红圈正上击发 · 左上装弹口 · LOAD一发一转 · 有弹即可 ROLL（不满匣也可）。悬停/长按弹药可看效果。"
+		hint_lab.text = "手动装弹：从弹药袋装 1 发进转轮（装满自动转盘）· 射击：打出转轮里的全部子弹。长按弹药可看效果。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
 	_build_board_cells()
 	_build_wheel_chambers()
 	_build_ammo_detail_panel()
-	_build_endless_shop_panel()
+	_build_rush_shop_panel()
 	_build_sin_pick_panel()
 	_wire_dev_buttons()
 	bag_panel.visible = true
@@ -260,17 +254,12 @@ func _ready() -> void:
 	_ensure_combat_layout()
 	_ensure_muzzle_hud()
 	_ensure_speed_hud()
-	if RunState.is_in_map_run() and RunState.pending_combat_node_id >= 0:
-		state.start_from_run(RunState.combat_snapshot())
-		btn_menu.text = "放弃回地图"
-		state.pace_after_fire = true
-		_refresh()
-	else:
-		_pending_start_endless = RunState.consume_pending_endless()
-		btn_menu.text = "返回主菜单"
-		btn_next_wave.text = "下一波 NEXT"
-		state.pace_after_fire = true
-		_open_sin_pick()
+	_fit_modals_portrait()
+	# rush!（唯一模式）：先选罪孽，再开第 1 波
+	btn_menu.text = "返回主菜单"
+	btn_next_wave.text = "下一波 NEXT"
+	state.pace_after_fire = true
+	_open_sin_pick()
 
 
 func _style_overlay_panels() -> void:
@@ -298,6 +287,26 @@ func _style_overlay_panels() -> void:
 	bag_panel.add_theme_stylebox_override("panel", bag_style)
 	if bag_header_label != null:
 		bag_header_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
+	# 竖屏三等分：战斗区 / 转轮+弹药袋 / 操作区 各一块底板
+	var thirds := {
+		"Margin/RootVBox/TopPanel": Color(0.1, 0.11, 0.15, 1.0),
+		"Margin/RootVBox/MidPanel": Color(0.12, 0.11, 0.1, 1.0),
+		"Margin/RootVBox/BottomPanel": Color(0.09, 0.1, 0.14, 1.0),
+	}
+	for path in thirds:
+		var sec := get_node_or_null(path) as PanelContainer
+		if sec == null:
+			continue
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = thirds[path]
+		sb.set_border_width_all(1)
+		sb.border_color = Color(0.3, 0.33, 0.42, 0.8)
+		sb.set_corner_radius_all(10)
+		sb.content_margin_left = 8
+		sb.content_margin_right = 8
+		sb.content_margin_top = 6
+		sb.content_margin_bottom = 6
+		sec.add_theme_stylebox_override("panel", sb)
 
 
 func _style_corner_buttons() -> void:
@@ -331,28 +340,21 @@ func _ensure_top_labels_uncropped() -> void:
 		self,
 		get_node_or_null("Margin"),
 		get_node_or_null("Margin/RootVBox"),
-		get_node_or_null("Margin/RootVBox/TopSection"),
-		get_node_or_null("Margin/RootVBox/TopSection/TopBarPad"),
-		get_node_or_null("Margin/RootVBox/BottomSection"),
+		get_node_or_null("Margin/RootVBox/TopPanel"),
+		get_node_or_null("Margin/RootVBox/TopPanel/TopSection"),
+		get_node_or_null("Margin/RootVBox/TopPanel/TopSection/TopBarPad"),
+		get_node_or_null("Margin/RootVBox/MidPanel"),
+		get_node_or_null("Margin/RootVBox/MidPanel/MidSection"),
 	]:
 		if n is Control:
 			var c := n as Control
 			c.clip_contents = false
-	# Combat / Margin：顶边钉死，最小高度超出时只往下长
-	grow_vertical = Control.GROW_DIRECTION_END
-	var margin_c := get_node_or_null("Margin") as Control
-	if margin_c != null:
-		margin_c.grow_vertical = Control.GROW_DIRECTION_END
 	var top_bar: Control = get_node_or_null("%TopBar") as Control
 	if top_bar == null:
-		top_bar = get_node_or_null("Margin/RootVBox/TopSection/TopBarPad/TopBar") as Control
+		top_bar = get_node_or_null("Margin/RootVBox/TopPanel/TopSection/TopBarPad/TopBar") as Control
 	if top_bar != null:
 		top_bar.clip_contents = false
-		top_bar.custom_minimum_size = Vector2(
-			top_bar.custom_minimum_size.x,
-			maxf(top_bar.custom_minimum_size.y, 36.0)
-		)
-	var board_title: Label = get_node_or_null("Margin/RootVBox/TopSection/BoardTitle") as Label
+	var board_title: Label = get_node_or_null("Margin/RootVBox/TopPanel/TopSection/BoardTitle") as Label
 	var labels: Array[Label] = [
 		phase_label, hp_label, bag_label, discard_label, gold_label, turn_label,
 		bag_header_label, board_title, mag_title
@@ -364,7 +366,7 @@ func _ensure_top_labels_uncropped() -> void:
 		lab.add_theme_constant_override("line_spacing", 8)
 		lab.clip_text = false
 		lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		var floor_h := 34.0
+		var floor_h := 30.0
 		if lab == mag_title:
 			floor_h = 24.0
 		elif lab == board_title:
@@ -387,137 +389,54 @@ func _ensure_top_labels_uncropped() -> void:
 
 
 func _ensure_combat_layout() -> void:
-	## 棋盘居中；底部三块（轮盘+键 | 弹药袋 | 窄日志）均匀成簇，整组画面中央略靠左。
+	## 竖屏三等分（RootVBox 三块 EXPAND_FILL 等比）：上=战斗区，中=转轮+弹药袋，下=操作区（手动装弹 / 射击）。
+	for path in ["Margin/RootVBox/TopPanel", "Margin/RootVBox/MidPanel", "Margin/RootVBox/BottomPanel"]:
+		var sec := get_node_or_null(path) as Control
+		if sec != null:
+			sec.size_flags_vertical = Control.SIZE_EXPAND_FILL
+			sec.size_flags_stretch_ratio = 1.0
 	if board_row != null:
 		board_row.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		board_row.alignment = BoxContainer.ALIGNMENT_CENTER
-	var board_title: Label = get_node_or_null("Margin/RootVBox/TopSection/BoardTitle") as Label
+	var board_title: Label = get_node_or_null("Margin/RootVBox/TopPanel/TopSection/BoardTitle") as Label
 	if board_title != null:
 		board_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		board_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	var bottom: HBoxContainer = get_node_or_null("Margin/RootVBox/BottomSection") as HBoxContainer
-	if bottom == null:
-		return
-	# 整组（轮盘+袋+日志）相对棋盘再往下一点
-	var mid_sp: Control = get_node_or_null("Margin/RootVBox/MidSpacer") as Control
-	if mid_sp != null:
-		mid_sp.custom_minimum_size = Vector2(0, 32)
-	# 三块之间等距；外空白由左右 pad 吸收，不再用中间 EXPAND 拉开
-	bottom.add_theme_constant_override("separation", 18)
-	var left_pad: Control = bottom.get_node_or_null("BottomLeftPad") as Control
-	if left_pad == null:
-		left_pad = Control.new()
-		left_pad.name = "BottomLeftPad"
-		bottom.add_child(left_pad)
-	left_pad.visible = true
-	left_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	left_pad.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	left_pad.size_flags_stretch_ratio = 0.85  # 略小于右侧 → 整组稍靠左
-	left_pad.custom_minimum_size = Vector2.ZERO
-	var combat_block: HBoxContainer = bottom.get_node_or_null("CombatBlock") as HBoxContainer
-	if combat_block != null:
-		combat_block.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		combat_block.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		combat_block.add_theme_constant_override("separation", 14)
-		var mag_col: VBoxContainer = combat_block.get_node_or_null("MagCol") as VBoxContainer
-		if mag_col != null:
-			mag_col.add_theme_constant_override("separation", 6)
-		_ensure_square_action_buttons(combat_block)
+	var mag_col: VBoxContainer = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as VBoxContainer
+	if mag_col != null:
+		mag_col.add_theme_constant_override("separation", 6)
 	if bag_panel != null:
-		bag_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		bag_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		if bag_panel.get_parent() != bottom:
-			bag_panel.reparent(bottom)
-	_ensure_log_panel_on_right(bottom)
-	var right_pad: Control = bottom.get_node_or_null("BagRightPad") as Control
-	if right_pad == null:
-		right_pad = Control.new()
-		right_pad.name = "BagRightPad"
-		bottom.add_child(right_pad)
-	right_pad.visible = true
-	right_pad.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	right_pad.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	right_pad.size_flags_stretch_ratio = 1.15
-	right_pad.custom_minimum_size = Vector2.ZERO
-	# 顺序：左垫 | 轮盘块 | 袋 | 日志 | 右垫（无中间大空白）
-	var mid_pad: Control = bottom.get_node_or_null("LogMidPad") as Control
-	if mid_pad != null:
-		mid_pad.visible = false
-		mid_pad.size_flags_horizontal = 0
-		mid_pad.custom_minimum_size = Vector2.ZERO
-	var log_panel: Node = bottom.get_node_or_null("LogPanel")
-	var ordered: Array[Node] = []
-	ordered.append(left_pad)
-	if combat_block != null:
-		ordered.append(combat_block)
-	if bag_panel != null:
-		ordered.append(bag_panel)
-	if log_panel != null:
-		ordered.append(log_panel)
-	ordered.append(right_pad)
-	for i in ordered.size():
-		var n: Node = ordered[i]
-		if n.get_parent() == bottom:
-			bottom.move_child(n, i)
-	var footer: VBoxContainer = get_node_or_null("Margin/RootVBox/FooterSection") as VBoxContainer
-	if footer != null:
-		footer.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-		footer.add_theme_constant_override("separation", 4)
+		bag_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		bag_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_ensure_action_buttons()
 
 
-
-func _ensure_square_action_buttons(combat_block: HBoxContainer) -> void:
-	## 装弹/射击/ROLL/卸除改为 2×2 方形大按钮，更好点按。
-	var action_col: VBoxContainer = combat_block.get_node_or_null("ActionCol") as VBoxContainer
-	if action_col == null:
-		return
-	action_col.add_theme_constant_override("separation", 8)
-	var grid: GridContainer = action_col.get_node_or_null("ActionGrid") as GridContainer
-	if grid == null:
-		grid = GridContainer.new()
-		grid.name = "ActionGrid"
-		grid.columns = 2
-		grid.add_theme_constant_override("h_separation", 8)
-		grid.add_theme_constant_override("v_separation", 8)
-		var insert_at := 0
-		for i in action_col.get_child_count():
-			if str(action_col.get_child(i).name) == "ActionHeader":
-				insert_at = i + 1
-				break
-		action_col.add_child(grid)
-		action_col.move_child(grid, insert_at)
-	grid.columns = 3
-	if btn_manual_load == null:
-		btn_manual_load = Button.new()
-		btn_manual_load.name = "BtnManualLoad"
-		btn_manual_load.pressed.connect(_on_manual_load)
-	var specs: Array = [
-		[btn_load, "装弹"],
-		[btn_manual_load, "手装"],
-		[btn_fire, "射击"],
-		[btn_roll, "ROLL"],
-		[btn_unload, "卸除"],
-	]
-	for spec in specs:
-		var btn: Button = spec[0]
+func _ensure_action_buttons() -> void:
+	## 操作区只有两颗大按钮：手动装弹（装 1 发）/ 射击（打空转轮）。
+	for btn in [btn_manual_load, btn_fire]:
 		if btn == null:
 			continue
-		btn.text = str(spec[1])
-		btn.custom_minimum_size = Vector2(ACTION_BTN_SIZE, ACTION_BTN_SIZE)
-		btn.add_theme_font_size_override("font_size", 18)
+		btn.add_theme_font_size_override("font_size", ACTION_BTN_FONT)
 		btn.clip_text = false
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_style_square_action_button(btn)
-		if btn.get_parent() == grid:
-			pass
-		elif btn.get_parent() == null:
-			# runtime-created btn (e.g. manual load) has no parent yet; cannot reparent
-			grid.add_child(btn)
-		else:
-			btn.reparent(grid)
-	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
-	if hint_lab != null and hint_lab.get_parent() == action_col:
-		hint_lab.custom_minimum_size = Vector2(ACTION_BTN_SIZE * 2.0 + 8.0, 0)
-		hint_lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	btn_manual_load.text = "手动装弹"
+	btn_fire.text = "射击"
+	# 射击键偏红，便于单手快速区分
+	var fire_normal := btn_fire.get_theme_stylebox("normal")
+	if fire_normal is StyleBoxFlat:
+		var f := (fire_normal as StyleBoxFlat).duplicate() as StyleBoxFlat
+		f.bg_color = Color(0.42, 0.14, 0.12, 0.98)
+		f.border_color = Color(1.0, 0.55, 0.45, 0.95)
+		btn_fire.add_theme_stylebox_override("normal", f)
+		var fh := f.duplicate() as StyleBoxFlat
+		fh.bg_color = Color(0.55, 0.2, 0.16, 1.0)
+		btn_fire.add_theme_stylebox_override("hover", fh)
+		btn_fire.add_theme_stylebox_override("focus", fh)
+		var fp := f.duplicate() as StyleBoxFlat
+		fp.bg_color = Color(0.3, 0.1, 0.08, 1.0)
+		btn_fire.add_theme_stylebox_override("pressed", fp)
 
 
 func _style_square_action_button(btn: Button) -> void:
@@ -545,65 +464,26 @@ func _style_square_action_button(btn: Button) -> void:
 	btn.add_theme_stylebox_override("disabled", disabled)
 
 
-func _ensure_log_panel_on_right(bottom: HBoxContainer) -> void:
-	## 战斗日志窄条，与轮盘/袋一起居中成簇。
-	var log_panel: PanelContainer = bottom.get_node_or_null("LogPanel") as PanelContainer
-	if log_panel == null:
-		log_panel = PanelContainer.new()
-		log_panel.name = "LogPanel"
-		bottom.add_child(log_panel)
-	log_panel.custom_minimum_size = LOG_PANEL_MIN
-	# 固定窄宽；与轮盘/袋均匀成簇，不独自贴右
-	log_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	log_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.1, 0.11, 0.15, 0.92)
-	style.set_border_width_all(2)
-	style.border_color = Color(0.4, 0.48, 0.6, 0.85)
-	style.set_corner_radius_all(10)
-	style.content_margin_left = 8
-	style.content_margin_right = 8
-	style.content_margin_top = 6
-	style.content_margin_bottom = 6
-	log_panel.add_theme_stylebox_override("panel", style)
-	var margin: MarginContainer = log_panel.get_node_or_null("LogMargin") as MarginContainer
-	if margin == null:
-		margin = MarginContainer.new()
-		margin.name = "LogMargin"
-		log_panel.add_child(margin)
-	var vbox: VBoxContainer = margin.get_node_or_null("LogVBox") as VBoxContainer
-	if vbox == null:
-		vbox = VBoxContainer.new()
-		vbox.name = "LogVBox"
-		vbox.add_theme_constant_override("separation", 4)
-		margin.add_child(vbox)
-	var footer: Node = get_node_or_null("Margin/RootVBox/FooterSection")
-	var log_title: Label = null
-	if footer != null:
-		log_title = footer.get_node_or_null("LogTitle") as Label
-	if log_title == null:
-		log_title = vbox.get_node_or_null("LogTitle") as Label
-	if log_title == null:
-		log_title = Label.new()
-		log_title.name = "LogTitle"
-		log_title.text = "战斗日志"
-	if log_title.get_parent() != vbox:
-		log_title.reparent(vbox)
-		vbox.move_child(log_title, 0)
-	log_title.add_theme_font_size_override("font_size", 14)
-	log_title.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9, 1))
-	if log_box != null:
-		if log_box.get_parent() != vbox:
-			log_box.reparent(vbox)
-		log_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		log_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		log_box.custom_minimum_size = Vector2(0, 220)
-	# 排序由 _ensure_combat_layout 统一处理；此处只保证窄宽、不 expand
-	var mid_pad: Control = bottom.get_node_or_null("LogMidPad") as Control
-	if mid_pad != null:
-		mid_pad.visible = false
-		mid_pad.size_flags_horizontal = 0
-		mid_pad.custom_minimum_size = Vector2.ZERO
+func _fit_modal(panel: Control, w: float, h: float) -> void:
+	## 竖屏：弹窗居中，宽不超过 MODAL_MAX_W，高不超过视口 - 留边。
+	if panel == null:
+		return
+	var vp := get_viewport_rect().size if is_inside_tree() else Vector2(720, 1280)
+	var fw: float = minf(w, minf(MODAL_MAX_W, vp.x - 24.0))
+	var fh: float = minf(h, vp.y - 48.0)
+	panel.custom_minimum_size = Vector2(fw, 0)
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.offset_left = -fw * 0.5
+	panel.offset_right = fw * 0.5
+	panel.offset_top = -fh * 0.5
+	panel.offset_bottom = fh * 0.5
+
+
+func _fit_modals_portrait() -> void:
+	_fit_modal(reward_panel, 680.0, 760.0)
+	_fit_modal(dev_panel, 690.0, 1000.0)
+	_fit_modal(_shop_panel, 690.0, 1000.0)
+	_fit_modal(_sin_panel, 640.0, 440.0)
 
 
 func _ensure_muzzle_hud() -> void:
@@ -773,7 +653,7 @@ func _ensure_long_press_timer() -> void:
 
 func _on_dimmer_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		# 奖励 / 无限商店必须主动操作，点遮罩不关闭
+		# 奖励 / 商店必须主动操作，点遮罩不关闭
 		if _reward_open or _shop_open or _sin_pick_open:
 			return
 		if _detail_open and not _detail_from_hover:
@@ -781,13 +661,6 @@ func _on_dimmer_input(event: InputEvent) -> void:
 			return
 		if _dev_open:
 			_toggle_dev()
-
-
-func _on_log(text: String) -> void:
-	log_box.append_text(text + "\n")
-	# scroll_following=true；再强制滚到底，确保最新行可见
-	await get_tree().process_frame
-	log_box.scroll_to_line(log_box.get_line_count())
 
 
 func _unit_rest_position() -> Vector2:
@@ -1075,69 +948,10 @@ func _busy() -> bool:
 	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying
 
 
-func _on_load() -> void:
-	if _busy():
-		return
-	_run_load_sequence()
-
-
-func _run_load_sequence() -> void:
-	if not state.begin_load():
-		return
-	_loading = true
-	# 开局：仓 0 在左上上弹口 → start_index = LOAD_SESSION_INITIAL_START
-	_apply_disk_rotation(float(state.magazine.start_index))
-	_refresh_mag_contents()
-	_refresh_hud_only()
-	if not state.is_busy_loading():
-		_loading = false
-		_apply_disk_rotation(float(state.magazine.start_index))
-		_refresh()
-		return
-	var needs_spin := false
-	while state.is_busy_loading():
-		var before_steps: float = _wheel_visual_steps
-		var result: Dictionary = state.load_next_chamber()
-		if not bool(result.get("ok", false)):
-			break
-		needs_spin = bool(result.get("needs_spin", false))
-		# 关键：盘面仍停在 before_steps，写入的仓正对 ◀装 标注
-		_refresh_mag_contents()
-		_refresh_hud_only()
-		if LOAD_INSERT_PAUSE > 0.0:
-			await get_tree().create_timer(_paced(LOAD_INSERT_PAUSE)).timeout
-		if bool(result.get("done", false)):
-			break
-		# 入弹可见后再逻辑转盘 + Tween 60°（先占住 _wheel_animating，避免 signal refresh 按新 start 误高亮）
-		var rotate_to: float = float(result.get("rotate_to", state.magazine.start_index))
-		var target: float = rotate_to
-		while target + 0.001 < before_steps:
-			target += float(CombatConstants.MAGAZINE_SIZE)
-		if absf(target - before_steps) < 0.001:
-			target = before_steps + 1.0
-		_wheel_animating = true
-		state.apply_load_rotate()
-		await _animate_disk_to(target, _paced(STEP_ROT_DURATION))
-		_refresh_mag_contents()
-	# 装满后：与 ROLL 按钮同一套随机转（_run_shared_cylinder_spin）
-	if needs_spin and state.can_start_roll():
-		await _run_shared_cylinder_spin()
-	else:
-		_apply_disk_rotation(float(state.magazine.start_index))
-	_loading = false
-	_refresh()
-
-
 func _on_manual_load() -> void:
 	if _busy():
 		return
 	if not state.can_manual_load():
-		if state.bag.is_empty():
-			state._log("手装：弹药袋已空。")
-		elif state.is_busy_loading() and state.magazine != null and state.magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
-			state._log("手装：弹匣已满。")
-		else:
-			state._log("手装：当前无法装填。")
 		_refresh()
 		return
 	_run_manual_load_one()
@@ -1905,25 +1719,7 @@ func _flash_fire_chamber_at(slot_i: int) -> void:
 	_begin_fire_flash(slot_i)
 
 
-func _on_roll() -> void:
-	if _busy():
-		return
-	if not state.can_start_roll():
-		return
-	_rolling = true
-	_refresh_hud_only()
-	# 与装填满匣后的随机转同一套路径；转完后结束玩家行动（怪前进）
-	var steps: int = await _run_shared_cylinder_spin()
-	if steps < 0:
-		_rolling = false
-		_refresh()
-		return
-	state.resolve_after_player_action()
-	_rolling = false
-	_refresh()
-
-
-## 装填满匣后 spin 与 ROLL 按钮共用：先对齐视觉到当前 start，再 apply_roll，再整圈动画落点。
+## 装填满匣后自动随机转（原 ROLL 同一路径）：先对齐视觉到当前 start，再 apply_roll，再整圈动画落点。
 ## 返回 apply_roll 步数（失败 -1；单发可为 0）。
 func _run_shared_cylinder_spin() -> int:
 	if not state.can_start_roll():
@@ -1953,53 +1749,30 @@ func _play_roll_spin_visual(logic_steps: int) -> void:
 	await _animate_disk_to(_wheel_visual_steps + visual, dur)
 
 
-func _on_unload() -> void:
-	if _busy():
-		return
-	state.do_unload()
-	_apply_disk_rotation(0.0)
-
-
 func _on_menu_pressed() -> void:
-	if state.from_map_run:
-		# 中途退出：放弃本节点战斗，不完成节点，回地图（保留进战前资源）
-		RunState.pending_combat_node_id = -1
-		get_tree().change_scene_to_file("res://scenes/map.tscn")
-	else:
-		get_tree().change_scene_to_file("res://scenes/main.tscn")
+	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
 func _on_reward_continue() -> void:
-	if state.from_map_run:
-		_return_to_map(true)
-	elif state.needs_endless_shop():
-		_open_endless_shop()
+	if state.needs_rush_shop():
+		_open_rush_shop()
 	else:
 		_on_next_wave()
-
-
-func _return_to_map(victory: bool) -> void:
-	if victory and not state.can_start_next_wave():
-		return
-	var payload := state.export_run_payload()
-	RunState.apply_combat_result(payload, victory)
-	get_tree().change_scene_to_file("res://scenes/map.tscn")
 
 
 func _on_next_wave() -> void:
 	if _busy() or _shop_open:
 		return
-	# 地图 run 战败：用下一波按钮返回地图并结束本局
-	if state.from_map_run and state.phase == CombatState.Phase.LOST:
-		_return_to_map(false)
+	# rush! 战败：同一按钮重开一局（回到罪孽选择）
+	if state.phase == CombatState.Phase.LOST:
+		get_tree().reload_current_scene()
 		return
 	if not state.can_start_next_wave():
 		return
 	state.start_next_wave()
 	btn_next_wave.text = "下一波 NEXT"
 	_set_reward_open(false)
-	if state.endless_mode:
-		await _play_wave_banner(state.wave_index)
+	await _play_wave_banner(state.wave_index)
 
 
 func _toggle_dev() -> void:
@@ -2014,7 +1787,7 @@ func _toggle_dev() -> void:
 
 
 func _update_dimmer() -> void:
-	# 悬停/长按弹药详情不盖遮罩；开发面板 / 奖励 / 无限商店 / 罪孽选择用遮罩
+	# 悬停/长按弹药详情不盖遮罩；开发面板 / 奖励 / 商店 / 罪孽选择用遮罩
 	dimmer.visible = _dev_open or _reward_open or _shop_open or _sin_pick_open
 
 
@@ -2074,26 +1847,15 @@ func _refresh_reward_panel() -> void:
 			btn.pressed.connect(func(): _on_reward_pick(idx))
 			reward_choices.add_child(btn)
 	elif resolved:
-		if state.from_map_run:
-			if state.encounter_kind == CombatState.EncounterKind.BOSS:
-				reward_hint.text = "Boss 击败！领取完毕后返回地图查看通关结算。无伤/三回合额外金灰盒暂未结算。"
-				btn_reward_next.text = "通关结算 RETURN"
-			else:
-				reward_hint.text = "领取完毕。返回地图选择下一节点（本战不会再刷下一波）。无伤/三回合额外金灰盒暂未结算。"
-				btn_reward_next.text = "返回地图 RETURN"
+		if state.needs_rush_shop():
+			reward_hint.text = "第 %d 波已清：请先进入商店（每 5 波一次），逛完后再开下一波。牌库跨波保留。" % state.wave_index
+			btn_reward_next.text = "进入商店 SHOP"
 		else:
-			if state.endless_mode and state.needs_endless_shop():
-				reward_hint.text = "第 %d 波已清：请先进入商店（每 5 波一次），逛完后再开下一波。牌库跨波保留。" % state.wave_index
-				btn_reward_next.text = "进入商店 SHOP"
-			elif state.endless_mode:
-				reward_hint.text = "可继续下一波（无限模式：牌库与奖励弹药跨波保留）。无伤/三回合额外金灰盒暂未结算。"
-				btn_reward_next.text = "下一波 NEXT"
-			else:
-				reward_hint.text = "可继续下一波（练习战胜利后弹药已重置为开局牌库）。练习战无地图。无伤/三回合额外金灰盒暂未结算。"
-				btn_reward_next.text = "下一波 NEXT"
+			reward_hint.text = "可继续下一波（rush!：牌库与奖励弹药跨波保留）。"
+			btn_reward_next.text = "下一波 NEXT"
 		btn_reward_skip.visible = false
 		btn_reward_next.visible = true
-		if state.needs_endless_shop():
+		if state.needs_rush_shop():
 			btn_reward_next.disabled = false
 		else:
 			btn_reward_next.disabled = not state.can_start_next_wave()
@@ -2295,11 +2057,11 @@ func _damage_float_step(t: float, lab: Label, start_g: Vector2, ctrl: Vector2, e
 	lab.global_position = p - h
 
 
-func _build_endless_shop_panel() -> void:
+func _build_rush_shop_panel() -> void:
 	if _shop_panel != null:
 		return
 	_shop_panel = PanelContainer.new()
-	_shop_panel.name = "EndlessShopPanel"
+	_shop_panel.name = "RushShopPanel"
 	_shop_panel.visible = false
 	_shop_panel.z_index = Z_MODAL_PANEL
 	_shop_panel.set_anchors_preset(Control.PRESET_CENTER)
@@ -2327,7 +2089,7 @@ func _build_endless_shop_panel() -> void:
 	root.add_theme_constant_override("separation", 8)
 	margin.add_child(root)
 	_shop_title = Label.new()
-	_shop_title.text = "无限商店 · 灰盒"
+	_shop_title.text = "rush! 商店"
 	_shop_title.add_theme_font_size_override("font_size", 22)
 	_shop_title.add_theme_color_override("font_color", COL_REWARD_TITLE)
 	root.add_child(_shop_title)
@@ -2379,23 +2141,23 @@ func _build_endless_shop_panel() -> void:
 	root.add_child(actions)
 	_btn_shop_reroll = Button.new()
 	_btn_shop_reroll.custom_minimum_size = Vector2(220, 40)
-	_btn_shop_reroll.pressed.connect(_on_endless_shop_reroll)
+	_btn_shop_reroll.pressed.connect(_on_rush_shop_reroll)
 	_style_reward_action_button(_btn_shop_reroll)
 	actions.add_child(_btn_shop_reroll)
 	_btn_shop_leave = Button.new()
 	_btn_shop_leave.text = "离开商店 · 可下一波"
 	_btn_shop_leave.custom_minimum_size = Vector2(220, 40)
-	_btn_shop_leave.pressed.connect(_on_endless_shop_leave)
+	_btn_shop_leave.pressed.connect(_on_rush_shop_leave)
 	_style_reward_action_button(_btn_shop_leave)
 	actions.add_child(_btn_shop_leave)
 	add_child(_shop_panel)
 
 
-func _open_endless_shop() -> void:
-	if state == null or not state.needs_endless_shop():
+func _open_rush_shop() -> void:
+	if state == null or not state.needs_rush_shop():
 		return
 	if _shop_panel == null:
-		_build_endless_shop_panel()
+		_build_rush_shop_panel()
 	_set_reward_open(false)
 	_dev_open = false
 	dev_panel.visible = false
@@ -2404,14 +2166,14 @@ func _open_endless_shop() -> void:
 	_shop.begin(state.gold, state.bag, state.wave_index, seed_v)
 	_shop_open = true
 	_shop_panel.visible = true
-	_refresh_endless_shop_panel()
+	_refresh_rush_shop_panel()
 	_update_dimmer()
 
 
-func _refresh_endless_shop_panel() -> void:
+func _refresh_rush_shop_panel() -> void:
 	if _shop_panel == null or not _shop.open:
 		return
-	_shop_title.text = "无限商店 · 第 %d 波后" % state.wave_index
+	_shop_title.text = "rush! 商店 · 第 %d 波后" % state.wave_index
 	_shop_gold_label.text = "金币 %d" % _shop.gold
 	_shop_hint.text = "购买：单价 %d 金/发。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。逛完后才可下一波。" % [
 		ShopConstants.AMMO_PRICE,
@@ -2427,11 +2189,11 @@ func _refresh_endless_shop_panel() -> void:
 		_btn_shop_reroll.text = "重随库存（%d 金）" % rc
 	_btn_shop_reroll.disabled = not _shop.can_reroll()
 	_shop_msg.text = _shop.last_message
-	_refresh_endless_shop_stock()
-	_refresh_endless_shop_bag()
+	_refresh_rush_shop_stock()
+	_refresh_rush_shop_bag()
 
 
-func _refresh_endless_shop_stock() -> void:
+func _refresh_rush_shop_stock() -> void:
 	for c in _shop_stock.get_children():
 		c.queue_free()
 	var title := Label.new()
@@ -2456,12 +2218,12 @@ func _refresh_endless_shop_stock() -> void:
 		btn.custom_minimum_size = Vector2(88, 36)
 		btn.disabled = not _shop.can_buy(i)
 		var idx := i
-		btn.pressed.connect(func(): _on_endless_shop_buy(idx))
+		btn.pressed.connect(func(): _on_rush_shop_buy(idx))
 		row.add_child(btn)
 		_shop_stock.add_child(row)
 
 
-func _refresh_endless_shop_bag() -> void:
+func _refresh_rush_shop_bag() -> void:
 	for c in _shop_bag_list.get_children():
 		c.queue_free()
 	var title := Label.new()
@@ -2500,36 +2262,36 @@ func _refresh_endless_shop_bag() -> void:
 		else:
 			btn.text = "移除 %d 金" % _shop.next_remove_cost()
 			btn.disabled = not _shop.can_remove_at(idx)
-			btn.pressed.connect(func(): _on_endless_shop_remove(aid))
+			btn.pressed.connect(func(): _on_rush_shop_remove(aid))
 		btn.custom_minimum_size = Vector2(120, 36)
 		row.add_child(btn)
 		_shop_bag_list.add_child(row)
 
 
-func _on_endless_shop_buy(slot: int) -> void:
+func _on_rush_shop_buy(slot: int) -> void:
 	if _shop.buy(slot):
-		_refresh_endless_shop_panel()
+		_refresh_rush_shop_panel()
 
 
-func _on_endless_shop_remove(ammo_id: int) -> void:
+func _on_rush_shop_remove(ammo_id: int) -> void:
 	var idx := _shop.bag.find(ammo_id)
 	if idx < 0:
 		return
 	if _shop.remove_at(idx):
-		_refresh_endless_shop_panel()
+		_refresh_rush_shop_panel()
 
 
-func _on_endless_shop_reroll() -> void:
+func _on_rush_shop_reroll() -> void:
 	if _shop.reroll():
-		_refresh_endless_shop_panel()
+		_refresh_rush_shop_panel()
 
 
-func _on_endless_shop_leave() -> void:
+func _on_rush_shop_leave() -> void:
 	if not _shop.open:
 		return
 	var payload: Dictionary = _shop.end_session()
 	state.apply_shop_payload(payload)
-	state.mark_endless_shop_done()
+	state.mark_rush_shop_done()
 	_shop_open = false
 	if _shop_panel != null:
 		_shop_panel.visible = false
@@ -2619,15 +2381,15 @@ func _style_reward_choice_button(btn: Button, ammo_bg: Color) -> void:
 func _on_reward_pick(index: int) -> void:
 	if state.pick_reward_ammo(index):
 		_refresh_reward_panel()
-		if state.needs_endless_shop():
-			_open_endless_shop()
+		if state.needs_rush_shop():
+			_open_rush_shop()
 
 
 func _on_reward_skip() -> void:
 	if state.skip_reward_for_gold():
 		_refresh_reward_panel()
-		if state.needs_endless_shop():
-			_open_endless_shop()
+		if state.needs_rush_shop():
+			_open_rush_shop()
 
 
 func _bag_inventory_fingerprint(inv: Dictionary) -> String:
@@ -2650,7 +2412,7 @@ func _refresh_bag_list() -> void:
 	var disc_n: int = state.discard.size()
 	var total_n: int = bag_n + mag_n + disc_n
 	if bag_header_label != null:
-		bag_header_label.text = "弹药盒 · 袋%d" % bag_n
+		bag_header_label.text = "弹药袋 · 袋%d" % bag_n
 	# 结构只建一次：统计 + 物理盒 + 提示
 	if _bag_physics == null or not is_instance_valid(_bag_physics):
 		_bag_refreshing = true
@@ -3091,23 +2853,16 @@ func _on_sin_picked(sin_ammo_id: int) -> void:
 	if _sin_panel != null:
 		_sin_panel.visible = false
 	_update_dimmer()
-	state.start_graybox(0, _pending_start_endless, sin_ammo_id)
+	state.start_rush(0, sin_ammo_id)
 	state.pace_after_fire = true
 	_refresh()
-	if state.endless_mode:
-		await _play_wave_banner(state.wave_index)
+	await _play_wave_banner(state.wave_index)
 
 
 func _wire_dev_buttons() -> void:
 	%DevClose.pressed.connect(func(): _toggle_dev())
 	_rebuild_dev_tool_body()
-	# 加宽开发面板以容纳三列
-	dev_panel.custom_minimum_size = Vector2(920, 520)
-	dev_panel.set_anchors_preset(Control.PRESET_CENTER)
-	dev_panel.offset_left = -460.0
-	dev_panel.offset_top = -280.0
-	dev_panel.offset_right = 460.0
-	dev_panel.offset_bottom = 280.0
+	# 竖屏：三列挤在 690 宽内（_fit_modals_portrait 统一定尺寸）
 
 
 func _rebuild_dev_tool_body() -> void:
@@ -3200,7 +2955,7 @@ func _dev_make_column(title: String) -> Dictionary:
 	var scroll := ScrollContainer.new()
 	scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.custom_minimum_size = Vector2(260, 360)
+	scroll.custom_minimum_size = Vector2(200, 760)
 	root.add_child(scroll)
 	var box := VBoxContainer.new()
 	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3223,7 +2978,7 @@ func _cancel_reward_show_delay() -> void:
 
 
 func _start_reward_show_delay() -> void:
-	## 怪死/清场后等 REWARD_SHOW_DELAY_SEC 再弹奖励面板（练习/无限/地图共用）。
+	## 怪死/清场后等 REWARD_SHOW_DELAY_SEC 再弹奖励面板。
 	if _reward_open or state == null or not state.reward_pending:
 		return
 	_reward_delaying = true
@@ -3284,7 +3039,7 @@ func _ensure_wave_banner() -> void:
 
 
 func _play_wave_banner(wave_n: int) -> void:
-	## 无限模式：每波开战前大字居中「第N波」+ 背景遮罩，渐显→停→渐隐。
+	## rush!：每波开战前大字居中「第N波」+ 背景遮罩，渐显→停→渐隐。
 	_ensure_wave_banner()
 	_wave_bannering = true
 	_wave_banner_label.text = "第%d波" % wave_n
@@ -3329,16 +3084,12 @@ func _refresh() -> void:
 	discard_label.add_theme_color_override("font_color", COL_DISCARD)
 	gold_label.text = "金币 %d" % state.gold
 	gold_label.add_theme_color_override("font_color", COL_GOLD)
-	turn_label.text = "回合 %d · 第 %d 波 · %s" % [state.turn_index, state.wave_index, ("无限" if state.endless_mode else state.encounter_label())]
+	turn_label.text = "回合 %d · 第 %d 波 · %s" % [state.turn_index, state.wave_index, ("rush!" if state.encounter_kind != CombatState.EncounterKind.BOSS else state.encounter_label())]
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
-	btn_load.disabled = busy or not state.can_load()
-	if btn_manual_load != null:
-		btn_manual_load.disabled = busy or not state.can_manual_load()
+	btn_manual_load.disabled = busy or not state.can_manual_load()
 	btn_fire.disabled = busy or not state.can_fire()
-	btn_roll.disabled = busy or not state.can_start_roll()
-	btn_unload.disabled = busy or not state.can_unload()
 	btn_next_wave.disabled = busy or not state.can_start_next_wave()
 	_refresh_board()
 	if not _wheel_animating:
@@ -3358,9 +3109,7 @@ func _refresh() -> void:
 						_start_reward_show_delay()
 			elif state.reward_resolved:
 				_cancel_reward_show_delay()
-				if state.from_map_run:
-					result_label.text = "奖励已领取 · 请返回地图"
-				elif state.needs_endless_shop():
+				if state.needs_rush_shop():
 					result_label.text = "奖励已领取 · 请先逛商店"
 				else:
 					result_label.text = "奖励已领取 · 可开下一波"
@@ -3369,8 +3118,7 @@ func _refresh() -> void:
 			else:
 				result_label.text = "本波清空！"
 			result_label.visible = true
-			# 地图 run：只用奖励面板「返回地图」；练习战显示「下一波」
-			btn_next_wave.visible = state.reward_resolved and not state.from_map_run
+			btn_next_wave.visible = state.reward_resolved
 		CombatState.Phase.LOST:
 			_cancel_reward_show_delay()
 			if state.lose_reason == CombatState.LoseReason.AMMO_EXHAUSTED:
@@ -3378,12 +3126,10 @@ func _refresh() -> void:
 			else:
 				result_label.text = "失败：血量归零"
 			result_label.visible = true
-			if state.from_map_run:
-				btn_next_wave.visible = true
-				btn_next_wave.text = "返回地图（本局结束）"
-				btn_next_wave.disabled = false
-			else:
-				btn_next_wave.visible = false
+			# rush!：战败后可直接重开
+			btn_next_wave.visible = true
+			btn_next_wave.text = "重新开始 rush!"
+			btn_next_wave.disabled = false
 			if _reward_open:
 				_set_reward_open(false)
 		_:
@@ -3488,16 +3234,12 @@ func _refresh_hud_only() -> void:
 	discard_label.add_theme_color_override("font_color", COL_DISCARD)
 	gold_label.text = "金币 %d" % state.gold
 	gold_label.add_theme_color_override("font_color", COL_GOLD)
-	turn_label.text = "回合 %d · 第 %d 波 · %s" % [state.turn_index, state.wave_index, ("无限" if state.endless_mode else state.encounter_label())]
+	turn_label.text = "回合 %d · 第 %d 波 · %s" % [state.turn_index, state.wave_index, ("rush!" if state.encounter_kind != CombatState.EncounterKind.BOSS else state.encounter_label())]
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
-	btn_load.disabled = busy or not state.can_load()
-	if btn_manual_load != null:
-		btn_manual_load.disabled = busy or not state.can_manual_load()
+	btn_manual_load.disabled = busy or not state.can_manual_load()
 	btn_fire.disabled = busy or not state.can_fire()
-	btn_roll.disabled = busy or not state.can_start_roll()
-	btn_unload.disabled = busy or not state.can_unload()
 	btn_next_wave.disabled = busy or not state.can_start_next_wave()
 	_refresh_board()
 	_refresh_bag_list()

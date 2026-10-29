@@ -28,86 +28,71 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -220.0
-offset_top = -250.0
-offset_right = 220.0
-offset_bottom = 250.0
+offset_left = -300.0
+offset_top = -400.0
+offset_right = 300.0
+offset_bottom = 400.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 14
+theme_override_constants/separation = 18
+alignment = 1
 
 [node name="TitleLabel" type="Label" parent="Center"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 52
-text = "project001"
+theme_override_font_sizes/font_size = 64
+text = "Revolver Rush"
 horizontal_alignment = 1
 
 [node name="Subtitle" type="Label" parent="Center"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 18
-text = "灰盒 · 缩小版地图"
+theme_override_font_sizes/font_size = 22
+text = "RR · 灰盒"
 horizontal_alignment = 1
 
 [node name="HintLabel" type="Label" parent="Center"]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 14
+theme_override_font_sizes/font_size = 18
 autowrap_mode = 3
-text = "开始冒险：地图选节点 → 战斗 → 领奖 → 回地图。无限模式：一直打、牌库不重置、每波有奖励。练习战斗：每波重置牌库。"
+text = "rush!：一波接一波地打，牌库跨波保留，每波三选一奖励，每 5 波进商店。"
 horizontal_alignment = 1
 
 [node name="Spacer" type="Control" parent="Center"]
-custom_minimum_size = Vector2(0, 8)
+custom_minimum_size = Vector2(0, 16)
 layout_mode = 2
 
 [node name="BtnStart" type="Button" parent="Center"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 48)
+custom_minimum_size = Vector2(420, 110)
 layout_mode = 2
 size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 20
-text = "开始冒险"
-
-[node name="BtnEndless" type="Button" parent="Center"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 44)
-layout_mode = 2
-size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 18
-text = "无限模式"
-
-[node name="BtnPractice" type="Button" parent="Center"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 44)
-layout_mode = 2
-size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 18
-text = "练习战斗"
+theme_override_font_sizes/font_size = 44
+text = "rush!"
 
 [node name="BtnChangelog" type="Button" parent="Center"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 44)
+custom_minimum_size = Vector2(420, 72)
 layout_mode = 2
 size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 18
+theme_override_font_sizes/font_size = 24
 text = "更新日志"
 
 [node name="BtnClearCache" type="Button" parent="Center"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 40)
+custom_minimum_size = Vector2(420, 64)
 layout_mode = 2
 size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 17
+theme_override_font_sizes/font_size = 22
 text = "清理缓存并刷新"
 
 [node name="BtnQuit" type="Button" parent="Center"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 40)
+custom_minimum_size = Vector2(420, 64)
 layout_mode = 2
 size_flags_horizontal = 4
-theme_override_font_sizes/font_size = 17
+theme_override_font_sizes/font_size = 22
 text = "退出"
 
 [node name="VersionLabel" type="Label" parent="."]
@@ -150,10 +135,10 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -360.0
-offset_top = -280.0
-offset_right = 360.0
-offset_bottom = 280.0
+offset_left = -340.0
+offset_top = -580.0
+offset_right = 340.0
+offset_bottom = 580.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -196,8 +181,6 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
 [connection signal="pressed" from="Center/BtnStart" to="." method="_on_start_pressed"]
-[connection signal="pressed" from="Center/BtnEndless" to="." method="_on_endless_pressed"]
-[connection signal="pressed" from="Center/BtnPractice" to="." method="_on_practice_pressed"]
 [connection signal="pressed" from="Center/BtnChangelog" to="." method="_on_changelog_pressed"]
 [connection signal="pressed" from="Center/BtnClearCache" to="." method="_on_clear_cache_pressed"]
 [connection signal="pressed" from="Center/BtnQuit" to="." method="_on_quit_pressed"]

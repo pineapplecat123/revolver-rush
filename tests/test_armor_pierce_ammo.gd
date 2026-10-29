@@ -29,7 +29,7 @@ func test_ammo_def_enabled_and_in_reward_pool() -> void:
 func test_armor_pierce_damage_falloff_across_enemies() -> void:
 	## 本发穿甲：首个全伤，之后每穿一个 -1，至 0。
 	var cs := CombatState.new(2210)
-	cs.start_graybox(2210)
+	cs.start_rush(2210)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 1)
 	cs.dev_spawn_enemy(1, 2)
@@ -64,7 +64,7 @@ func test_armor_pierce_damage_falloff_across_enemies() -> void:
 func test_muzzle_armor_pierce_applies_to_later_whites() -> void:
 	## 挂枪口后，后续白弹也能递减穿怪（匣内留弹，避免末发进怪回合叠流血干扰断言）。
 	var cs := CombatState.new(2211)
-	cs.start_graybox(2211)
+	cs.start_rush(2211)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 1)
 	cs.dev_spawn_enemy(1, 2)
@@ -95,7 +95,7 @@ func test_muzzle_armor_pierce_applies_to_later_whites() -> void:
 func test_armor_pierce_muzzle_max_one_layer() -> void:
 	## 最多 1 层：连打两发穿甲仍为布尔挂载，不叠层。
 	var cs := CombatState.new(2212)
-	cs.start_graybox(2212)
+	cs.start_rush(2212)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -127,7 +127,7 @@ func test_armor_pierce_in_reward_choices_pool() -> void:
 
 func test_endless_win_keeps_armor_pierce() -> void:
 	var cs := CombatState.new(2213)
-	cs.start_graybox(2213, true, FireResolver.ID_WRATH)
+	cs.start_rush(2213, FireResolver.ID_WRATH)
 	cs._bag_append(FireResolver.ID_ARMOR_PIERCE, false)
 	cs._snapshot_combat_bag_baseline()
 	cs.enemies[0].hp = 1
@@ -146,7 +146,7 @@ func test_endless_win_keeps_armor_pierce() -> void:
 
 func test_muzzle_clears_after_fire_session() -> void:
 	var cs := CombatState.new(2214)
-	cs.start_graybox(2214)
+	cs.start_rush(2214)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([

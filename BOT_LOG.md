@@ -1,3 +1,10 @@
+## 2026-10-29 — RR 开工：唯一模式 rush! + 竖屏三等分 + 两键操作 + 去日志（v0.3.0）
+- 任务：新仓 revolver-rush（从 project001 v0.2.75 拷贝）。去掉所有模式只留 `rush!`；竖屏手机布局（上战斗区 / 中转轮+弹药袋 / 下操作区）；操作区只放「手动装弹」「射击」；日志去掉。
+- 判断：rush! 玩法未定 → 暂复用原无限模式循环（刷怪表、奖励、每 5 波商店、超级僵尸 Boss 波）。射击沿用「打空转轮」而非单发；ROLL/卸除/一键装满按钮去掉（装满自动转盘保留）。
+- 删除：地图（scenes/map.tscn、scripts/map）、休息（scripts/rest）、RunState 自动加载（scripts/run）、精英战与地图 Boss（含塞无效弹）、练习战胜利重置；相关 GUT 删除/改写。
+- 布局：基准视口 720×1280，canvas_items + keep_width，handheld orientation=portrait；棋盘格 68 宽以容纳 10 格。
+- 自测：pre_push_check 全绿；字体子集重建；GUT 180/180；截图 `docs/shots/rr_v030_*.png`（`tools/shot_rr_portrait.gd`）。
+
 ## 2026-10-28 — 弹头尖端改钝圆（v0.2.75）
 - 任务：弹头太尖，改圆钝一些（仍弹头形，非正圆）；尾部衔接与外辉光规则不变。
 - 改动：`_make_shot_bullet_tip` 鼻端改圆弧折线采样（`nose_r`/`arc_n`），去掉单点针尖。

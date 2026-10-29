@@ -69,7 +69,7 @@ func test_magazine_unload() -> void:
 
 func test_load_fills_magazine_from_bag() -> void:
 	var cs := CombatState.new(42)
-	cs.start_graybox(42)
+	cs.start_rush(42)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	assert_true(cs.do_load())
@@ -80,7 +80,7 @@ func test_load_fills_magazine_from_bag() -> void:
 
 func test_fire_white_damages_civilian() -> void:
 	var cs := CombatState.new(7)
-	cs.start_graybox(7)
+	cs.start_rush(7)
 	cs.do_load()
 	var enemy: EnemyInstance = cs.front_enemy()
 	assert_not_null(enemy)
@@ -91,7 +91,7 @@ func test_fire_white_damages_civilian() -> void:
 
 func test_stepwise_fire_api() -> void:
 	var cs := CombatState.new(11)
-	cs.start_graybox(11)
+	cs.start_rush(11)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.do_load()
@@ -109,7 +109,7 @@ func test_stepwise_fire_api() -> void:
 func test_roll_ends_turn_and_enemy_advances() -> void:
 	## ROLL 消耗回合：转轮后进怪物回合，怪前进一格；匣内仍有弹 → AWAIT_ACTION，可再射/roll/卸。
 	var cs := CombatState.new(99)
-	cs.start_graybox(99)
+	cs.start_rush(99)
 	cs.bag.clear()
 	for _i in 12:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
@@ -134,7 +134,7 @@ func test_roll_ends_turn_and_enemy_advances() -> void:
 func test_distant_enemy_multiple_turns_no_player_damage() -> void:
 	var cs := CombatState.new(5)
 	# 贪婪：袋空自动重置后装≥3 也不会自伤扣血（避免愤怒惩罚干扰本测）
-	cs.start_graybox(5, false, FireResolver.ID_GREED)
+	cs.start_rush(5, FireResolver.ID_GREED)
 	cs.bag.clear()
 	cs.bag_temp.clear()
 	for _i in 12:
@@ -157,7 +157,7 @@ func test_distant_enemy_multiple_turns_no_player_damage() -> void:
 
 func test_only_adjacent_enemy_attacks() -> void:
 	var cs := CombatState.new(1)
-	cs.start_graybox(1, false, FireResolver.ID_GREED)
+	cs.start_rush(1, FireResolver.ID_GREED)
 	cs.bag.clear()
 	cs.bag_temp.clear()
 	for _i in 12:
@@ -175,7 +175,7 @@ func test_only_adjacent_enemy_attacks() -> void:
 
 func test_empty_ammo_lose_does_not_zero_hp() -> void:
 	var cs := CombatState.new(2)
-	cs.start_graybox(2)
+	cs.start_rush(2)
 	cs.bag.clear()
 	cs.discard.clear()
 	cs.magazine.clear()
@@ -190,7 +190,7 @@ func test_empty_ammo_lose_does_not_zero_hp() -> void:
 
 func test_unload_discards_and_enemy_turn() -> void:
 	var cs := CombatState.new(3)
-	cs.start_graybox(3)
+	cs.start_rush(3)
 	cs.enemies[0].hp = 100
 	cs.do_load()
 	var loaded := cs.magazine.loaded_count()
@@ -241,7 +241,7 @@ func test_green_trailing_multiplier() -> void:
 
 func test_pink_bonus_on_unload() -> void:
 	var cs := CombatState.new(8)
-	cs.start_graybox(8)
+	cs.start_rush(8)
 	cs.enemies[0].hp = 100
 	cs.dev_force_load([9, 9, 1, 1, 1, 1] as Array[int])
 	assert_eq(cs.pink_bonus, 0)
@@ -251,7 +251,7 @@ func test_pink_bonus_on_unload() -> void:
 
 func test_force_load_yellow_and_fire() -> void:
 	var cs := CombatState.new(8)
-	cs.start_graybox(8)
+	cs.start_rush(8)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.dev_force_load([4, 4, 4, 4, 4, 4] as Array[int])
@@ -272,7 +272,7 @@ func test_skeleton_does_not_bleed() -> void:
 
 func test_bio_bleeds_and_ticks() -> void:
 	var cs := CombatState.new(4)
-	cs.start_graybox(4)
+	cs.start_rush(4)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	cs.enemies[0].cell = 9
@@ -305,7 +305,7 @@ func test_stone_ignores_bleed_dot_under_4() -> void:
 
 func test_dev_spawn_bandit() -> void:
 	var cs := CombatState.new(6)
-	cs.start_graybox(6)
+	cs.start_rush(6)
 	cs.dev_kill_all_enemies()
 	cs.dev_spawn_enemy(2, 8)
 	assert_eq(cs.alive_enemies().size(), 1)
@@ -314,7 +314,7 @@ func test_dev_spawn_bandit() -> void:
 
 func test_start_next_wave_after_win() -> void:
 	var cs := CombatState.new(21)
-	cs.start_graybox(21)
+	cs.start_rush(21)
 	assert_eq(cs.wave_index, 1)
 	cs.dev_kill_all_enemies()
 	assert_eq(cs.phase, CombatState.Phase.WON)
@@ -336,7 +336,7 @@ func test_bag_draw_is_random_not_fifo() -> void:
 	var firsts: Dictionary = {}
 	for seed_v in range(100, 140):
 		var cs := CombatState.new(seed_v)
-		cs.start_graybox(seed_v)
+		cs.start_rush(seed_v)
 		cs.bag.clear()
 		for id in [1, 2, 3, 4, 5, 6]:
 			cs.bag.append(id)
@@ -353,7 +353,7 @@ func test_bag_draw_is_random_not_fifo() -> void:
 func test_apply_roll_without_enemy_turn() -> void:
 	## apply_roll 本身只转轮（装填后 spin 复用）；显式 resolve 才进怪回合；匣内有弹回 AWAIT_ACTION。
 	var cs := CombatState.new(33)
-	cs.start_graybox(33)
+	cs.start_rush(33)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
 	var cell_before: int = cs.enemies[0].cell
@@ -374,7 +374,7 @@ func test_apply_roll_without_enemy_turn() -> void:
 func test_begin_roll_consumes_turn_like_unload() -> void:
 	## begin_roll 耗回合：怪前进；与卸除不同——匣未空，回 AWAIT_ACTION 可继续行动。
 	var cs := CombatState.new(44)
-	cs.start_graybox(44)
+	cs.start_rush(44)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	var cell0: int = cs.enemies[0].cell
@@ -390,7 +390,7 @@ func test_begin_roll_consumes_turn_like_unload() -> void:
 
 func test_reward_generate_three_choices() -> void:
 	var cs := CombatState.new(7)
-	cs.start_graybox(7)
+	cs.start_rush(7)
 	var choices := cs.generate_reward_choices()
 	assert_eq(choices.size(), CombatConstants.REWARD_CHOICE_COUNT)
 	for id in choices:
@@ -399,7 +399,7 @@ func test_reward_generate_three_choices() -> void:
 
 func test_reward_pick_adds_to_bag_and_base_gold() -> void:
 	var cs := CombatState.new(8)
-	cs.start_graybox(8)
+	cs.start_rush(8)
 	assert_eq(cs.gold, 0)
 	cs.dev_kill_all_enemies()
 	assert_eq(cs.phase, CombatState.Phase.WON)
@@ -421,7 +421,7 @@ func test_reward_pick_adds_to_bag_and_base_gold() -> void:
 
 func test_reward_skip_for_extra_gold() -> void:
 	var cs := CombatState.new(9)
-	cs.start_graybox(9)
+	cs.start_rush(9)
 	cs.dev_kill_all_enemies()
 	var bag_after_reset := cs.bag.size()
 	assert_eq(bag_after_reset, CombatConstants.STARTER_BAG_TOTAL)
@@ -439,7 +439,7 @@ func test_reward_skip_for_extra_gold() -> void:
 
 func test_reward_next_wave_keeps_bag_and_gold() -> void:
 	var cs := CombatState.new(11)
-	cs.start_graybox(11)
+	cs.start_rush(11)
 	cs.dev_kill_all_enemies()
 	assert_true(cs.pick_reward_ammo(0))
 	var gold_after := cs.gold
@@ -453,7 +453,7 @@ func test_reward_next_wave_keeps_bag_and_gold() -> void:
 
 func test_stepwise_load_api() -> void:
 	var cs := CombatState.new(42)
-	cs.start_graybox(42)
+	cs.start_rush(42)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
 	assert_true(cs.begin_load())
 	assert_true(cs.is_busy_loading())
@@ -487,7 +487,7 @@ func test_stepwise_load_api() -> void:
 
 func test_stepwise_load_partial_when_bag_small() -> void:
 	var cs := CombatState.new(5)
-	cs.start_graybox(5)
+	cs.start_rush(5)
 	cs.bag.clear()
 	for _i in 3:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
@@ -520,7 +520,7 @@ func test_ammo_detail_text_invalid() -> void:
 
 func test_ammo_inventory_bag_and_mag() -> void:
 	var cs := CombatState.new(42)
-	cs.start_graybox(42, false, FireResolver.ID_WRATH)
+	cs.start_rush(42, FireResolver.ID_WRATH)
 	cs.bag.clear()
 	for _i in 12:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
@@ -538,7 +538,7 @@ func test_ammo_inventory_bag_and_mag() -> void:
 func test_ammo_inventory_shows_owned_when_bag_empty() -> void:
 	## 袋空时装满匣后，库存仍显示膛内拥有（列表不为空）。
 	var cs := CombatState.new(43)
-	cs.start_graybox(43)
+	cs.start_rush(43)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -572,7 +572,7 @@ func test_load_port_and_fire_port_offsets() -> void:
 
 func test_stepwise_load_rotates_start_each_chamber() -> void:
 	var cs := CombatState.new(7)
-	cs.start_graybox(7)
+	cs.start_rush(7)
 	assert_true(cs.begin_load())
 	var starts: Array[int] = [cs.magazine.start_index]
 	while cs.is_busy_loading():
@@ -588,7 +588,7 @@ func test_stepwise_load_rotates_start_each_chamber() -> void:
 
 func test_do_load_full_applies_post_spin() -> void:
 	var cs := CombatState.new(99)
-	cs.start_graybox(99)
+	cs.start_rush(99)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
@@ -599,7 +599,7 @@ func test_do_load_full_applies_post_spin() -> void:
 
 func test_fire_consumes_top_chamber_then_advances() -> void:
 	var cs := CombatState.new(3)
-	cs.start_graybox(3)
+	cs.start_rush(3)
 	cs.dev_force_load([
 		CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
@@ -626,7 +626,7 @@ func test_reward_blurb_short() -> void:
 func test_load_writes_only_load_port_each_step() -> void:
 	## 每步只写入当前上弹口；未 apply_load_rotate 前重复写入同一仓。
 	var cs := CombatState.new(11)
-	cs.start_graybox(11)
+	cs.start_rush(11)
 	assert_true(cs.begin_load())
 	var port0: int = cs.magazine.chamber_at_load_port()
 	var r1: Dictionary = cs.load_next_chamber()
@@ -645,7 +645,7 @@ func test_load_writes_only_load_port_each_step() -> void:
 func test_fire_consumes_fire_port_chamber() -> void:
 	## 击发清空的是正上锤位仓，与 last_fired_slot / chamber_at_fire_port 一致。
 	var cs := CombatState.new(13)
-	cs.start_graybox(13)
+	cs.start_rush(13)
 	cs.dev_force_load([
 		FireResolver.ID_YELLOW, FireResolver.ID_RED, FireResolver.ID_BLUE,
 		FireResolver.ID_GREEN, FireResolver.ID_PURPLE, FireResolver.ID_WHITE,
@@ -693,7 +693,7 @@ func test_magazine_random_roll_steps_nonzero_when_full() -> void:
 func test_partial_load_then_next_turn_auto_resets_bag() -> void:
 	## 袋剩 N 发只装 N；FIRE 后怪回合；袋空 → 自动战斗内重置，可手装，不判负。
 	var cs := CombatState.new(42)
-	cs.start_graybox(42)
+	cs.start_rush(42)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -721,7 +721,7 @@ func test_partial_load_then_next_turn_auto_resets_bag() -> void:
 func test_roll_keeps_mag_and_can_act_after_enemy_turn() -> void:
 	## ROLL 不耗弹；怪回合后匣内仍有弹 → AWAIT_ACTION；袋空会自动战斗内重置。
 	var cs := CombatState.new(77)
-	cs.start_graybox(77)
+	cs.start_rush(77)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -756,7 +756,7 @@ func test_roll_keeps_mag_and_can_act_after_enemy_turn() -> void:
 func test_blank_chamber_skips_to_nearest_ammo() -> void:
 	## 锤位空仓：快跳到最近有弹格再结算，不逐空打；跳过步数记入 last_blank_skip_steps。
 	var cs := CombatState.new(101)
-	cs.start_graybox(101)
+	cs.start_rush(101)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -783,7 +783,7 @@ func test_blank_chamber_skips_to_nearest_ammo() -> void:
 func test_partial_mag_manual_load_blank_skip_peek() -> void:
 	## 只手装几发、锤位落在空仓：peek 给出转到有弹的步数；开火后跳空步数一致。
 	var cs := CombatState.new(102)
-	cs.start_graybox(102)
+	cs.start_rush(102)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -820,7 +820,7 @@ func test_partial_mag_manual_load_blank_skip_peek() -> void:
 func test_muzzle_fire_persists_for_rest_of_turn() -> void:
 	## 火弹挂枪口后，本回合后续白弹也施加燃烧；旧「只传下一发」会在第 3 发丢失。
 	var cs := CombatState.new(202)
-	cs.start_graybox(202)
+	cs.start_rush(202)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -847,7 +847,7 @@ func test_muzzle_fire_persists_for_rest_of_turn() -> void:
 func test_muzzle_resets_after_fire_turn() -> void:
 	## 射击回合结束后枪口重置；下一匣纯白不再带火。
 	var cs := CombatState.new(303)
-	cs.start_graybox(303)
+	cs.start_rush(303)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
@@ -879,7 +879,7 @@ func test_muzzle_resets_after_fire_turn() -> void:
 func test_muzzle_pierce_applies_to_later_whites() -> void:
 	## 穿透挂枪口后，后续白弹也能打穿第二只怪。
 	var cs := CombatState.new(404)
-	cs.start_graybox(404)
+	cs.start_rush(404)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 1)
 	cs.dev_spawn_enemy(1, 2)
@@ -913,7 +913,7 @@ func test_muzzle_pierce_applies_to_later_whites() -> void:
 func test_apply_roll_steps_match_post_load_spin_range() -> void:
 	## ROLL 与装满后 spin 共用 apply_roll：满匣步数 ∈ [1,5]。
 	var cs := CombatState.new(505)
-	cs.start_graybox(505)
+	cs.start_rush(505)
 	cs.dev_force_load([1, 2, 3, 4, 5, 6] as Array[int])
 	var before: int = cs.magazine.start_index
 	var steps: int = cs.apply_roll()
@@ -924,7 +924,7 @@ func test_apply_roll_steps_match_post_load_spin_range() -> void:
 
 func test_enemy_damaged_signal_emits_per_hit() -> void:
 	var cs := CombatState.new(911)
-	cs.start_graybox(911)
+	cs.start_rush(911)
 	var hits: Array = []
 	cs.enemy_damaged.connect(func(cell: int, amount: int, kind: String=""): hits.append([cell, amount, kind]))
 	cs.dev_force_load([1, 1, 1, 1, 1, 1] as Array[int])
@@ -937,7 +937,7 @@ func test_enemy_damaged_signal_emits_per_hit() -> void:
 func test_player_damaged_signal_on_enemy_attack() -> void:
 	## 怪物普攻扣血发出 player_damaged，供 UI 抖玩家格。
 	var cs := CombatState.new(912)
-	cs.start_graybox(912)
+	cs.start_rush(912)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 1)  # 邻接可打
 	assert_true(cs.can_attack_player(cs.enemies[0]))
@@ -953,7 +953,7 @@ func test_player_damaged_signal_on_enemy_attack() -> void:
 func test_player_damaged_signal_on_wrath_self_hit() -> void:
 	## 愤怒≥3 自伤也走 player_damaged。
 	var cs := CombatState.new(913)
-	cs.start_graybox(913, false, FireResolver.ID_WRATH)
+	cs.start_rush(913, FireResolver.ID_WRATH)
 	var got: Array = []
 	cs.player_damaged.connect(func(amount: int, kind: String=""): got.append([amount, kind]))
 	var loaded: Array = []
@@ -969,7 +969,7 @@ func test_player_damaged_signal_on_wrath_self_hit() -> void:
 func test_partial_mag_can_start_roll() -> void:
 	## 不满匣（有弹即可）也可 ROLL；与「装满才自动 spin」区分。
 	var cs := CombatState.new(551)
-	cs.start_graybox(551)
+	cs.start_rush(551)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.bag.clear()
@@ -1025,7 +1025,7 @@ func test_board_ground_segs_and_unit_rest_on_ground() -> void:
 func test_last_shot_hit_and_muzzle_outline_ids() -> void:
 	## 实弹命中写入 last_shot_hit_cell/dealt/ammo；描边=开火前枪口贡献色（不含本发刚挂罪孽）。
 	var cs := CombatState.new(920)
-	cs.start_graybox(920, false, FireResolver.ID_WRATH)
+	cs.start_rush(920, FireResolver.ID_WRATH)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs._muzzle_pride = 1
@@ -1054,7 +1054,7 @@ func test_last_shot_hit_and_muzzle_outline_ids() -> void:
 func test_outline_excludes_just_mounted_pride_keeps_prefire_wrath_pierce() -> void:
 	## 枪口已有穿甲+愤怒，打傲慢：芯=傲慢；描边=愤怒+穿甲，不含本发傲慢。
 	var cs := CombatState.new(923)
-	cs.start_graybox(923, false, FireResolver.ID_PRIDE)
+	cs.start_rush(923, FireResolver.ID_PRIDE)
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs._muzzle_wrath = 1
@@ -1082,7 +1082,7 @@ func test_outline_excludes_just_mounted_pride_keeps_prefire_wrath_pierce() -> vo
 
 func test_blank_shot_clears_last_shot_hit() -> void:
 	var cs := CombatState.new(921)
-	cs.start_graybox(921)
+	cs.start_rush(921)
 	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
 	# 只 1 发，转锤到空仓再射会快跳；打完后匣空再射路径清 last_shot
 	cs.magazine.set_start(0)
@@ -1095,7 +1095,7 @@ func test_blank_shot_clears_last_shot_hit() -> void:
 func test_pierce_shot_records_all_hit_cells() -> void:
 	## 穿透弹：last_shot_hit_cells 含沿途所有命中格（前→后），was_pierce=true。
 	var cs := CombatState.new(922)
-	cs.start_graybox(922)
+	cs.start_rush(922)
 	cs.enemies.clear()
 	cs.dev_spawn_enemy(1, 2)
 	cs.dev_spawn_enemy(1, 4)
@@ -1125,7 +1125,7 @@ func test_pierce_shot_records_all_hit_cells() -> void:
 func test_pace_killing_shot_keeps_corpse_until_flush() -> void:
 	## pace 开火：视觉命中前不扣血；finalize 后致死留尸体，flush 后才移除。
 	var cs := CombatState.new(930)
-	cs.start_graybox(930)
+	cs.start_rush(930)
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 3
 	cs.enemies[0].max_hp = 3
@@ -1166,7 +1166,7 @@ func test_pace_killing_shot_keeps_corpse_until_flush() -> void:
 func test_last_shot_keeps_hit_data_after_finish() -> void:
 	## 匣内最后一发打完后仍保留 last_shot_hit_*，供 UI 播弹点/轨迹（修末发无枪线）。
 	var cs := CombatState.new(931)
-	cs.start_graybox(931)
+	cs.start_rush(931)
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
@@ -1188,7 +1188,7 @@ func test_last_shot_keeps_hit_data_after_finish() -> void:
 func test_pace_damage_applies_only_on_resolve() -> void:
 	## pace：fire_next_shot 不扣血；resolve_paced_hit 才对齐视觉命中结算。
 	var cs := CombatState.new(932)
-	cs.start_graybox(932)
+	cs.start_rush(932)
 	cs.pace_after_fire = true
 	cs.enemies[0].hp = 10
 	cs.enemies[0].max_hp = 10

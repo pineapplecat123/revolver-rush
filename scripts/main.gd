@@ -1,5 +1,5 @@
 extends Control
-## 主菜单：开始冒险（地图）/ 无限模式 / 练习战斗 / 更新日志 / 清理缓存 / 退出；底部版本号。
+## 主菜单（竖屏）：rush!（唯一模式）/ 更新日志 / 清理缓存 / 退出；底部版本号。
 
 const CHANGELOG_PATH := "res://data/changelog.json"
 
@@ -15,13 +15,11 @@ func _ready() -> void:
 
 
 func _style_menu() -> void:
-	%BtnStart.custom_minimum_size = Vector2(220, 48)
-	%BtnEndless.custom_minimum_size = Vector2(220, 44)
-	%BtnPractice.custom_minimum_size = Vector2(220, 44)
-	%BtnChangelog.custom_minimum_size = Vector2(220, 44)
-	%BtnClearCache.custom_minimum_size = Vector2(220, 40)
-	%BtnQuit.custom_minimum_size = Vector2(220, 40)
-	%TitleLabel.add_theme_font_size_override("font_size", 52)
+	%BtnStart.custom_minimum_size = Vector2(420, 110)
+	%BtnChangelog.custom_minimum_size = Vector2(420, 72)
+	%BtnClearCache.custom_minimum_size = Vector2(420, 64)
+	%BtnQuit.custom_minimum_size = Vector2(420, 64)
+	%TitleLabel.add_theme_font_size_override("font_size", 64)
 	%Subtitle.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
 	%HintLabel.add_theme_color_override("font_color", Color(0.6, 0.65, 0.72))
 	%VersionLabel.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
@@ -67,7 +65,7 @@ func _populate_changelog() -> void:
 		var block := VBoxContainer.new()
 		block.add_theme_constant_override("separation", 4)
 		var title := Label.new()
-		title.add_theme_font_size_override("font_size", 20)
+		title.add_theme_font_size_override("font_size", 26)
 		title.add_theme_color_override("font_color", Color(0.92, 0.94, 1.0))
 		if date.is_empty():
 			title.text = "v%s" % ver
@@ -78,7 +76,7 @@ func _populate_changelog() -> void:
 			for it in items:
 				var line := Label.new()
 				line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-				line.add_theme_font_size_override("font_size", 15)
+				line.add_theme_font_size_override("font_size", 19)
 				line.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
 				line.text = "· %s" % str(it)
 				block.add_child(line)
@@ -93,25 +91,13 @@ func _set_changelog_open(open: bool) -> void:
 	%ChangelogDimmer.visible = open
 	%ChangelogPanel.visible = open
 	%BtnStart.disabled = open
-	%BtnEndless.disabled = open
-	%BtnPractice.disabled = open
 	%BtnChangelog.disabled = open
 	%BtnClearCache.disabled = open
 	%BtnQuit.disabled = open
 
 
 func _on_start_pressed() -> void:
-	RunState.begin_run()
-	get_tree().change_scene_to_file("res://scenes/map.tscn")
-
-
-func _on_endless_pressed() -> void:
-	RunState.request_endless_combat()
-	get_tree().change_scene_to_file("res://scenes/combat.tscn")
-
-
-func _on_practice_pressed() -> void:
-	RunState.request_practice_combat()
+	## rush!：唯一模式，直接进战斗（先选罪孽）。
 	get_tree().change_scene_to_file("res://scenes/combat.tscn")
 
 
@@ -148,7 +134,7 @@ func _web_clear_cache_js() -> String:
 	## 整段在浏览器执行；不依赖额外 HTML（Pages 壳也会挂同名函数）。
 	return """
 (async function () {
-  var log = function (m) { try { console.log('[project001 clear]', m); } catch (e) {} };
+  var log = function (m) { try { console.log('[revolver-rush clear]', m); } catch (e) {} };
   try {
     (document.cookie || '').split(';').forEach(function (c) {
       var n = c.trim().split('=')[0];
@@ -199,4 +185,4 @@ func _web_clear_cache_js() -> String:
 
 
 func get_title() -> String:
-	return "project001"
+	return "Revolver Rush"

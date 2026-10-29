@@ -18,7 +18,6 @@ enum LoseReason {
 
 enum EncounterKind {
 	NORMAL,
-	ELITE,
 	BOSS,
 }
 
@@ -58,13 +57,9 @@ var reward_choices: Array[int] = []
 var wave_took_damage: bool = false
 var wave_player_turns: int = 0
 
-## 是否来自地图 run（胜利领奖后回地图；练习战则下一波）
-var from_map_run: bool = false
-## 无限模式：可一直下一波；胜利不重置牌库（与练习战相对）
-var endless_mode: bool = false
-## 无限模式：本波奖励后若需进店，false 表示还没逛完
-var endless_shop_done: bool = true
-## 遭遇类型：普通 / 精英 / Boss（灰盒）
+## rush!（唯一模式）：一波接一波；胜利保留构筑。本波奖励后若需进店，false 表示还没逛完
+var rush_shop_done: bool = true
+## 遭遇类型：普通 / Boss（rush! 每 10 波超级僵尸）
 var encounter_kind: int = EncounterKind.NORMAL
 ## 本波实际发放的基础金币（供 UI 显示）
 var last_reward_base_gold: int = 0
@@ -132,7 +127,8 @@ func _init(seed_value: int = 0) -> void:
 		rng.randomize()
 
 
-func start_graybox(seed_value: int = 0, endless: bool = false, sin_ammo_id: int = FireResolver.ID_WRATH) -> void:
+## rush!：开局（唯一模式）。第 1 波按 rush 刷怪表；胜利后领奖 → 下一波，逢 5 波进店。
+func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -> void:
 	if seed_value != 0:
 		rng.seed = seed_value
 	BulletEffectRegistry.ensure_defaults()
@@ -167,92 +163,18 @@ func start_graybox(seed_value: int = 0, endless: bool = false, sin_ammo_id: int 
 	_clear_reward_state()
 	wave_took_damage = false
 	wave_player_turns = 0
-	from_map_run = false
-	endless_mode = endless
-	endless_shop_done = true
+	rush_shop_done = true
 	encounter_kind = EncounterKind.NORMAL
 	last_reward_base_gold = 0
-	if endless_mode:
-		_configure_endless_wave_encounter()
-		_spawn_wave_enemies()
-	else:
-		_spawn_wave_enemies([CombatConstants.CIVILIAN_ENEMY_ID])
+	_configure_rush_wave_encounter()
+	_spawn_wave_enemies()
 	_clear_all_sin_muzzle(true)
 	_set_phase(Phase.AWAIT_LOAD)
-	var mode_label := "无限模式" if endless_mode else "练习战斗"
-	_log("%s：平庸 ×%d + %s ×%d · 第 %d 波。" % [
-		mode_label, CombatConstants.STARTER_WHITE_COUNT,
+	_log("rush!：平庸 ×%d + %s ×%d · 第 %d 波。" % [
+		CombatConstants.STARTER_WHITE_COUNT,
 		_ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_SIN_COUNT, wave_index
 	])
 	_emit()
-
-
-## 从地图 Run 进入战斗：继承袋/金币/HP/粉成长；不重置构筑。
-func start_from_run(payload: Dictionary, seed_value: int = 0) -> void:
-	if seed_value != 0:
-		rng.seed = seed_value
-	elif int(payload.get("seed", 0)) != 0:
-		rng.seed = int(payload["seed"])
-	BulletEffectRegistry.ensure_defaults()
-	from_map_run = true
-	endless_mode = false
-	endless_shop_done = true
-	encounter_kind = _parse_encounter(str(payload.get("encounter", "normal")))
-	last_reward_base_gold = 0
-	player_max_hp = int(payload.get("player_max_hp", CombatConstants.PLAYER_MAX_HP))
-	player_hp = int(payload.get("player_hp", player_max_hp))
-	bag.clear()
-	bag_temp.clear()
-	for x in payload.get("bag", []):
-		_bag_append(int(x), false)
-	if bag.is_empty():
-		_fill_starter_bag()
-	discard.clear()
-	discard_temp.clear()
-	bag_reset_count = 0
-	_snapshot_combat_bag_baseline()
-	magazine = Magazine.new()
-	enemies.clear()
-	wave_index = 1
-	_spawn_wave_enemies()
-	turn_index = 0
-	needs_reshuffle_next_load = false
-	last_log.clear()
-	lose_reason = LoseReason.NONE
-	gold = int(payload.get("gold", 0))
-	pink_bonus = int(payload.get("pink_bonus", 0))
-	last_load_ids.clear()
-	_reset_fire_session()
-	_reset_muzzle()
-	_clear_all_sin_muzzle(true)
-	_pending_gold_autofires = 0
-	_extra_autofires_granted_this_chain = 0
-	_reset_load_session()
-	_clear_reward_state()
-	wave_took_damage = false
-	wave_player_turns = 0
-	if encounter_kind == EncounterKind.BOSS:
-		_inject_invalid_ammo(CombatConstants.BOSS_INVALID_ON_START, "开场")
-	_set_phase(Phase.AWAIT_LOAD)
-	_log("地图%s：袋 %d · 金币 %d · HP %d · 第 %d 波。" % [
-		encounter_label(), bag.size(), gold, player_hp, wave_index
-	])
-	_emit()
-
-
-## 离开战斗回地图前：匣内/弃牌并回袋，导出 run 快照。
-func export_run_payload() -> Dictionary:
-	_consolidate_ammo_into_bag()
-	var out_bag: Array[int] = []
-	for id in bag:
-		out_bag.append(id)
-	return {
-		"gold": gold,
-		"bag": out_bag,
-		"player_hp": player_hp,
-		"player_max_hp": player_max_hp,
-		"pink_bonus": pink_bonus,
-	}
 
 
 func _consolidate_ammo_into_bag() -> void:
@@ -560,7 +482,7 @@ func count_temporary_in_bag() -> int:
 
 
 func _clear_combat_bonus_ammo() -> void:
-	## 练习战结束 / 失败：额外罪孽与临时标记清零，袋回 10+5。
+	## 失败：额外罪孽与临时标记清零，袋回 10+5。
 	bag_reset_count = 0
 	_fill_starter_bag(0)
 	_shuffle_bag()
@@ -571,16 +493,8 @@ func _clear_combat_bonus_ammo() -> void:
 
 func _auto_reset_bag_if_empty_at_turn_start() -> bool:
 	## 玩家回合开始：袋空则自动战斗内重置（构筑基线 + N 临时罪孽，保留幽灵），便于手装；每回合至多一次（仅此处调用）。
-	## 练习/无限：弃牌并入重置逻辑。地图 run：弃牌洗回以保留构筑，不走基线灌袋。
+	## 弃牌并入重置逻辑。
 	if not bag.is_empty():
-		return false
-	if from_map_run:
-		if needs_reshuffle_next_load or not discard.is_empty():
-			_reshuffle_discard_into_bag()
-			needs_reshuffle_next_load = false
-			_log("弹药袋已空：弃牌洗回（%d 发），可手装。" % bag.size())
-			return true
-		_log("弹药袋已空且无弃牌可洗回。")
 		return false
 	_reset_bag_in_combat()
 	needs_reshuffle_next_load = false
@@ -1069,9 +983,8 @@ func _lose_ammo_exhausted() -> void:
 	_clear_all_sin_muzzle(true)
 	_reset_muzzle()
 	_purge_ghost_ammo()
-	if not from_map_run:
-		_clear_combat_bonus_ammo()
-		magazine = Magazine.new()
+	_clear_combat_bonus_ammo()
+	magazine = Magazine.new()
 	_set_phase(Phase.LOST)
 	_log("失败：弹药耗尽（袋、弃牌与弹夹皆空，无法洗回）。")
 	_emit()
@@ -1104,9 +1017,8 @@ func _lose_hp() -> void:
 	_clear_all_sin_muzzle(true)
 	_reset_muzzle()
 	_purge_ghost_ammo()
-	if not from_map_run:
-		_clear_combat_bonus_ammo()
-		magazine = Magazine.new()
+	_clear_combat_bonus_ammo()
+	magazine = Magazine.new()
 	_set_phase(Phase.LOST)
 	_log("失败：玩家血量归零，整局结束。")
 	_emit()
@@ -2045,10 +1957,7 @@ func _run_enemy_turn() -> void:
 	# 超级僵尸：每怪物回合在面前召唤一只僵尸
 	_try_super_zombie_summons()
 	_clear_turn_sin_muzzle()
-	# 地图 Boss（非无限超级僵尸）：每怪物回合向袋塞无效弹
-	if encounter_kind == EncounterKind.BOSS and not endless_mode:
-		_inject_invalid_ammo(CombatConstants.BOSS_INVALID_PER_ENEMY_TURN, "回合末")
-	# 玩家回合开始：袋空则自动重置（练习/无限走战斗内袋重置；地图 run 洗回弃牌）
+	# 玩家回合开始：袋空则自动重置（战斗内袋重置）
 	_auto_reset_bag_if_empty_at_turn_start()
 	# ROLL 不清空弹匣：匣内仍有弹 → 可继续 FIRE/ROLL/UNLOAD；仅空匣才要求装填
 	if magazine.is_empty():
@@ -2151,26 +2060,21 @@ func _enter_won() -> void:
 		return
 	_set_phase(Phase.WON)
 	_log("胜利：敌人全灭。")
-	# 枪口一律清；幽灵等 ephemeral 清；练习战袋回 10+5；无限每波保留构筑仅清临时；地图 run 保留构筑
+	# 枪口一律清；幽灵等 ephemeral 清；每波保留构筑仅清临时
 	_clear_all_sin_muzzle(true)
 	_reset_muzzle()
 	_purge_ghost_ammo()
-	if from_map_run:
-		pass
-	elif endless_mode:
-		_end_wave_keep_build_ammo()
+	_end_wave_keep_build_ammo()
+	# rush!：每 5 波（5/10/15…）奖励后须进商店，逛完才可下一波
+	if wave_index > 0 and wave_index % 5 == 0:
+		rush_shop_done = false
 	else:
-		_reset_practice_ammo_to_starter()
-	# 无限：每 5 波（5/10/15…）奖励后须进商店，逛完才可下一波
-	if endless_mode and wave_index > 0 and wave_index % 5 == 0:
-		endless_shop_done = false
-	else:
-		endless_shop_done = true
+		rush_shop_done = true
 	_begin_reward()
 
 
 func _end_wave_keep_build_ammo() -> void:
-	## 无限每波胜利：保留构筑（奖励/墓碑/商店等）；幽灵已由 _purge_ghost_ammo 清除；
+	## rush! 每波胜利：保留构筑（奖励/墓碑/商店等）；幽灵已由 _purge_ghost_ammo 清除；
 	## 清 bag_reset_count 与临时额外罪孽；匣/弃并回袋。不打回 10+5。
 	_consolidate_ammo_into_bag()
 	_strip_temporary_ammo_from_bag()
@@ -2185,27 +2089,7 @@ func _end_wave_keep_build_ammo() -> void:
 	_extra_autofires_granted_this_chain = 0
 	_reset_load_session()
 	_snapshot_combat_bag_baseline()
-	_log("无限模式：本波结束，保留构筑（%d 发）；临时召唤物与额外罪孽已清。" % bag.size())
-
-
-func _reset_practice_ammo_to_starter() -> void:
-	## 练习战胜利 = 战斗结束：清额外罪孽与临时标记，袋回 10+5。
-	## 同场内袋空自动重置仍按 bag_reset_count 累加临时罪孽。
-	magazine = Magazine.new()
-	discard.clear()
-	discard_temp.clear()
-	_clear_combat_bonus_ammo()
-	needs_reshuffle_next_load = false
-	last_load_ids.clear()
-	_reset_fire_session()
-	_reset_muzzle()
-	_clear_all_sin_muzzle(true)
-	_pending_gold_autofires = 0
-	_extra_autofires_granted_this_chain = 0
-	_reset_load_session()
-	_log("练习战：弹药已重置（平庸 ×%d + %s ×%d；额外罪孽已清）。" % [
-		CombatConstants.STARTER_WHITE_COUNT, _ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_SIN_COUNT
-	])
+	_log("rush!：本波结束，保留构筑（%d 发）；临时召唤物与额外罪孽已清。" % bag.size())
 
 
 func _begin_reward() -> void:
@@ -2293,17 +2177,17 @@ func _hook_fast_clear_bonus_gold() -> int:
 	return CombatConstants.REWARD_FAST_CLEAR_EXTRA_GOLD
 
 
-func needs_endless_shop() -> bool:
-	return endless_mode and phase == Phase.WON and reward_resolved and not reward_pending and not endless_shop_done
+func needs_rush_shop() -> bool:
+	return phase == Phase.WON and reward_resolved and not reward_pending and not rush_shop_done
 
 
-func mark_endless_shop_done() -> void:
-	endless_shop_done = true
+func mark_rush_shop_done() -> void:
+	rush_shop_done = true
 	_emit()
 
 
 func apply_shop_payload(payload: Dictionary) -> void:
-	## 无限模式离店：写回金币与袋（匣/弃牌不变）。
+	## rush! 离店：写回金币与袋（匣/弃牌不变）。
 	gold = int(payload.get("gold", gold))
 	bag.clear()
 	bag_temp.clear()
@@ -2315,8 +2199,8 @@ func apply_shop_payload(payload: Dictionary) -> void:
 
 func can_start_next_wave() -> bool:
 
-	## 奖励结算完成后才可下一波；无限逢 5 波须先逛完商店。练习胜利袋回 10+5；无限/地图保留构筑。
-	return phase == Phase.WON and reward_resolved and not reward_pending and endless_shop_done
+	## 奖励结算完成后才可下一波；逢 5 波须先逛完商店。胜利保留构筑。
+	return phase == Phase.WON and reward_resolved and not reward_pending and rush_shop_done
 
 
 ## 清场后开始下一波：随机/轮换现有启用敌人；不回主菜单。袋沿用胜利重置+奖励后的状态；枪口全清。
@@ -2325,8 +2209,7 @@ func start_next_wave() -> bool:
 		return false
 	wave_index += 1
 	enemies.clear()
-	if endless_mode:
-		_configure_endless_wave_encounter()
+	_configure_rush_wave_encounter()
 	_spawn_wave_enemies()
 	lose_reason = LoseReason.NONE
 	_reset_fire_session()
@@ -2346,15 +2229,15 @@ func start_next_wave() -> bool:
 	return true
 
 
-func _configure_endless_wave_encounter() -> void:
-	## 无限：按敌人生成池表；10 的倍数为超级僵尸 Boss 波。
+func _configure_rush_wave_encounter() -> void:
+	## rush!：按敌人生成池表；10 的倍数为超级僵尸 Boss 波。
 	if wave_index > 0 and wave_index % 10 == 0:
 		encounter_kind = EncounterKind.BOSS
 	else:
 		encounter_kind = EncounterKind.NORMAL
 
 
-func _endless_wave_enemy_ids() -> Array[int]:
+func _rush_wave_enemy_ids() -> Array[int]:
 	## 波次→种类数字串→数量；10 的倍数：超级僵尸 ×(波次/10)。
 	var w: int = wave_index
 	var out: Array[int] = []
@@ -2415,29 +2298,8 @@ func _spawn_wave_enemies(force_ids: Array = []) -> void:
 	if force_ids.size() > 0:
 		for x in force_ids:
 			ids.append(int(x))
-	elif endless_mode:
-		ids.append_array(_endless_wave_enemy_ids())
-	elif encounter_kind == EncounterKind.BOSS:
-		ids.append(CombatConstants.BOSS_BODY_ENEMY_ID)
 	else:
-		var pool: Array[int] = []
-		for item in DataRegistry.all_enemies():
-			if not bool(item.get("enabled_in_combat", false)):
-				continue
-			# 普通/精英随机池只用小怪；Boss 仅由遭遇类型或无限表指定
-			if str(item.get("type", "")) == "Boss":
-				continue
-			pool.append(int(item["id"]))
-		if pool.is_empty():
-			pool.append(CombatConstants.CIVILIAN_ENEMY_ID)
-		var count: int
-		if encounter_kind == EncounterKind.ELITE:
-			count = CombatConstants.ELITE_ENEMY_COUNT
-		else:
-			# 第 n 波：1/2/3 循环数量
-			count = 1 + ((wave_index - 1) % 3)
-		for _i in count:
-			ids.append(pool[rng.randi_range(0, pool.size() - 1)])
+		ids.append_array(_rush_wave_enemy_ids())
 	var cell: int = CombatConstants.BOARD_SIZE - 1
 	for eid in ids:
 		if cell <= CombatConstants.PLAYER_CELL:
@@ -2457,72 +2319,25 @@ func _spawn_wave_enemies(force_ids: Array = []) -> void:
 		cell -= 1
 
 
-func _parse_encounter(s: String) -> int:
-	match s:
-		"elite":
-			return EncounterKind.ELITE
-		"boss":
-			return EncounterKind.BOSS
-		_:
-			return EncounterKind.NORMAL
-
-
 func encounter_label() -> String:
 	match encounter_kind:
-		EncounterKind.ELITE:
-			return "精英战"
 		EncounterKind.BOSS:
-			return "Boss 终战"
+			return "Boss 波"
 		_:
 			return "战斗"
 
 
 func reward_base_gold_for_encounter() -> int:
 	match encounter_kind:
-		EncounterKind.ELITE:
-			return CombatConstants.REWARD_ELITE_BASE_GOLD
 		EncounterKind.BOSS:
 			return CombatConstants.REWARD_BOSS_BASE_GOLD
 		_:
 			return CombatConstants.REWARD_BASE_GOLD
 
 
-## 按遭遇类型缩放现有敌人（不新增敌人表行）。
+## rush!：敌人直接用表内数值（超级僵尸 Boss 波亦然）。
 func _make_scaled_enemy(def: Dictionary, cell: int) -> EnemyInstance:
-	var e := EnemyInstance.new(def, cell)
-	# 无限超级僵尸用表内数值，不再套 Boss 倍率
-	if endless_mode and int(def.get("id", 0)) == CombatConstants.SUPER_ZOMBIE_ENEMY_ID:
-		return e
-	if endless_mode and int(def.get("id", 0)) == CombatConstants.ZOMBIE_ENEMY_ID:
-		return e
-	match encounter_kind:
-		EncounterKind.ELITE:
-			e.max_hp = maxi(1, int(round(float(e.max_hp) * CombatConstants.ELITE_HP_MULT)))
-			e.hp = e.max_hp
-			e.atk = maxi(0, int(round(float(e.atk) * CombatConstants.ELITE_ATK_MULT)))
-			e.mobility += CombatConstants.ELITE_MOBILITY_BONUS
-			e.attack_range = CombatConstants.ELITE_ATTACK_RANGE
-			e.name_zh = "精英·" + e.name_zh
-		EncounterKind.BOSS:
-			e.max_hp = maxi(1, int(round(float(e.max_hp) * CombatConstants.BOSS_HP_MULT)))
-			e.hp = e.max_hp
-			e.atk = maxi(0, int(round(float(e.atk) * CombatConstants.BOSS_ATK_MULT)))
-			e.mobility += CombatConstants.BOSS_MOBILITY_BONUS
-			e.attack_range = CombatConstants.BOSS_ATTACK_RANGE
-			e.name_zh = "Boss·" + e.name_zh
-		_:
-			pass
-	return e
-
-
-## Boss 向弹药袋塞入无效弹药（本地常量 id，非 Excel）。
-func _inject_invalid_ammo(count: int, reason: String = "") -> void:
-	if count <= 0:
-		return
-	for _i in count:
-		_bag_append(CombatConstants.INVALID_AMMO_ID, false)
-	var tag: String = reason if reason != "" else "效果"
-	_log("Boss[%s]：弹药袋 +无效弹药 ×%d（袋内 %d）。击发伤害 0。" % [tag, count, bag.size()])
+	return EnemyInstance.new(def, cell)
 
 
 # ——— 开发者工具 ———

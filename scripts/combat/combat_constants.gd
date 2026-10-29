@@ -27,22 +27,7 @@ const REWARD_FAST_CLEAR_TURN_LIMIT := 3
 const INVALID_AMMO_ID := 9001
 const INVALID_AMMO_NAME := "无效弹药"
 
-## 精英战倍率（灰盒暂定：复用现有敌人 id，仅抬数值）
-const ELITE_HP_MULT := 1.5
-const ELITE_ATK_MULT := 1.5
-const ELITE_MOBILITY_BONUS := 0
-const ELITE_ATTACK_RANGE := 2
-const ELITE_ENEMY_COUNT := 2
-const REWARD_ELITE_BASE_GOLD := 15
-
-## Boss 终战（灰盒暂定：复用现有敌人 id + 独特塞无效弹）
-const BOSS_BODY_ENEMY_ID := 3  ## 熊
-const BOSS_HP_MULT := 2.0
-const BOSS_ATK_MULT := 2.0
-const BOSS_MOBILITY_BONUS := 1
-const BOSS_ATTACK_RANGE := 2
-const BOSS_INVALID_ON_START := 2
-const BOSS_INVALID_PER_ENEMY_TURN := 1
+## rush! Boss 波（超级僵尸）基础金币
 const REWARD_BOSS_BASE_GOLD := 25
 
 ## 无效弹药说明（袋内详情用）
@@ -54,9 +39,6 @@ const FIRE_PORT_OFFSET_STEPS := 0
 const LOAD_PORT_OFFSET_STEPS := 5
 ## begin_load 时 start_index，使仓 0 对准上弹口：(1+5)%6=0
 const LOAD_SESSION_INITIAL_START := 1
-
-## 无限模式刷怪
-const ENDLESS_MAX_ZOMBIES_PER_WAVE := 8
 
 ## 金色/超级回合额外装填射击：单次玩家开火链最多追加轮数（防全匣超级回合软锁）
 const MAX_EXTRA_AUTOFIREs_PER_CHAIN := 10
