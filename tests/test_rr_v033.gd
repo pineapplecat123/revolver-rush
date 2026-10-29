@@ -238,8 +238,10 @@ func test_unblocked_mid_step_waits_for_next_step_no_teleport() -> void:
 	b.atk = 0
 	cs.reset_enemy_glide()
 	cs.advance_enemy_glide(0.5)
+	a.max_hp = 1  # v0.3.9：击杀经验不足以升级（升级会暂停滑行）
 	a.hp = 0
 	cs._remove_dead()
+	assert_false(cs.reward_pending)
 	assert_eq(cs.enemy_glide_fraction(b), 0.0)
 	cs.advance_enemy_glide(0.6)
 	assert_eq(b.cell, 2, "解除阻挡的那一拍不跳格")

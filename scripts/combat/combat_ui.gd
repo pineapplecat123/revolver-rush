@@ -89,7 +89,7 @@ const Z_MODAL_DIMMER := 80
 const Z_MODAL_PANEL := 90
 const Z_WAVE_BANNER := 100
 ## 清场后等飙血播一会儿再弹三选一（墙钟秒，不受战斗速度滑条影响）
-const REWARD_SHOW_DELAY_SEC := 1.0
+const REWARD_SHOW_DELAY_SEC := 0.0  ## v0.3.9：升级立即暂停弹出（飞行中的子弹/飚血一起冻结，选完接着播）
 const WAVE_BANNER_FADE_IN := 0.28
 const WAVE_BANNER_HOLD := 0.70
 const WAVE_BANNER_FADE_OUT := 0.40
@@ -1189,7 +1189,7 @@ func _run_manual_load_one() -> void:
 	_refresh_mag_contents()
 	_refresh_hud_only()
 	if LOAD_INSERT_PAUSE > 0.0:
-		await get_tree().create_timer(_paced(LOAD_INSERT_PAUSE)).timeout
+		await _pwait(_paced(LOAD_INSERT_PAUSE))
 	var done: bool = bool(result.get("done", false))
 	if not done:
 		var rotate_to: float = float(result.get("rotate_to", state.magazine.start_index))
@@ -1234,7 +1234,7 @@ func _animate_gold_extra_load() -> void:
 	_refresh_mag_contents()
 	_refresh_hud_only()
 	if LOAD_INSERT_PAUSE > 0.0:
-		await get_tree().create_timer(_paced(LOAD_INSERT_PAUSE)).timeout
+		await _pwait(_paced(LOAD_INSERT_PAUSE))
 	var done: bool = bool(result.get("done", false))
 	if not done:
 		var rotate_to: float = float(result.get("rotate_to", state.magazine.start_index))
@@ -1346,7 +1346,7 @@ func _spawn_hit_event(ev: Dictionary) -> void:
 func _play_tap_shot(rec: Dictionary, events: Array, order: int) -> void:
 	## 单发弹道（不 await 逻辑）：飞到命中格时播放该格延后的飘字/飚血，落地后清尸体。
 	if order > 0:
-		await get_tree().create_timer(_paced(EXTRA_SHOT_STAGGER_SEC) * float(order)).timeout
+		await _pwait(_paced(EXTRA_SHOT_STAGGER_SEC) * float(order))
 	var hit_cells: Array = rec.get("hit_cells", [])
 	var hit_amts: Array = rec.get("hit_amounts", [])
 	var from_g: Vector2 = _cell_unit_global_center(CombatConstants.PLAYER_CELL)
@@ -1406,7 +1406,7 @@ func _run_fire_sequence() -> void:
 		await _animate_gold_extra_load()
 		if state.magazine.is_empty() or not state.can_fire():
 			break
-		await get_tree().create_timer(_paced(FIRE_SHOT_DELAY * 0.5)).timeout
+		await _pwait(_paced(FIRE_SHOT_DELAY * 0.5))
 		if not state.begin_fire():
 			break
 		await _animate_fire_shots()
@@ -1414,7 +1414,7 @@ func _run_fire_sequence() -> void:
 	if state.auto_enemy_advance:
 		state.finalize_post_fire()
 	elif state.post_fire_enemy_pending():
-		await get_tree().create_timer(_paced(POST_FIRE_STATUS_DELAY)).timeout
+		await _pwait(_paced(POST_FIRE_STATUS_DELAY))
 		state.resolve_post_fire_enemy_turn()
 	if state.has_corpse_enemies():
 		state.flush_dead_enemies()
@@ -1468,7 +1468,7 @@ func _animate_fire_shots() -> void:
 				state.flush_dead_enemies()
 			else:
 				_refresh_board()
-			await get_tree().create_timer(_paced(FIRE_FLASH_HOLD)).timeout
+			await _pwait(_paced(FIRE_FLASH_HOLD))
 			# 黄闪不得随大圈转动；转下一仓 / 末发对齐前先消掉
 			_clear_fire_flash()
 		else:
@@ -1487,7 +1487,7 @@ func _animate_fire_shots() -> void:
 				remain = 1
 			await _animate_disk_to(_wheel_visual_steps + float(remain), _paced(STEP_ROT_DURATION))
 			_refresh_mag_contents()
-			await get_tree().create_timer(_paced(FIRE_SHOT_DELAY)).timeout
+			await _pwait(_paced(FIRE_SHOT_DELAY))
 		else:
 			# 末发：同样再转 60° 收束；禁止瞬间对齐 start_index。
 			# 空匣逻辑会把 start_index 置 0，硬对齐会让正上红圈/仓边框闪跳到别的仓再弹回。
@@ -2130,10 +2130,31 @@ func _update_dimmer() -> void:
 	dimmer.visible = _dev_open or _reward_open or _shop_open or _sin_pick_open
 
 
+func _pwait(sec: float) -> void:
+	## v0.3.9：可暂停的等待（绑在本节点的 Tween 间隔）。升级三选一冻结战斗时一并停住，
+	## 不像 SceneTreeTimer 那样在暂停期间继续走完。
+	var tw := create_tween()
+	tw.tween_interval(maxf(sec, 0.0))
+	await tw.finished
+
+
+func is_combat_frozen() -> bool:
+	return process_mode == Node.PROCESS_MODE_DISABLED
+
+
+func _set_combat_frozen(frozen: bool) -> void:
+	## v0.3.9：升级三选一 = 纯暂停遮罩。整个战斗场景（含本节点上的所有 Tween：转盘、弹道、飚血、飘字、
+	## 抖动、可暂停等待；弹药袋物理；_process 里的怪滑行/计时）停止处理；只有奖励面板与遮罩照常响应。
+	reward_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	dimmer.process_mode = Node.PROCESS_MODE_ALWAYS
+	process_mode = Node.PROCESS_MODE_DISABLED if frozen else Node.PROCESS_MODE_INHERIT
+
+
 func _set_reward_open(open: bool) -> void:
 	if open:
 		_cancel_reward_show_delay()
 	_reward_open = open
+	_set_combat_frozen(open)
 	reward_panel.visible = open
 	if open:
 		_dev_open = false

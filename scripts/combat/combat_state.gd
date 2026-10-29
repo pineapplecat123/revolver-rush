@@ -564,7 +564,7 @@ func _clear_all_sin_muzzle(include_pride: bool = true) -> void:
 
 func tick_muzzle_durations(delta_sec: float) -> bool:
 	## v0.3.7：每层独立扣减；到期只掉那一层，其它层继续。返回是否有层数/状态变化。
-	if delta_sec <= 0.0:
+	if delta_sec <= 0.0 or reward_pending:
 		return false
 	if phase == Phase.WON or phase == Phase.LOST:
 		return false
@@ -2254,8 +2254,8 @@ func advance_enemy_glide(delta_cells: float) -> int:
 	## rush! 连续推进：累计滑行距离（格），每满 1 格调用一次 tick_enemy_auto_step。返回本次落格拍数。
 	if not auto_enemy_advance or phase == Phase.WON or phase == Phase.LOST:
 		return 0
-	if delta_cells <= 0.0:
-		return 0
+	if delta_cells <= 0.0 or reward_pending:
+		return 0  # v0.3.9：升级三选一 = 纯暂停，滑行进度原地不动
 	_ensure_glide_movers()
 	enemy_step_progress += delta_cells
 	var steps := 0
@@ -2687,6 +2687,10 @@ func _field_cleared() -> bool:
 	## 无波次：场上清空 → 立刻按规则补刷（不进胜利、不刷新任何状态）。永远返回 false。
 	if not alive_enemies().is_empty():
 		return false
+	if reward_pending or has_corpse_enemies():
+		# v0.3.9：升级三选一期间一律不刷怪（纯暂停）；选完恢复战斗时由 tick_combat_time 补刷。
+		# 还有尸体（pace 飚血未清）时也先不刷：尸体清掉才发经验，避免先刷怪、后弹升级。
+		return false
 	_spawn_up_to_cap(true)
 	_spawn_timer = spawn_interval_now()
 	return false
@@ -2769,6 +2773,10 @@ func tick_combat_time(delta_sec: float) -> bool:
 			encounter_kind = EncounterKind.BOSS
 			_log("Boss 来袭：超级僵尸 ×%d（%.0f 秒）。" % [made, elapsed_sec])
 			changed = true
+	if alive_enemies().is_empty() and not has_corpse_enemies():
+		# 三选一期间清场被推迟的补刷：恢复战斗第一帧补上（Boss 先占刷怪口）
+		_field_cleared()
+		changed = true
 	_spawn_timer -= delta_sec
 	if _spawn_timer <= 0.0:
 		if alive_enemies().size() < spawn_alive_cap_now() and _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
@@ -2843,6 +2851,7 @@ func temp_lifetimes_in_bag() -> Array:
 func flush_dead_enemies() -> void:
 	## UI：弹点命中飚血播完后再清尸体并刷新。
 	_remove_dead()
+	_field_cleared()  # v0.3.9：清场补刷在发完经验之后（若刚升级则推迟到选完）
 	_emit()
 
 

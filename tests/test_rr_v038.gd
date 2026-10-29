@@ -116,6 +116,8 @@ func test_reward_pauses_fire_load_and_time() -> void:
 
 func test_clear_field_respawns_never_won() -> void:
 	var cs := _rush()
+	for e in cs.enemies:
+		e.max_hp = 1  # 经验不够升级 → 不暂停，立即补刷
 	_kill_all(cs)
 	assert_ne(cs.phase, CombatState.Phase.WON)
 	assert_false(cs.alive_enemies().is_empty(), "清场立刻补刷")
@@ -307,10 +309,13 @@ func test_muzzle_entries_expose_layers_sorted() -> void:
 	assert_almost_eq(float(e["remaining"]), 1.2, 0.001)
 
 
-func test_game_version_0_3_8() -> void:
-	assert_eq(GameVersion.STRING, "0.3.8")
+func test_changelog_has_0_3_8() -> void:
 	var d = JSON.parse_string(FileAccess.get_file_as_string("res://data/changelog.json"))
-	assert_eq(str(d["entries"][0]["version"]), "0.3.8")
+	var found := false
+	for e in d["entries"]:
+		if str(e["version"]) == "0.3.8":
+			found = true
+	assert_true(found)
 
 
 # ——— UI ———
