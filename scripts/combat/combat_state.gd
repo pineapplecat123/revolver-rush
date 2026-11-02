@@ -1982,7 +1982,7 @@ func fire_next_shot() -> bool:
 
 	if pace_after_fire:
 		# 只规划命中路径；扣血/飘字等拖尾飞到怪身上再 resolve_paced_hit
-		var plan: Array = _build_shot_plan(base_dmg, pierce)
+		var plan: Array = _build_shot_plan(base_dmg, pierce, ammo_id)
 		for h in plan:
 			last_shot_hit_cells.append(int(h.get("cell", -1)))
 			last_shot_hit_amounts.append(0)
@@ -2033,7 +2033,7 @@ func has_paced_shot_pending() -> bool:
 	return not _paced_shot.is_empty()
 
 
-func _build_shot_plan(base_dmg: int, pierce: bool) -> Array:
+func _build_shot_plan(base_dmg: int, pierce: bool, ammo_id: int = -1) -> Array:
 	## 规划本发命中顺序（前→后），不扣血。
 	var plan: Array = []
 	var targets: Array = []
@@ -2041,6 +2041,16 @@ func _build_shot_plan(base_dmg: int, pierce: bool) -> Array:
 		if e != null and e.is_alive():
 			targets.append(e)
 	if targets.is_empty():
+		return plan
+	if ammo_id == FireResolver.ID_SCATTER:
+		var n: int = targets.size()
+		var per: int
+		if n >= 3:
+			per = int(round(float(base_dmg) / float(n)))
+		else:
+			per = int(round(float(base_dmg) * 0.30))
+		for e in targets:
+			plan.append({"enemy": e, "cell": e.cell, "dmg": per, "resolved": false, "dealt": 0})
 		return plan
 	if pierce:
 		var dmg := base_dmg
@@ -2172,6 +2182,36 @@ func finalize_paced_shot() -> void:
 	_emit()
 
 
+func _apply_scatter_shot(
+	ammo_id: int, base_dmg: int, gas: bool, fire: bool, water: bool, thunder: bool,
+	explosive: bool, targets: Array
+) -> int:
+	## 散射：实际伤害均分全场（四舍五入）；敌人<3 时每人只吃 30%。
+	var n: int = targets.size()
+	var per: int
+	if n >= 3:
+		per = int(round(float(base_dmg) / float(n)))
+	else:
+		per = int(round(float(base_dmg) * 0.30))
+	_log("散射：实际%d → %s（敌人×%d）" % [
+		base_dmg,
+		("均分每人 %d" % per) if n >= 3 else ("少于3人，每人 30%% = %d" % per),
+		n
+	])
+	var total := 0
+	for e in targets:
+		if e == null or not e.is_alive():
+			continue
+		var dealt_e: int = _hit_enemy_with_elements(e, per, ammo_id, gas, fire, water, thunder, "", explosive)
+		total += dealt_e
+		last_shot_hit_cells.append(e.cell)
+		last_shot_hit_amounts.append(dealt_e)
+	if not last_shot_hit_cells.is_empty():
+		last_shot_hit_cell = last_shot_hit_cells[0]
+		last_shot_dealt = last_shot_hit_amounts[0]
+	return total
+
+
 func _apply_shot_to_enemies(
 	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool,
 	explosive: bool = false
@@ -2180,6 +2220,8 @@ func _apply_shot_to_enemies(
 	if targets.is_empty():
 		_log("击发[%s] → 无可击中目标。" % _ammo_name(ammo_id))
 		return 0
+	if ammo_id == FireResolver.ID_SCATTER:
+		return _apply_scatter_shot(ammo_id, base_dmg, gas, fire, water, thunder, explosive, targets)
 	var total := 0
 	if pierce:
 		var dmg := base_dmg

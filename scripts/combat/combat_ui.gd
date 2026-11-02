@@ -1060,6 +1060,9 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_EXPLOSIVE:
 			# 炸药：暗橙爆裂
 			return {"bg": Color(0.95, 0.4, 0.08), "fg": Color(0.12, 0.04, 0.0)}
+		FireResolver.ID_SCATTER:
+			# 散射：浅紫多线
+			return {"bg": Color(0.72, 0.55, 0.95), "fg": Color(0.1, 0.05, 0.18)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:

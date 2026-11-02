@@ -345,6 +345,22 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "枪口炸药：打燃烧目标3倍溅射"
+    },
+    {
+      "id": 28,
+      "name": "散射弹药",
+      "rarity": null,
+      "base_damage": 5,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害5。射击后，实际伤害均分给场上所有敌人（四舍五入）。若敌人少于3人，则每人只受到实际伤害的30%（四舍五入）。",
+      "tags": [
+        "散射",
+        "AOE"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "伤害均分全场；少于3人则各30%"
     }
   ]
 }
