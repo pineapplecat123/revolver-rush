@@ -17,6 +17,8 @@ class_name CombatHooks
 ##   on_temp_sin_spawn    — 临时罪孽入袋；sin_id, source ("load33"|"penalty_legacy")
 ##   on_dot_tick          — DoT 跳（燃烧/流血）；kind
 ##   on_insurance_swap    — 保险挡住第3罪孽装填；sin_id
+##   on_stone_shatter     — 石头命中碎裂产小石头；dealt, pebbles
+##   on_pebble_fuse       — 小石头相邻融合点射；count, damage
 ##
 ## 用法：cs.hooks.subscribe("on_shot", callable) / cs.hooks.emit_hook("on_shot", {...})
 

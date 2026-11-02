@@ -44,3 +44,7 @@
 
 ## v0.4.6
 - `on_insurance_swap`：保险挡住第3颗罪孽；`sin_id`
+
+## v0.4.8
+- `on_stone_shatter`：石头命中按实际伤害产小石头；`dealt`, `pebbles`
+- `on_pebble_fuse`：相邻小石头点射融合；`count`, `damage`

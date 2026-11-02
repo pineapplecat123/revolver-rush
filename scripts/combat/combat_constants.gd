@@ -96,6 +96,8 @@ const MAP_SHOP_FIRST_SEC := 45.0
 const MAP_SHOP_RESPAWN_SEC := 90.0
 ## 幽灵 TTL：与临时罪孽同寿命。
 const GHOST_TTL_SEC := TEMP_SIN_LIFETIME_SEC
+## 小石头 TTL：与幽灵同寿命。
+const PEBBLE_TTL_SEC := TEMP_SIN_LIFETIME_SEC
 
 ## 吸血枪口：每层概率与回血比例。
 const LIFESTEAL_CHANCE_PER_STACK := 0.20

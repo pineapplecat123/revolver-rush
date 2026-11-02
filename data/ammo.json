@@ -391,6 +391,37 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "匣内聚能越多，靠后的越痛"
+    },
+    {
+      "id": 31,
+      "name": "石头弹药",
+      "rarity": null,
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害3。命中后按本次实际造成伤害数，向袋内加入等量小石头弹药（TTL，战后/到期消失）。",
+      "tags": [
+        "弹药增生"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "命中产等量小石头入袋"
+    },
+    {
+      "id": 32,
+      "name": "小石头弹药",
+      "rarity": null,
+      "base_damage": 1,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害1。由石头命中生成（TTL）。点射时若锤位起相邻≥2颗小石头，则该段融合成1发射击，伤害=段长，并清空该段各仓。",
+      "tags": [
+        "衍生物",
+        "合体"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": true,
+      "in_reward_pool": false,
+      "blurb": "相邻小石头点射融合"
     }
   ]
 }

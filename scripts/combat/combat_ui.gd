@@ -1069,6 +1069,12 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_FOCUS:
 			# 聚能：亮电青
 			return {"bg": Color(0.45, 0.85, 1.0), "fg": Color(0.05, 0.12, 0.18)}
+		FireResolver.ID_STONE:
+			# 石头：岩石灰
+			return {"bg": Color(0.55, 0.52, 0.48), "fg": Color(0.95, 0.93, 0.9)}
+		FireResolver.ID_PEBBLE:
+			# 小石头：浅岩灰
+			return {"bg": Color(0.7, 0.66, 0.6), "fg": Color(0.2, 0.16, 0.12)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:

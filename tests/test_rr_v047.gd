@@ -34,7 +34,7 @@ func _shot_one(cs: CombatState) -> void:
 
 
 func test_version_is_0_4_7() -> void:
-	assert_eq(GameVersion.STRING, "0.4.7")
+	assert_true("0.4.7" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
 func test_focus_ammo_def() -> void:

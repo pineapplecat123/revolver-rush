@@ -308,6 +308,8 @@ var _pending_gold_autofires: int = 0
 var burst_window_remaining: float = 0.0
 ## 本装填周期已击发的聚能发数（聚能伤害递增）。
 var _focus_shots_fired: int = 0
+## 本发小石头融合段长（≥2 时一次清空多仓）。
+var _pebble_fuse_count: int = 0
 ## v0.4.0 倾泻：击发倾泻后待自动打出的剩余仓；可被下一次点射中断。
 var _dump_pending: bool = false
 var _dump_interrupted: bool = false
@@ -410,6 +412,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	rush_shop_done = false
 	burst_window_remaining = 0.0
 	_reset_focus_shot_counter()
+	_pebble_fuse_count = 0
 	_dump_pending = false
 	_dump_interrupted = false
 	_dot_timer = CombatConstants.DOT_TICK_SEC
@@ -1878,12 +1881,12 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 
 
 func _purge_ghost_ammo() -> int:
-	## 战斗结束：清除袋/弃/膛中的幽灵弹药。返回清除数量。
+	## 战斗结束：清除袋/弃/膛中的幽灵与小石头等 ephemeral。返回清除数量。
 	var n := 0
 	_sync_temp_arrays()
 	var i := bag.size() - 1
 	while i >= 0:
-		if int(bag[i]) == FireResolver.ID_GHOST:
+		if int(bag[i]) == FireResolver.ID_GHOST or int(bag[i]) == FireResolver.ID_PEBBLE:
 			bag.remove_at(i)
 			if i < bag_temp.size():
 				bag_temp.remove_at(i)
@@ -1891,7 +1894,7 @@ func _purge_ghost_ammo() -> int:
 		i -= 1
 	i = discard.size() - 1
 	while i >= 0:
-		if int(discard[i]) == FireResolver.ID_GHOST:
+		if int(discard[i]) == FireResolver.ID_GHOST or int(discard[i]) == FireResolver.ID_PEBBLE:
 			discard.remove_at(i)
 			if i < discard_temp.size():
 				discard_temp.remove_at(i)
@@ -1899,11 +1902,11 @@ func _purge_ghost_ammo() -> int:
 		i -= 1
 	if magazine != null:
 		for s in magazine.slots.size():
-			if magazine.slots[s] == FireResolver.ID_GHOST:
+			if magazine.slots[s] == FireResolver.ID_GHOST or magazine.slots[s] == FireResolver.ID_PEBBLE:
 				magazine.set_slot(s, Magazine.EMPTY, false)
 				n += 1
 	if n > 0:
-		_log("战斗结束：幽灵弹药消散 ×%d。" % n)
+		_log("战斗结束：临时衍生物消散 ×%d。" % n)
 	return n
 
 
@@ -1915,6 +1918,68 @@ func _next_focus_damage() -> int:
 
 func _reset_focus_shot_counter() -> void:
 	_focus_shots_fired = 0
+
+
+
+func _adjacent_pebble_run_from_hammer() -> int:
+	## 自击发点起不跳空、连续小石头段长（邻接判定）。
+	if magazine == null:
+		return 0
+	var n := 0
+	var i: int = magazine.chamber_at_fire_port()
+	for _s in magazine.size():
+		if magazine.slots[i] != FireResolver.ID_PEBBLE:
+			break
+		n += 1
+		i = (i + 1) % magazine.size()
+	return n
+
+
+func _consume_pebble_fuse(count: int) -> void:
+	## 连续清空 count 个小石头仓并逐格推进转轮；全部进弃牌。
+	for _i in count:
+		if magazine == null or magazine.is_empty():
+			break
+		var hammer: int = magazine.chamber_at_fire_port()
+		var shot_temp: float = magazine.slot_temp_life(hammer)
+		if magazine.slots[hammer] == FireResolver.ID_PEBBLE:
+			magazine.set_slot(hammer, Magazine.EMPTY, false)
+			_discard_append(FireResolver.ID_PEBBLE, shot_temp)
+		_advance_cylinder_one_step()
+
+
+func _maybe_spawn_pebbles_from_stone(ammo_id: int, dealt: int) -> void:
+	## 石头命中：按实际伤害数向袋加入等量小石头 TTL。
+	if ammo_id != FireResolver.ID_STONE or dealt <= 0:
+		return
+	for _i in dealt:
+		_bag_append(FireResolver.ID_PEBBLE, CombatConstants.PEBBLE_TTL_SEC)
+	_log("石头弹药：实际伤害 %d → 袋内 +%d 小石头（TTL %.0fs）。" % [
+		dealt, dealt, CombatConstants.PEBBLE_TTL_SEC
+	])
+	hooks.emit_hook(&"on_stone_shatter", {"cs": self, "dealt": dealt, "pebbles": dealt})
+
+
+func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -> void:
+	## 点射队列准备：聚能递增 / 小石头融合。写入 _fire_queue/_fire_damages/_pebble_fuse_count。
+	_pebble_fuse_count = 0
+	if full_order.is_empty():
+		_fire_queue = [] as Array[int]
+		_fire_damages = [] as Array[int]
+		return
+	var ammo0: int = int(full_order[0])
+	var dmg0: int = int(full_dmg[0])
+	if ammo0 == FireResolver.ID_FOCUS:
+		dmg0 = _next_focus_damage()
+	elif ammo0 == FireResolver.ID_PEBBLE:
+		var run: int = _adjacent_pebble_run_from_hammer()
+		if run >= 2:
+			_pebble_fuse_count = run
+			dmg0 = run
+			_log("小石头：相邻 ×%d 融合为 1 发（伤害 %d）。" % [run, dmg0])
+			hooks.emit_hook(&"on_pebble_fuse", {"cs": self, "count": run, "damage": dmg0})
+	_fire_queue = [ammo0] as Array[int]
+	_fire_damages = [dmg0] as Array[int]
 
 
 func begin_fire() -> bool:
@@ -1931,10 +1996,7 @@ func begin_fire() -> bool:
 	if full_order.is_empty():
 		return false
 	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
-	if int(full_order[0]) == FireResolver.ID_FOCUS:
-		full_dmg[0] = _next_focus_damage()
-	_fire_queue = [full_order[0]] as Array[int]
-	_fire_damages = [full_dmg[0]] as Array[int]
+	_prepare_point_fire_damages(full_order, full_dmg)
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
 	_log("射击 1 发[%s]（匣内剩余将保留，可继续装/射）。" % _ammo_name(full_order[0]))
@@ -2016,7 +2078,13 @@ func fire_next_shot() -> bool:
 	var shot_temp: float = magazine.slot_temp_life(hammer)
 	var ammo_id: int = _fire_queue[_fire_index]
 	var base_dmg: int = _fire_damages[_fire_index]
-	_consume_hammer_chamber(ammo_id)
+	var fuse_n: int = _pebble_fuse_count
+	if fuse_n >= 2 and ammo_id == FireResolver.ID_PEBBLE:
+		_consume_pebble_fuse(fuse_n)
+		_pebble_fuse_count = 0
+		shot_temp = 0.0  # 已在 fuse 内各自 discard
+	else:
+		_consume_hammer_chamber(ammo_id)
 
 	var flags := FireResolver.inherits_from(ammo_id)
 	# 描边：开火前已在枪口的贡献色（不含本发刚挂上的罪孽）
@@ -2037,7 +2105,8 @@ func fire_next_shot() -> bool:
 	last_shot_hit_amounts.clear()
 	last_shot_was_pierce = pierce
 
-	_discard_append(ammo_id, shot_temp)
+	if fuse_n < 2:
+		_discard_append(ammo_id, shot_temp)
 	# 元素枪口：本发后挂上，供后续击发附带
 	_mount_muzzle_from(flags)
 	if ammo_id == FireResolver.ID_TOMBSTONE:
@@ -2074,6 +2143,7 @@ func fire_next_shot() -> bool:
 
 	var dealt_total := _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 	_fire_total_damage += dealt_total
+	_maybe_spawn_pebbles_from_stone(ammo_id, dealt_total)
 	_remove_dead()
 
 	# 金色/超级回合：本匣击发计入待追加轮；整匣后再额外自动装填射击。超级回合额外轮内可再叠（有上限）。
@@ -2232,6 +2302,7 @@ func finalize_paced_shot() -> void:
 		last_shot_dealt = first_dealt
 		total += echo_total
 	_fire_total_damage += total
+	_maybe_spawn_pebbles_from_stone(int(_paced_shot.get("ammo_id", -1)), total)
 	if bool(_paced_shot.get("gold", false)):
 		_queue_extra_autofire_from_shot(int(_paced_shot.get("ammo_id", -1)))
 	var await_finish: bool = bool(_paced_shot.get("await_finish", false))
@@ -2881,10 +2952,7 @@ func _auto_load_and_fire_once() -> bool:
 	# 同步打 1 发（与 begin_fire 单发一致）
 	var full_order: Array[int] = magazine.fire_order()
 	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
-	if not full_order.is_empty() and int(full_order[0]) == FireResolver.ID_FOCUS:
-		full_dmg[0] = _next_focus_damage()
-	_fire_queue = [full_order[0]] as Array[int]
-	_fire_damages = [full_dmg[0]] as Array[int]
+	_prepare_point_fire_damages(full_order, full_dmg)
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
 	while _fire_index < _fire_queue.size():
@@ -2903,7 +2971,13 @@ func _auto_load_and_fire_once() -> bool:
 		var ammo_id: int = _fire_queue[_fire_index]
 		var base_dmg: int = _fire_damages[_fire_index]
 		var shot_temp: float = magazine.slot_temp_life(hammer)
-		_consume_hammer_chamber(ammo_id)
+		var fuse_n: int = _pebble_fuse_count
+		if fuse_n >= 2 and ammo_id == FireResolver.ID_PEBBLE:
+			_consume_pebble_fuse(fuse_n)
+			_pebble_fuse_count = 0
+			shot_temp = 0.0
+		else:
+			_consume_hammer_chamber(ammo_id)
 		var flags := FireResolver.inherits_from(ammo_id)
 		last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 		_mount_sin_muzzle_from(flags)
@@ -2920,9 +2994,12 @@ func _auto_load_and_fire_once() -> bool:
 		last_shot_hit_amounts.clear()
 		last_shot_was_pierce = pierce
 		# 额外轮：先挂元素枪口（含回声），本发即享受
-		_discard_append(ammo_id, shot_temp)
+		if fuse_n < 2:
+			_discard_append(ammo_id, shot_temp)
 		_mount_muzzle_from(flags)
-		_fire_total_damage += _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+		var dealt_auto: int = _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+		_fire_total_damage += dealt_auto
+		_maybe_spawn_pebbles_from_stone(ammo_id, dealt_auto)
 		if ammo_id == FireResolver.ID_TOMBSTONE:
 			_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())
 		_fire_index += 1
