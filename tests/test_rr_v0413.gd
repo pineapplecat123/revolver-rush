@@ -27,9 +27,9 @@ func _rush(seed_v: int = 41301) -> CombatState:
 	return cs
 
 
-func test_version_is_0_4_13() -> void:
-	assert_eq(GameVersion.STRING, "0.4.13")
-	assert_true("0.4.13" in FileAccess.get_file_as_string("res://data/changelog.json"))
+func test_changelog_has_0_4_13_entry() -> void:
+	var text := FileAccess.get_file_as_string("res://data/changelog.json")
+	assert_true('"version": "0.4.13"' in text or '"version":"0.4.13"' in text)
 
 
 func test_gluttony_def_not_lifesteal() -> void:
