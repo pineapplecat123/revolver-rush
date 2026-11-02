@@ -144,25 +144,19 @@ func test_greed_takes_gold_on_third_insert() -> void:
 
 
 func test_super_round_extra_load_bringing_third_sin_triggers() -> void:
-	## 超级回合额外轮补的一发是第 3 颗愤怒 → 同步触发惩罚。
-	var cs := _rush(3506)
-	cs.magazine.clear()
-	cs.magazine.set_slot(0, FireResolver.ID_SUPER_ROUND)
-	cs.magazine.set_slot(1, W)
-	cs.magazine.set_slot(2, W)
-	cs.magazine.start_index = 0
-	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
-	_bag_only(cs, W, 6)
-	var hp0: int = cs.player_hp
-	var shots: Array = cs.fire_tap()
-	assert_true(shots.size() >= 2, "超级回合 + 额外轮至少 2 发")
-	assert_eq(int(shots[0]["ammo_id"]), FireResolver.ID_SUPER_ROUND)
-	assert_true(bool(shots[1]["extra"]))
-	# 额外轮装入 W → 转轮 3 颗愤怒（触发），随后额外轮射出 1 颗
-	assert_eq(cs.player_hp, hp0 - 6, "额外轮装入第 3 颗愤怒应触发")
+	## v0.4.0：连发不再额外补弹；保留用例，断言开窗。
+	var cs := CombatState.new(3501)
+	cs.start_rush(3501, FireResolver.ID_WRATH)
+	cs.dev_force_load([
+		FireResolver.ID_BURST,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
+	] as Array[int])
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	assert_gt(cs.burst_window_remaining, 0.0)
 
-
-# ---------------- 枪口倒计时 ----------------
 
 func test_muzzle_entries_countdown_and_pride_timed() -> void:
 	## v0.3.7：傲慢也显示秒数（不再 ∞）；多层显示最短剩余。
@@ -260,21 +254,18 @@ func test_rapid_taps_skip_empty_chambers() -> void:
 
 
 func test_rapid_tap_super_round_extras_still_run() -> void:
-	var cs := _rush(3511)
-	_bag_only(cs, WHITE, 10)
-	cs.magazine.clear()
-	cs.magazine.set_slot(0, FireResolver.ID_SUPER_ROUND)
-	cs.magazine.set_slot(1, WHITE)
-	cs.magazine.start_index = 0
-	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
-	var shots: Array = cs.fire_tap()
-	assert_eq(shots.size(), 2, "超级回合 1 发 + 额外轮 1 发")
-	assert_false(bool(shots[0]["extra"]))
-	assert_true(bool(shots[1]["extra"]))
-	assert_eq(cs.pending_gold_autofires(), 0)
-	assert_false(cs.is_busy_firing())
-	assert_false(cs.is_busy_loading())
-	assert_true(cs.can_fire(), "仍可继续连点")
+	## v0.4.0：连发不再额外补弹；保留用例，断言开窗。
+	var cs := CombatState.new(3501)
+	cs.start_rush(3501, FireResolver.ID_WRATH)
+	cs.dev_force_load([
+		FireResolver.ID_BURST,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
+	] as Array[int])
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	assert_gt(cs.burst_window_remaining, 0.0)
 
 
 func test_rapid_tap_muzzle_mounts() -> void:

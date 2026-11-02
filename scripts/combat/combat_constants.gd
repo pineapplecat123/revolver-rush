@@ -60,7 +60,7 @@ const MUZZLE_DURATION_PRIDE_SEC := 12.0
 
 
 ## ——— v0.3.8 无波次 / 经验值 / 临时罪孽寿命 ———
-## 临时罪孽（三罪孽惩罚每触发一次 +1 颗同种）寿命：18 秒（战斗秒 × 速度，暂停时停）。
+## 临时罪孽（装入时 33% +1 同种）寿命：18 秒（战斗秒 × 速度，暂停时停）。
 const TEMP_SIN_LIFETIME_SEC := 18.0
 ## 经验：击杀得 XP = 敌人 max_hp（Boss/超级僵尸 ×2）。
 const XP_BOSS_MULT := 2
@@ -80,3 +80,19 @@ const SPAWN_POOL_STEP_SEC := 30.0
 const BOSS_EVERY_SEC := 180.0
 ## 只在最右 SPAWN_LANE_CELLS 格内刷（尊重占格）
 const SPAWN_LANE_CELLS := 3
+
+## ——— v0.4.0 语法基建 ———
+## 连发子弹：击发后 1.0s 连发窗（刷新不叠）；窗内每次射击=免费平庸伤一发（不耗仓、不转轮）。
+const BURST_WINDOW_SEC := 1.0
+## 倾泻：自动打剩余已装填仓，约 0.06s/发（UI 步进；逻辑可同步打完）。
+const DUMP_SHOT_INTERVAL_SEC := 0.06
+## 装入罪孽时 33% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。
+const LOAD_TEMP_SIN_CHANCE := 0.33
+## DoT（燃烧/流血）独立 0.5s 跳一次，不再挂在落格拍。
+const DOT_TICK_SEC := 0.5
+## 地图商店：首次出现与再次刷新间隔（战斗秒）。
+const MAP_SHOP_FIRST_SEC := 45.0
+const MAP_SHOP_RESPAWN_SEC := 90.0
+## 幽灵 TTL：与临时罪孽同寿命。
+const GHOST_TTL_SEC := TEMP_SIN_LIFETIME_SEC
+

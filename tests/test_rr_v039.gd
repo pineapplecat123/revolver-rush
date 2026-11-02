@@ -250,6 +250,10 @@ func test_scene_queued_levelups_stay_frozen() -> void:
 
 
 func test_game_version_0_3_9() -> void:
-	assert_eq(GameVersion.STRING, "0.3.9")
+	## 历史用例：0.3.9 条目仍在 changelog；当前版本由 v0.4.0 套件覆盖。
 	var d = JSON.parse_string(FileAccess.get_file_as_string("res://data/changelog.json"))
-	assert_eq(str(d["entries"][0]["version"]), "0.3.9")
+	var found := false
+	for e in d["entries"]:
+		if str(e["version"]) == "0.3.9":
+			found = true
+	assert_true(found)

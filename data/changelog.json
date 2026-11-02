@@ -2,6 +2,19 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.0",
+      "date": "2026-11-02",
+      "items": [
+        "连发弹药（取代超级回合子弹）：击发开启 1 秒连发窗（刷新不叠）；窗内点射打出免费平庸伤害（吃当前枪口，不耗仓、不转轮、不进弃牌）",
+        "新弹药「倾泻」：击发后自动打出转轮剩余已装填弹（约 0.06 秒/发）；倾泻中再点射可中断",
+        "临时罪孽只在装入时 33% 概率 +1 同种 TTL；三罪孽惩罚不再加临时罪；罪孽袋仍为 5",
+        "墓碑重做：击发袋内 +1 临时幽灵 TTL，并立刻极速连射袋内所有幽灵（每发单独结算枪口）；不再填空仓",
+        "DoT（燃烧/流血）改为每 0.5 秒跳一次，不再挂在敌人落格拍",
+        "地图商店骨架：战场刷出商店实体，走近碰到玩家打开旧商店 UI（货架池稍后重做）；金币弹重新启用，商店金币消费恢复",
+        "战斗生命周期钩子总线 CombatHooks（on_fire/on_shot/on_chamber_loaded/on_bag_enter/on_bag_leave/on_three_sin/on_muzzle_apply/on_kill/on_shop_enter/on_dump_*/on_burst_window/on_temp_sin_spawn/on_dot_tick），供后续涌现式连携订阅"
+      ]
+    },
+    {
       "version": "0.3.9",
       "date": "2026-10-29",
       "items": [

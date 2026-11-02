@@ -88,7 +88,7 @@ func test_load_fills_magazine_from_bag() -> void:
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.penalty_temp_sins_spawned)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.load_temp_sins_spawned)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 
 
@@ -284,7 +284,8 @@ func test_force_load_yellow_and_fire() -> void:
 	# rush!：黄梯 5+5+4+3+2+1=20；不在 do_fire 末尾结算流血（自动推进才结算）
 	assert_eq(cs.enemies[0].hp, 80)
 	assert_eq(cs.enemies[0].bleed_stacks, 6)
-	assert_true(cs.tick_enemy_auto_step())
+	cs._dot_timer = 0.01
+	assert_true(cs.tick_dot(0.02))
 	assert_eq(cs.enemies[0].hp, 74)
 	assert_eq(cs.enemies[0].bleed_stacks, 5)
 
@@ -309,7 +310,9 @@ func test_bio_bleeds_and_ticks() -> void:
 	cs.enemies[0].apply_hit(3)
 	assert_eq(cs.enemies[0].bleed_stacks, 1)
 	var hp_before: int = cs.enemies[0].hp
-	assert_true(cs.tick_enemy_auto_step())  # 自动推进含流血结算
+	# v0.4.0：流血改 0.5s DoT，不再挂落格拍
+	cs._dot_timer = 0.01
+	assert_true(cs.tick_dot(0.02))
 	assert_eq(cs.enemies[0].hp, hp_before - 1)
 	assert_eq(cs.enemies[0].bleed_stacks, 0)
 
@@ -471,8 +474,8 @@ func test_stepwise_load_api() -> void:
 	# 装满后标记需要 reroll；start_index 在 spin 前保持会话末值
 	assert_true(bool(last.get("needs_spin", false)))
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
-	# v0.3.8：装填中若凑满 3 颗同种罪孽会吃惩罚并往袋里 +1 颗临时罪孽
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.penalty_temp_sins_spawned)
+	# v0.4.0：装入时 33% 可能 +临时罪；三罪孽惩罚不再加临时
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.load_temp_sins_spawned)
 	# 上弹口依次装入仓 0,1,2,3,4,5
 	assert_eq(loaded_slots, [0, 1, 2, 3, 4, 5])
 

@@ -84,10 +84,11 @@
       "rarity": null,
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "基础伤害0。整匣打完后，按本匣击发的金色数量追加同等次数的额外自动装填射击（不跳过怪物回合）；额外轮内的金色不再叠加新轮。枪口效果跨金色额外轮保留，回合结束才清。",
+      "special": "基础伤害0。击发后追加一轮自动补弹射击（额外轮内金色不再叠加新轮）。枪口效果跨额外轮保留。",
       "tags": [],
-      "enabled_in_combat": false,
-      "blurb": "整匣打完后按金数追加额外轮"
+      "enabled_in_combat": true,
+      "blurb": "击发后追加额外补弹射击",
+      "in_reward_pool": true
     },
     {
       "id": 9,
@@ -211,14 +212,14 @@
       "rarity": null,
       "base_damage": 2,
       "base_damage_mode": "fixed",
-      "special": "基础伤害2。每发射1发：生成1颗幽灵弹药入袋，并立即用袋内幽灵填满当前弹夹所有空位（爆发续射）。",
+      "special": "基础伤害2。每发射1发：袋内+1颗临时幽灵（TTL），并立刻把袋内所有幽灵TTL极速连射打出（每发单独结算枪口）。不再填空仓。",
       "tags": [
         "召唤"
       ],
       "enabled_in_combat": true,
       "ephemeral": false,
       "in_reward_pool": true,
-      "blurb": "发射产幽灵并填空仓"
+      "blurb": "产临时幽灵并连射袋内幽灵"
     },
     {
       "id": 20,
@@ -226,29 +227,29 @@
       "rarity": null,
       "base_damage": 2,
       "base_damage_mode": "fixed",
-      "special": "基础伤害2。由墓碑弹药生成入袋；战斗结束后从袋/膛/弃牌消失。不进奖励与商店池。",
+      "special": "基础伤害2。由墓碑弹药生成入袋，带TTL；到期或被墓碑连射打出后消失。不进奖励与商店池。",
       "tags": [
         "衍生物"
       ],
       "enabled_in_combat": true,
       "ephemeral": true,
       "in_reward_pool": false,
-      "blurb": "墓碑衍生物；战后消失"
+      "blurb": "墓碑衍生物；TTL临时"
     },
     {
       "id": 21,
-      "name": "超级回合子弹",
+      "name": "连发子弹",
       "rarity": null,
       "base_damage": 1,
       "base_damage_mode": "fixed",
-      "special": "基础伤害1。射击后获得一个额外的装填回合并自动射击（整匣打完后追加；额外轮内再打出超级回合仍会继续追加，单次开火链最多追加10轮以防软锁）。发出金黄色的光。",
+      "special": "基础伤害1。击发后开启1秒连发窗（再次击发连发则刷新，不叠多窗）。窗内每次点射击出1发免费平庸伤害弹（享受当前枪口，不耗仓、不转轮）。",
       "tags": [
-        "额外回合"
+        "连发"
       ],
       "enabled_in_combat": true,
       "ephemeral": false,
       "in_reward_pool": true,
-      "blurb": "获得额外回合"
+      "blurb": "击发开1秒连发窗"
     },
     {
       "id": 22,
@@ -265,6 +266,21 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "枪口穿甲，递减穿怪"
+    },
+    {
+      "id": 23,
+      "name": "倾泻",
+      "rarity": null,
+      "base_damage": 2,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害2。击发后自动连续打出转轮内剩余已装填弹药（约0.06秒/发）；期间再点射击可中断倾泻。",
+      "tags": [
+        "倾泻"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "击发后倾泻剩余仓；可中断"
     }
   ]
 }

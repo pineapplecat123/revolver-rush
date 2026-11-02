@@ -258,25 +258,24 @@ func test_temp_life_survives_moves() -> void:
 # ——— 罪孽惩罚 → +1 临时；袋重置不再 +N ———
 
 func test_penalty_adds_exactly_one_temp_sin() -> void:
+	## v0.4.0：三罪孽惩罚不再加临时罪（保留函数名兼容旧套件）。
 	var cs := _rush()
 	var n0: int = cs.bag.size()
 	var t0: int = cs.count_temporary_in_bag()
 	cs._resolve_sin_pack_on_load([W, W, W, WHITE])
-	assert_eq(cs.bag.size(), n0 + 1)
-	assert_eq(cs.count_temporary_in_bag(), t0 + 1)
-	assert_eq(cs.penalty_temp_sins_spawned, 1)
-	var lifes: Array = cs.temp_lifetimes_in_bag()
-	assert_almost_eq(float(lifes.back()), LIFE, 0.001)
+	assert_eq(cs.bag.size(), n0)
+	assert_eq(cs.count_temporary_in_bag(), t0)
+	assert_eq(cs.penalty_temp_sins_spawned, 0)
 
 
 func test_penalty_per_type() -> void:
+	## v0.4.0：惩罚仍结算（扣金/拉近等），但不加临时罪。
 	var cs := _rush()
 	cs.gold = 100
 	var n0: int = cs.bag.size()
 	cs._resolve_sin_pack_on_load([G, G, G, P, P, P])
-	assert_eq(cs.bag.size(), n0 + 2)
-	assert_true(cs.bag.has(G))
-	assert_true(cs.bag.has(P))
+	assert_eq(cs.bag.size(), n0)
+	assert_eq(cs.gold, 94)
 
 
 func test_two_sins_no_penalty_temp() -> void:

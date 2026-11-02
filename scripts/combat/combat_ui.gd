@@ -1042,9 +1042,12 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 			return {"bg": Color(0.42, 0.4, 0.38), "fg": Color(0.95, 0.93, 0.88)}
 		FireResolver.ID_GHOST:
 			return {"bg": Color(0.72, 0.88, 0.95, 0.85), "fg": Color(0.08, 0.18, 0.28)}
-		FireResolver.ID_SUPER_ROUND:
-			# 金黄色光（设计：发出金黄色的光）；比旧金色略亮略暖
+		FireResolver.ID_SUPER_ROUND, FireResolver.ID_BURST:
+			# 连发：金黄光
 			return {"bg": Color(1.0, 0.86, 0.22), "fg": Color(0.18, 0.1, 0.02)}
+		FireResolver.ID_DUMP:
+			# 倾泻：橙红急促感
+			return {"bg": Color(1.0, 0.45, 0.18), "fg": Color(0.15, 0.05, 0.0)}
 		FireResolver.ID_ARMOR_PIERCE:
 			# 钢青银光：与旧穿透浅蓝区分，强调穿甲枪线
 			return {"bg": Color(0.55, 0.78, 0.92), "fg": Color(0.04, 0.12, 0.2)}
@@ -1092,6 +1095,8 @@ func _process(delta: float) -> void:
 	if state.tick_combat_time(logic_dt):
 		_consume_expired_temp_events()
 		_refresh()
+	if state.shop_touch_pending and not _shop_open and not _reward_open and not _sin_pick_open:
+		_open_rush_shop()
 	var alive_before: bool = not state.alive_enemies().is_empty()
 	var steps: int = state.advance_enemy_glide(delta * _enemy_glide_cells_per_sec())
 	if steps > 0 and alive_before:
@@ -1263,6 +1268,10 @@ func _fire_blocked() -> bool:
 
 func _on_fire() -> void:
 	if _fire_blocked():
+		return
+	if state != null and state.is_dump_pending():
+		state.interrupt_dump()
+		_refresh()
 		return
 	_run_fire_tap()
 
@@ -2495,7 +2504,7 @@ func _build_rush_shop_panel() -> void:
 	_style_reward_action_button(_btn_shop_reroll)
 	actions.add_child(_btn_shop_reroll)
 	_btn_shop_leave = Button.new()
-	_btn_shop_leave.text = "离开商店 · 可下一波"
+	_btn_shop_leave.text = "离开商店"
 	_btn_shop_leave.custom_minimum_size = Vector2(220, 40)
 	_btn_shop_leave.pressed.connect(_on_rush_shop_leave)
 	_style_reward_action_button(_btn_shop_leave)
@@ -2504,7 +2513,8 @@ func _build_rush_shop_panel() -> void:
 
 
 func _open_rush_shop() -> void:
-	if state == null or true:  # v0.3.8：商店入口已停用（原「每 5 波」无自然触发）
+	## v0.4.0：地图商店碰到玩家后打开（复用旧 ShopState；货架池稍后重做）。
+	if state == null:
 		return
 	if _shop_panel == null:
 		_build_rush_shop_panel()
@@ -2512,10 +2522,11 @@ func _open_rush_shop() -> void:
 	_dev_open = false
 	dev_panel.visible = false
 	_hide_ammo_detail()
-	var seed_v: int = state.wave_index * 9973 + state.gold * 13 + 17
-	_shop.begin(state.gold, state.bag, state.wave_index, seed_v)
+	var seed_v: int = int(state.elapsed_sec) * 9973 + state.gold * 13 + 17 + state.shop_spawn_count * 131
+	_shop.begin(state.gold, state.bag.duplicate(), state.shop_spawn_count, seed_v)
 	_shop_open = true
 	_shop_panel.visible = true
+	state.acknowledge_shop_touch()
 	_refresh_rush_shop_panel()
 	_update_dimmer()
 
@@ -2523,7 +2534,7 @@ func _open_rush_shop() -> void:
 func _refresh_rush_shop_panel() -> void:
 	if _shop_panel == null or not _shop.open:
 		return
-	_shop_title.text = "rush! 商店 · 第 %d 波后" % state.wave_index
+	_shop_title.text = "地图商店"
 	_shop_gold_label.text = "金币 %d" % _shop.gold
 	_shop_hint.text = "购买：单价 %d 金/发。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。逛完后才可下一波。" % [
 		ShopConstants.AMMO_PRICE,
@@ -2640,14 +2651,20 @@ func _on_rush_shop_leave() -> void:
 	if not _shop.open:
 		return
 	var payload: Dictionary = _shop.end_session()
-	pass  # v0.3.8：商店停用
+	if state != null:
+		state.gold = int(payload.get("gold", state.gold))
+		# 商店可能增删袋内弹：整袋替换并保持非临时（商店货不带 TTL）
+		var new_bag: Array = payload.get("bag", [])
+		state.bag.clear()
+		state.bag_temp.clear()
+		for idv in new_bag:
+			state._bag_append(int(idv), false)
+		state._snapshot_combat_bag_baseline()
+		state._log("离开地图商店（金 %d，袋 %d 发）。" % [state.gold, state.bag.size()])
 	_shop_open = false
 	if _shop_panel != null:
 		_shop_panel.visible = false
 	_update_dimmer()
-	# 离店后重新打开奖励面板，方便点「下一波」
-	if state.phase == CombatState.Phase.WON and state.reward_resolved:
-		_set_reward_open(true)
 	_refresh()
 
 
@@ -3676,6 +3693,15 @@ func _refresh_board() -> void:
 			hp_bar.max_value = maxi(e.max_hp, 1)
 			hp_bar.value = e.hp
 			_style_hp_bar(hp_bar, Color(0.95, 0.35, 0.3))
+		elif state.shop_cell == i:
+			unit.visible = true
+			style.bg_color = Color(0.85, 0.7, 0.2, 0.98)
+			style.border_color = Color(1.0, 0.92, 0.45)
+			style.set_border_width_all(3)
+			info.text = "商店"
+			info.add_theme_color_override("font_color", Color(0.15, 0.1, 0.0))
+			info.add_theme_font_size_override("font_size", 15)
+			hp_bar.visible = false
 		else:
 			# 空格：不画地块色块，只留线上位
 			unit.visible = false

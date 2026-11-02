@@ -64,10 +64,12 @@ func test_sin_total_matches_design_after_every_reset() -> void:
 		if cs.bag_reset_count != seen:
 			seen = cs.bag_reset_count
 			# v0.3.8：整池 = 基础 15 + 惩罚生成的临时罪孽（本测不推进时间，不会到期）
-			var pen: int = cs.penalty_temp_sins_spawned
-			assert_eq(cs.total_ammo_count(W), 5 + pen, "第 %d 次重置：罪孽 = 5 + 惩罚次数" % seen)
-			assert_eq(_total_ammo(cs), 15 + pen, "整池 = 15 + 惩罚次数，膛内弹不复制")
-			assert_eq(_total_temp(cs), pen, "临时罪孽只来自惩罚")
+			# v0.4.0：临时罪来自装入 33%，不再来自三罪孽惩罚
+			var temps: int = cs.load_temp_sins_spawned
+			assert_eq(cs.total_ammo_count(W), 5 + temps, "第 %d 次重置：罪孽 = 5 + 装入临时" % seen)
+			assert_eq(_total_ammo(cs), 15 + temps, "整池 = 15 + 装入临时，膛内弹不复制")
+			assert_eq(_total_temp(cs), temps, "临时罪孽只来自装入33%")
+			assert_eq(cs.penalty_temp_sins_spawned, 0)
 		while cs.can_fire():
 			cs.fire_tap()
 		if seen >= 5:

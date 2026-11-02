@@ -32,6 +32,9 @@ signal player_damaged(amount: int, kind: String)
 ## UI：贪婪掉金时抛出（cell + 掉落金币量），用于金色飘字
 signal gold_gained(cell: int, amount: int)
 
+## v0.4.0 连携钩子总线（见 combat_hooks.gd）
+var hooks: CombatHooks = CombatHooks.new()
+
 var phase: int = Phase.AWAIT_LOAD
 var player_hp: int = CombatConstants.PLAYER_MAX_HP
 var player_max_hp: int = CombatConstants.PLAYER_MAX_HP
@@ -261,6 +264,20 @@ var bag_reset_count: int = 0
 ## 本波构筑基线（非 ephemeral、非临时额外罪孽）；战斗内袋重置按此恢复，保留墓碑等永久弹。
 var _combat_bag_baseline: Array[int] = []
 var _pending_gold_autofires: int = 0
+## v0.4.0 连发窗剩余秒（>0 时点射=免费平庸伤）；刷新不叠加。
+var burst_window_remaining: float = 0.0
+## v0.4.0 倾泻：击发倾泻后待自动打出的剩余仓；可被下一次点射中断。
+var _dump_pending: bool = false
+var _dump_interrupted: bool = false
+## v0.4.0 DoT 独立计时。
+var _dot_timer: float = 0.0
+## v0.4.0 地图商店实体（格位；-1=不在场）。碰到玩家（cell<=1）打开商店。
+var shop_cell: int = -1
+var shop_spawn_count: int = 0
+var shop_touch_pending: bool = false
+var _shop_move_prog: float = 0.0
+var load_temp_sins_spawned: int = 0
+var _pending_tombstone_ghost_shots: Array = []
 ## 本玩家开火链已累计授予的额外轮数（含主匣与嵌套）；达上限后不再叠加。
 var _extra_autofires_granted_this_chain: int = 0
 ## UI 逐步表现：为 true 时整匣结束后不立刻跑金色额外轮/怪回合，由 UI 消费。
@@ -344,7 +361,17 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	_clear_reward_state()
 	wave_took_damage = false
 	wave_player_turns = 0
-	rush_shop_done = true
+	rush_shop_done = false
+	burst_window_remaining = 0.0
+	_dump_pending = false
+	_dump_interrupted = false
+	_dot_timer = CombatConstants.DOT_TICK_SEC
+	shop_cell = -1
+	shop_spawn_count = 0
+	shop_touch_pending = false
+	_shop_move_prog = 0.0
+	load_temp_sins_spawned = 0
+	hooks.clear()
 	encounter_kind = EncounterKind.NORMAL
 	last_reward_base_gold = 0
 	pace_after_fire = true
@@ -609,7 +636,9 @@ func _apply_sin_choice(sin_ammo_id: int, refill_bag: bool = true) -> void:
 
 func _bag_append(ammo_id: int, temporary = false) -> void:
 	bag.append(ammo_id)
-	bag_temp.append(Magazine.temp_value(temporary))
+	var tv: float = Magazine.temp_value(temporary)
+	bag_temp.append(tv)
+	hooks.emit_hook(&"on_bag_enter", {"cs": self, "ammo_id": ammo_id, "temp_life": tv, "temporary": tv > 0.0})
 
 
 func _discard_append(ammo_id: int, temporary = false) -> void:
@@ -913,16 +942,19 @@ func _mount_sin_muzzle_from(flags: Dictionary) -> void:
 		_log("  → 枪口【愤怒】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
 			_muzzle_wrath, CombatConstants.MUZZLE_DURATION_WRATH_SEC, _muzzle_wrath_t
 		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "wrath", "stacks_after": _muzzle_wrath})
 	if bool(flags.get("pride", false)):
 		_muzzle_add_layer(_muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC)
 		_log("  → 枪口【傲慢】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
 			_muzzle_pride, CombatConstants.MUZZLE_DURATION_PRIDE_SEC, _muzzle_pride_t
 		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "pride", "stacks_after": _muzzle_pride})
 	if bool(flags.get("greed", false)):
 		_muzzle_add_layer(_muzzle_greed_layers, CombatConstants.MUZZLE_DURATION_GREED_SEC)
 		_log("  → 枪口【贪婪】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
 			_muzzle_greed, CombatConstants.MUZZLE_DURATION_GREED_SEC, _muzzle_greed_t
 		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "greed", "stacks_after": _muzzle_greed})
 
 
 func _count_ammo_in(ids: Array, ammo_id: int) -> int:
@@ -948,20 +980,25 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 	if greed_n >= 3:
 		gold -= 6
 		_log("罪孽[贪婪]：本匣贪婪 ×%d（≥3）→ 金币 -6（现 %d）。" % [greed_n, gold])
-	# v0.3.8：每吃一次三罪孽惩罚 → 袋里 +1 颗同种临时罪孽（寿命 TEMP_SIN_LIFETIME_SEC）
-	if phase != Phase.LOST:
-		if wrath_n >= 3:
-			_spawn_penalty_temp_sin(FireResolver.ID_WRATH)
-		if pride_n >= 3:
-			_spawn_penalty_temp_sin(FireResolver.ID_PRIDE)
-		if greed_n >= 3:
-			_spawn_penalty_temp_sin(FireResolver.ID_GREED)
+	# v0.4.0：三罪孽惩罚不再加临时罪孽；临时罪只走「装入时 33%」。
 
 
 func _spawn_penalty_temp_sin(sin_id: int) -> void:
 	_bag_append(sin_id, CombatConstants.TEMP_SIN_LIFETIME_SEC)
 	penalty_temp_sins_spawned += 1
 	_log("罪孽惩罚：袋内 +1 颗临时%s（%.0f 秒后消失）。" % [_ammo_name(sin_id), CombatConstants.TEMP_SIN_LIFETIME_SEC])
+
+
+func _try_spawn_temp_sin_on_load(resolved: int) -> void:
+	## v0.4.0：装入罪孽时 33% 袋内 +1 同种临时罪孽（三罪孽惩罚不再加）。
+	if resolved != FireResolver.ID_WRATH and resolved != FireResolver.ID_PRIDE and resolved != FireResolver.ID_GREED:
+		return
+	if rng.randf() >= CombatConstants.LOAD_TEMP_SIN_CHANCE:
+		return
+	_bag_append(resolved, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	load_temp_sins_spawned += 1
+	_log("装入%s：33%% 触发 → 袋内 +1 临时（%.0fs）。" % [_ammo_name(resolved), CombatConstants.TEMP_SIN_LIFETIME_SEC])
+	hooks.emit_hook(&"on_temp_sin_spawn", {"cs": self, "sin_id": resolved, "source": "load33"})
 
 
 const SIN_PENALTY_THRESHOLD := 3
@@ -982,6 +1019,7 @@ func _check_sin_threshold_after_insert(resolved: int) -> void:
 	for _i in n:
 		arr.append(resolved)
 	_resolve_sin_pack_on_load(arr)
+	hooks.emit_hook(&"on_three_sin", {"cs": self, "sin_id": resolved, "count": n})
 
 
 func sin_count_in_cylinder(ammo_id: int) -> int:
@@ -1092,11 +1130,13 @@ func _draw_random_from_bag(count: int) -> Array[int]:
 	var n: int = mini(count, bag.size())
 	for _i in n:
 		var idx: int = rng.randi_range(0, bag.size() - 1)
-		drawn.append(bag[idx])
+		var aid: int = int(bag[idx])
+		drawn.append(aid)
 		_last_drawn_temps.append(bag_temp[idx] if idx < bag_temp.size() else 0.0)
 		bag.remove_at(idx)
 		if idx < bag_temp.size():
 			bag_temp.remove_at(idx)
+		hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": aid, "reason": "draw"})
 	return drawn
 
 
@@ -1190,9 +1230,13 @@ func _can_act_with_partial_load() -> bool:
 
 
 func can_fire() -> bool:
-	## 锤位有弹（或匣内有弹可转到锤位）即可开火；装弹会话中也可先提交再射。升级三选一期间暂停。
+	## 锤位有弹即可开火；连发窗内即使匣空也可点射（免费平庸）；倾泻中可点射以中断。升级三选一期间暂停。
 	if reward_pending:
 		return false
+	if _dump_pending:
+		return phase != Phase.WON and phase != Phase.LOST
+	if burst_window_remaining > 0.0:
+		return phase != Phase.WON and phase != Phase.LOST and phase != Phase.FIRING
 	if not _has_ammo_ready_to_act():
 		return false
 	return phase == Phase.AWAIT_ACTION or phase == Phase.AWAIT_LOAD or _can_act_with_partial_load()
@@ -1310,7 +1354,9 @@ func load_next_chamber() -> Dictionary:
 	var slot: int = magazine.chamber_at_load_port()
 	assert(magazine.slots[slot] == Magazine.EMPTY)
 	magazine.set_slot(slot, resolved, raw_temp)
+	hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": slot, "temporary": Magazine.temp_value(raw_temp) > 0.0})
 	_check_sin_threshold_after_insert(resolved)
+	_try_spawn_temp_sin_on_load(resolved)
 	if raw_id == FireResolver.ID_BW and resolved != FireResolver.ID_BW:
 		_log("黑白子弹变形为 %s。" % _ammo_name(resolved))
 	_log("装填上弹口→仓 %d：%s。" % [slot + 1, _ammo_name(resolved)])
@@ -1515,6 +1561,7 @@ func _take_one_ammo_from_bag(ammo_id: int) -> bool:
 			bag.remove_at(i)
 			if i < bag_temp.size():
 				bag_temp.remove_at(i)
+			hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": ammo_id, "reason": "take"})
 			return true
 	return false
 
@@ -1534,11 +1581,100 @@ func _fill_empty_chambers_with_ghosts() -> int:
 	return filled
 
 
-func _apply_tombstone_on_fire() -> void:
-	## 墓碑击发：幽灵入袋 → 立即填空仓。rush! 不重建本发射击队列——幽灵留在匣内，由玩家继续点射。
-	_bag_append(FireResolver.ID_GHOST, false)
-	var filled: int = _fill_empty_chambers_with_ghosts()
-	_log("墓碑弹药：生成幽灵入袋，并用幽灵填入空仓 ×%d（可继续点射）。" % filled)
+func _apply_tombstone_on_fire() -> Array:
+	## v0.4.0 墓碑：袋 +1 临时幽灵 TTL，并立刻把袋内所有幽灵 TTL 极速连射打出（每发单独结算枪口）。不再填空仓。
+	_bag_append(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC)
+	_log("墓碑弹药：袋内 +1 临时幽灵（TTL %.0fs）。" % CombatConstants.GHOST_TTL_SEC)
+	return _rapid_fire_all_bag_ghosts()
+
+
+func _take_one_ammo_from_bag_entry(ammo_id: int) -> Dictionary:
+	## 从袋取出一发指定 id，返回 {ok, id, temp}；没有则 ok=false。
+	_sync_temp_arrays()
+	for i in range(bag.size() - 1, -1, -1):
+		if int(bag[i]) == ammo_id:
+			var tv = bag_temp[i] if i < bag_temp.size() else 0.0
+			bag.remove_at(i)
+			if i < bag_temp.size():
+				bag_temp.remove_at(i)
+			hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": ammo_id, "reason": "ghost_fire"})
+			return {"ok": true, "id": ammo_id, "temp": Magazine.temp_value(tv)}
+	return {"ok": false, "id": -1, "temp": 0.0}
+
+
+func _consume_pending_tombstone_ghost_shots() -> Array:
+	var out: Array = _pending_tombstone_ghost_shots.duplicate()
+	_pending_tombstone_ghost_shots.clear()
+	return out
+
+
+func _rapid_fire_all_bag_ghosts() -> Array:
+	## 极速连射袋内所有幽灵；每发独立走枪口结算。返回 shot 记录（供 UI/测试）。
+	var shots: Array = []
+	var guard := 32
+	while guard > 0:
+		guard -= 1
+		var entry: Dictionary = _take_one_ammo_from_bag_entry(FireResolver.ID_GHOST)
+		if not bool(entry.get("ok", false)):
+			break
+		var rec: Dictionary = _fire_virtual_ammo_shot(FireResolver.ID_GHOST, Magazine.temp_value(entry.get("temp", 0.0)))
+		shots.append(rec)
+	if not shots.is_empty():
+		_log("墓碑弹药：连射袋内幽灵 ×%d。" % shots.size())
+	return shots
+
+
+func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: bool = true) -> Dictionary:
+	## 不耗转轮仓的虚拟击发（墓碑幽灵连射 / 连发窗免费弹）。单独结算枪口。
+	var start_before: int = magazine.start_index if magazine != null else 0
+	var saved_slot: int = last_fired_slot
+	var saved_ammo: int = last_shot_ammo_id
+	var flags := FireResolver.inherits_from(ammo_id)
+	last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
+	_mount_sin_muzzle_from(flags)
+	var pierce := _muzzle_pierce or bool(flags["pierce"])
+	var gas := _muzzle_gas or bool(flags["gas"])
+	var fire := _muzzle_fire or bool(flags["fire"])
+	var water := _muzzle_water or bool(flags["water"])
+	var thunder := _muzzle_thunder or bool(flags["thunder"])
+	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0, pink_bonus)
+	base_dmg = _scale_outgoing_damage(base_dmg)
+	last_shot_ammo_id = ammo_id
+	last_shot_hit_cell = -1
+	last_shot_dealt = 0
+	last_shot_hit_cells.clear()
+	last_shot_hit_amounts.clear()
+	last_shot_was_pierce = pierce
+	last_fired_slot = -1
+	last_blank_skip_steps = 0
+	last_shot_was_blank = false
+	if to_discard:
+		_discard_append(ammo_id, shot_temp)
+	_mount_muzzle_from(flags)
+	var dealt_total := _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	_fire_total_damage += dealt_total
+	_remove_dead()
+	var rec := {
+		"extra": true,
+		"virtual": true,
+		"ammo_id": ammo_id,
+		"slot": -1,
+		"blank_skip": 0,
+		"start_before": start_before,
+		"start_after": magazine.start_index if magazine != null else 0,
+		"hit_cells": last_shot_hit_cells.duplicate(),
+		"hit_amounts": last_shot_hit_amounts.duplicate(),
+		"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
+		"pierce": last_shot_was_pierce,
+	}
+	hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": ammo_id, "virtual": true, "dealt": dealt_total})
+	# 恢复主发锤位/弹药 id，避免幽灵连射冲掉墓碑等主发的 last_fired_slot
+	last_fired_slot = saved_slot
+	last_shot_ammo_id = saved_ammo
+	_emit()
+	if _field_cleared():
+		_abort_fire_cleared()
+	return rec
 
 
 func _purge_ghost_ammo() -> int:
@@ -1693,7 +1829,7 @@ func fire_next_shot() -> bool:
 	# 元素枪口：本发后挂上，供后续击发附带
 	_mount_muzzle_from(flags)
 	if ammo_id == FireResolver.ID_TOMBSTONE:
-		_apply_tombstone_on_fire()
+		_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())
 	_fire_index += 1
 
 	if pace_after_fire:
@@ -2102,8 +2238,8 @@ func _abort_fire_cleared() -> void:
 
 
 func _queue_extra_autofire_from_shot(ammo_id: int) -> void:
-	## 金色（旧）/超级回合子弹：击发计入待追加额外装填射击轮。
-	## 超级回合在额外轮内仍可叠加；金色额外轮内不叠。全链有硬上限防软锁。
+	## 金色：击发计入待追加额外装填射击轮（额外轮内金色不叠）。全链有硬上限防软锁。
+	## v0.4.0：连发弹药改为开启/刷新连发窗，不再走额外补弹轮。
 	var cap: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN
 	if ammo_id == FireResolver.ID_GOLD:
 		if _in_gold_extra_round:
@@ -2114,13 +2250,34 @@ func _queue_extra_autofire_from_shot(ammo_id: int) -> void:
 		_pending_gold_autofires += 1
 		_extra_autofires_granted_this_chain += 1
 		_log("金色弹药：击发金 → 待追加额外轮 ×%d。" % _pending_gold_autofires)
-	elif ammo_id == FireResolver.ID_SUPER_ROUND:
-		if _extra_autofires_granted_this_chain >= cap:
-			_log("超级回合子弹：额外轮已达上限（%d），本发不再追加。" % cap)
-			return
-		_pending_gold_autofires += 1
-		_extra_autofires_granted_this_chain += 1
-		_log("超级回合子弹：射击后获得额外补弹射击（待追加 ×%d）。" % _pending_gold_autofires)
+	elif ammo_id == FireResolver.ID_BURST or ammo_id == FireResolver.ID_SUPER_ROUND:
+		_open_burst_window()
+
+
+func _open_burst_window() -> void:
+	## 连发窗：刷新为满时长（不叠多窗）。
+	burst_window_remaining = CombatConstants.BURST_WINDOW_SEC
+	_log("连发弹药：开启连发窗 %.1fs（窗内点射=免费平庸伤，不耗仓不转轮）。" % burst_window_remaining)
+	hooks.emit_hook(&"on_burst_window", {"cs": self, "remaining": burst_window_remaining})
+
+
+func is_burst_window_active() -> bool:
+	return burst_window_remaining > 0.0
+
+
+func is_dump_pending() -> bool:
+	return _dump_pending
+
+
+func interrupt_dump() -> bool:
+	## 倾泻中再点射 → 中断剩余自动射击。返回是否确实中断了进行中的倾泻。
+	if not _dump_pending:
+		return false
+	_dump_interrupted = true
+	_dump_pending = false
+	_log("倾泻：被点射中断。")
+	hooks.emit_hook(&"on_dump_end", {"cs": self, "interrupted": true})
+	return true
 
 
 func pending_gold_autofires() -> int:
@@ -2276,18 +2433,7 @@ func tick_enemy_auto_step() -> bool:
 	if phase == Phase.WON or phase == Phase.LOST:
 		return false
 	_log("--- 敌人自动推进 ---")
-	for e in alive_enemies():
-		if e.burn_stacks > 0:
-			var b: int = e.burn_stacks
-			var dealt: int = e.apply_damage(b)
-			_notify_enemy_damage(e, dealt, "燃烧")
-			e.burn_stacks = maxi(0, e.burn_stacks - 1)
-			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
-	_remove_dead()
-	if _field_cleared():
-		_enter_won()
-		_emit()
-		return false
+	# v0.4.0：燃烧/流血改由 tick_dot(0.5s) 结算，落格拍不再跳 DoT。
 	# 先算本拍移动名单：连续滑行时沿用拍首锁定的名单（新召唤/刚解除阻挡的下拍再走，避免瞬移）
 	var movers: Dictionary = _glide_movers if _glide_movers_valid else compute_enemy_movers()
 	for e in enemies_sorted_by_cell():
@@ -2304,7 +2450,7 @@ func tick_enemy_auto_step() -> bool:
 		_lose_hp()
 		_emit()
 		return false
-	_tick_bleed_end_of_enemy_turn()
+	# v0.4.0 bleed → tick_dot
 	_tick_zombie_regen_end_of_enemy_turn()
 	_remove_dead()
 	if _field_cleared():
@@ -2372,7 +2518,9 @@ func _auto_load_and_fire_once() -> bool:
 			var resolved: int = resolved_arr[0]
 			magazine.set_slot(port, resolved, raw_temp)
 			last_load_ids = drawn.duplicate()
+			hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": port, "temporary": Magazine.temp_value(raw_temp) > 0.0})
 			_check_sin_threshold_after_insert(resolved)
+			_try_spawn_temp_sin_on_load(resolved)
 			if bag.is_empty():
 				needs_reshuffle_next_load = true
 			_log("额外轮：补 1 发[%s]。" % _ammo_name(resolved))
@@ -2422,7 +2570,7 @@ func _auto_load_and_fire_once() -> bool:
 		_discard_append(ammo_id, shot_temp)
 		_mount_muzzle_from(flags)
 		if ammo_id == FireResolver.ID_TOMBSTONE:
-			_apply_tombstone_on_fire()
+			_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())
 		_fire_index += 1
 		_queue_extra_autofire_from_shot(ammo_id)
 		_remove_dead()
@@ -2465,13 +2613,50 @@ func do_fire() -> bool:
 ## v0.3.5 rush! 连点射击：一次点击 = 同步结算 1 发（+超级回合/金色额外轮各补1射1），无冷却。
 ## 返回本次点击打出的每一发记录（供 UI 并发播放弹道/飚血）；空数组 = 没打出。
 ## 逻辑全部在本帧完成，UI 只播表现，连点不会丢发/重发/锤位错位。
-func fire_tap() -> Array:
+func fire_tap(resolve_dump_sync: bool = true) -> Array:
+	## v0.4.0：连发窗内点射=免费平庸；倾泻可同步打完剩余仓（resolve_dump_sync）或由 UI 步进 take_dump_shot。
+	## 倾泻进行中再点射 → 中断倾泻（不另开火）。
 	var shots: Array = []
+	if _dump_pending:
+		interrupt_dump()
+		return shots
+	hooks.emit_hook(&"on_fire", {"cs": self, "burst_window": burst_window_remaining > 0.0})
+	if burst_window_remaining > 0.0:
+		var free_rec: Dictionary = _fire_virtual_ammo_shot(CombatConstants.WHITE_AMMO_ID, 0.0, false)
+		free_rec["burst_free"] = true
+		free_rec["extra"] = true
+		shots.append(free_rec)
+		hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": CombatConstants.WHITE_AMMO_ID, "virtual": true, "burst_free": true, "dealt": int(free_rec.get("hit_amounts", [0])[0] if free_rec.get("hit_amounts", []) else 0)})
+		if auto_enemy_advance:
+			finalize_post_fire()
+		elif _post_fire_enemy_pending:
+			resolve_post_fire_enemy_turn()
+		return shots
 	if not can_fire():
 		return shots
 	if not begin_fire():
 		return shots
+	var fired_id_before: int = -1
+	if magazine != null and not magazine.is_empty():
+		fired_id_before = magazine.fire_order()[0]
 	_fire_tap_one(shots)
+	# 墓碑幽灵连射已在 fire_next_shot 非 paced 路径或 finalize 后由 _pending_tombstone_ghost_shots 注入
+	for g in _consume_pending_tombstone_ghost_shots():
+		shots.append(g)
+	# 倾泻：主发是倾泻则自动打剩余仓
+	if fired_id_before == FireResolver.ID_DUMP and phase != Phase.WON and phase != Phase.LOST:
+		_dump_pending = true
+		_dump_interrupted = false
+		hooks.emit_hook(&"on_dump_start", {"cs": self})
+		_log("倾泻：开始自动射击剩余仓。")
+		if resolve_dump_sync:
+			var dguard := CombatConstants.MAGAZINE_SIZE + 2
+			while _dump_pending and dguard > 0 and phase != Phase.WON and phase != Phase.LOST:
+				dguard -= 1
+				var more: Array = take_dump_shot()
+				if more.is_empty():
+					break
+				shots.append_array(more)
 	var guard: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
 	while _pending_gold_autofires > 0 and guard > 0 and phase != Phase.WON and phase != Phase.LOST:
 		guard -= 1
@@ -2487,11 +2672,46 @@ func fire_tap() -> Array:
 		if not begin_fire():
 			break
 		_fire_tap_one(shots, true)
+		for g2 in _consume_pending_tombstone_ghost_shots():
+			shots.append(g2)
 	if auto_enemy_advance:
 		finalize_post_fire()
 	elif _post_fire_enemy_pending:
 		resolve_post_fire_enemy_turn()
 	return shots
+
+
+func take_dump_shot() -> Array:
+	## 倾泻步进：打出下一发已装填仓；无可打或已中断则结束倾泻。
+	var out: Array = []
+	if not _dump_pending or _dump_interrupted:
+		_dump_pending = false
+		return out
+	if phase == Phase.WON or phase == Phase.LOST:
+		_finish_dump(false)
+		return out
+	if magazine == null or magazine.is_empty() or not can_fire():
+		_finish_dump(false)
+		return out
+	if not begin_fire():
+		_finish_dump(false)
+		return out
+	_fire_tap_one(out, true)
+	for g in _consume_pending_tombstone_ghost_shots():
+		out.append(g)
+	if magazine == null or magazine.is_empty():
+		_finish_dump(false)
+	return out
+
+
+func _finish_dump(interrupted: bool) -> void:
+	if not _dump_pending and not interrupted:
+		return
+	_dump_pending = false
+	if interrupted:
+		_dump_interrupted = true
+	_log("倾泻：结束%s。" % ("（中断）" if interrupted else ""))
+	hooks.emit_hook(&"on_dump_end", {"cs": self, "interrupted": interrupted})
 
 
 func _fire_tap_one(shots: Array, extra: bool = false) -> void:
@@ -2513,6 +2733,30 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 			rec["hit_amounts"] = last_shot_hit_amounts.duplicate()
 			rec["start_after"] = magazine.start_index if magazine != null else 0
 			shots.append(rec)
+			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": int(rec["ammo_id"]), "virtual": false, "dealt": _sum_hit_amounts(rec)})
+		elif last_shot_ammo_id >= 0:
+			# 非 paced 路径（测试常关 pace）：补一条记录
+			var rec2 := {
+				"extra": extra,
+				"ammo_id": last_shot_ammo_id,
+				"slot": last_fired_slot,
+				"blank_skip": last_blank_skip_steps,
+				"start_before": start_before,
+				"start_after": magazine.start_index if magazine != null else 0,
+				"hit_cells": last_shot_hit_cells.duplicate(),
+				"hit_amounts": last_shot_hit_amounts.duplicate(),
+				"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
+				"pierce": last_shot_was_pierce,
+			}
+			shots.append(rec2)
+			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": last_shot_ammo_id, "virtual": false, "dealt": _sum_hit_amounts(rec2)})
+
+
+func _sum_hit_amounts(rec: Dictionary) -> int:
+	var t := 0
+	for a in rec.get("hit_amounts", []):
+		t += int(a)
+	return t
 
 
 ## 测试辅助：只打 1 发并立刻结算怪回合（对齐 UI 点射一次）。
@@ -2613,6 +2857,7 @@ func _remove_dead() -> void:
 			kept.append(e)
 		else:
 			_log("%s 被击败。" % e.name_zh)
+			hooks.emit_hook(&"on_kill", {"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell, "def_id": e.def_id})
 			gain_xp(xp_for_enemy(e))
 	enemies = kept
 
@@ -2755,12 +3000,17 @@ func _spawn_up_to_cap(force_one: bool = false) -> int:
 
 
 func tick_combat_time(delta_sec: float) -> bool:
-	## UI 每帧（战斗秒×速度，暂停/奖励期间不调用）：累计时长、刷怪、Boss、临时罪孽寿命。返回是否有变化。
+	## UI 每帧（战斗秒×速度，暂停/奖励期间不调用）：累计时长、刷怪、Boss、临时罪孽寿命、连发窗、DoT、地图商店。返回是否有变化。
 	if delta_sec <= 0.0 or phase == Phase.LOST or phase == Phase.WON or reward_pending:
 		return false
 	var changed := false
 	elapsed_sec += delta_sec
+	if burst_window_remaining > 0.0:
+		burst_window_remaining = maxf(0.0, burst_window_remaining - delta_sec)
+		changed = true
 	changed = tick_temp_sin_lifetimes(delta_sec) or changed
+	changed = tick_dot(delta_sec) or changed
+	changed = tick_map_shop(delta_sec) or changed
 	var boss_due: int = int(floor(elapsed_sec / CombatConstants.BOSS_EVERY_SEC))
 	if boss_due > _boss_spawned:
 		_boss_spawned = boss_due
@@ -2786,6 +3036,76 @@ func tick_combat_time(delta_sec: float) -> bool:
 			_spawn_timer = 0.25  # 满员或刷怪口被占：稍后重试
 	if changed:
 		_emit()
+	return changed
+
+
+func tick_dot(delta_sec: float) -> bool:
+	## v0.4.0：燃烧/流血每 DOT_TICK_SEC 跳一次（不再挂落格拍）。
+	if delta_sec <= 0.0:
+		return false
+	_dot_timer -= delta_sec
+	if _dot_timer > 0.0:
+		return false
+	_dot_timer += CombatConstants.DOT_TICK_SEC
+	if _dot_timer <= 0.0:
+		_dot_timer = CombatConstants.DOT_TICK_SEC
+	var changed := false
+	hooks.emit_hook(&"on_dot_tick", {"cs": self, "kind": "all"})
+	for e in alive_enemies():
+		if e.burn_stacks > 0:
+			var b: int = e.burn_stacks
+			var dealt: int = e.apply_damage(b)
+			_notify_enemy_damage(e, dealt, "燃烧")
+			e.burn_stacks = maxi(0, e.burn_stacks - 1)
+			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
+			changed = true
+	_remove_dead()
+	if _field_cleared():
+		_enter_won()
+		_emit()
+		return true
+	_tick_bleed_end_of_enemy_turn()
+	_remove_dead()
+	if _field_cleared():
+		_enter_won()
+		_emit()
+		return true
+	if changed:
+		_emit()
+	return true
+
+
+
+func acknowledge_shop_touch() -> void:
+	shop_touch_pending = false
+
+
+func tick_map_shop(delta_sec: float) -> bool:
+	## v0.4.0 地图商店骨架：右侧刷出商店实体，随时间向左靠近；碰到玩家（cell<=1）打开商店。
+	var changed := false
+	var due_first := elapsed_sec >= CombatConstants.MAP_SHOP_FIRST_SEC and shop_spawn_count == 0
+	var next_at := CombatConstants.MAP_SHOP_FIRST_SEC + float(shop_spawn_count) * CombatConstants.MAP_SHOP_RESPAWN_SEC
+	var due_again := shop_spawn_count > 0 and shop_cell < 0 and not shop_touch_pending and elapsed_sec >= next_at
+	if (due_first or due_again) and shop_cell < 0:
+		shop_cell = CombatConstants.BOARD_SIZE - 1
+		shop_spawn_count += 1
+		_shop_move_prog = 0.0
+		_log("地图商店出现在格 %d。" % shop_cell)
+		changed = true
+	if shop_cell >= 0:
+		_shop_move_prog += delta_sec / CombatConstants.ENEMY_AUTO_STEP_SEC
+		while _shop_move_prog >= 1.0 and shop_cell > 0:
+			_shop_move_prog -= 1.0
+			shop_cell -= 1
+			changed = true
+			_log("地图商店移至格 %d。" % shop_cell)
+			if shop_cell <= CombatConstants.PLAYER_CELL + 1:
+				shop_touch_pending = true
+				_log("地图商店碰到玩家 → 打开商店。")
+				hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": shop_cell})
+				shop_cell = -1
+				_shop_move_prog = 0.0
+				break
 	return changed
 
 

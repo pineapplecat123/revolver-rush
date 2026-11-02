@@ -313,7 +313,7 @@ func _draw() -> void:
 			bg.a *= 0.45
 			fg.a *= 0.55
 		# 超级回合：软金色辉光；穿甲：钢青辉光（小尺寸可读；轻脉冲）
-		if aid == FireResolver.ID_SUPER_ROUND:
+		if aid == FireResolver.ID_SUPER_ROUND or aid == FireResolver.ID_BURST or aid == FireResolver.ID_DUMP:
 			var pulse := 0.72 + 0.28 * sin(Time.get_ticks_msec() * 0.0055)
 			draw_circle(pos, r * 1.72, Color(1.0, 0.78, 0.15, 0.14 * pulse))
 			draw_circle(pos, r * 1.38, Color(1.0, 0.88, 0.28, 0.28 * pulse))
@@ -324,7 +324,7 @@ func _draw() -> void:
 			draw_circle(pos, r * 1.38, Color(0.5, 0.82, 1.0, 0.28 * pulse2))
 			draw_circle(pos, r * 1.12, Color(0.75, 0.92, 1.0, 0.38 * pulse2))
 		draw_circle(pos, r, bg)
-		if aid == FireResolver.ID_SUPER_ROUND:
+		if aid == FireResolver.ID_SUPER_ROUND or aid == FireResolver.ID_BURST or aid == FireResolver.ID_DUMP:
 			draw_arc(pos, r, 0.0, TAU, 24, Color(1.0, 0.9, 0.35, 0.85), 2.0, true)
 		elif aid == FireResolver.ID_ARMOR_PIERCE:
 			draw_arc(pos, r, 0.0, TAU, 24, Color(0.55, 0.88, 1.0, 0.9), 2.0, true)

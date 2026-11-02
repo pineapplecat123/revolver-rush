@@ -25,8 +25,10 @@ const ID_PRIDE := 17  ## 傲慢
 const ID_GREED := 18  ## 贪婪
 const ID_TOMBSTONE := 19  ## 墓碑（设计表编号9）
 const ID_GHOST := 20  ## 幽灵（设计表编号10，墓碑衍生物）
-const ID_SUPER_ROUND := 21  ## 超级回合（设计表编号11）
+const ID_SUPER_ROUND := 21  ## 兼容旧名；v0.4.0 起为「连发子弹」
+const ID_BURST := 21  ## 连发子弹（原超级回合）
 const ID_ARMOR_PIERCE := 22  ## 穿甲（设计表编号12）
+const ID_DUMP := 23  ## 倾泻
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -127,8 +129,10 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 			return 2
 		ID_TOMBSTONE, ID_GHOST:
 			return 2
-		ID_SUPER_ROUND:
+		ID_SUPER_ROUND, ID_BURST:
 			return 1
+		ID_DUMP:
+			return 2
 		ID_ARMOR_PIERCE:
 			return 3
 		_:
