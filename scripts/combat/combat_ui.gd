@@ -1139,10 +1139,9 @@ func _enemy_glide_cells_per_sec() -> float:
 func _process(delta: float) -> void:
 	if state == null or not _enemy_auto_allowed():
 		return
-	# 枪口持续时间：与怪滑行同一套暂停条件；按战斗速度缩放逻辑秒。
+	# 战斗秒（含枪口层衰减）：与怪滑行同一套暂停条件；按战斗速度缩放逻辑秒。
+	# tick_combat_time 内已调 tick_muzzle_durations，勿再另调以免双倍衰减。
 	var logic_dt: float = delta * maxf(_combat_speed, 0.01)
-	var muzzle_changed: bool = state.tick_muzzle_durations(logic_dt)
-	# v0.3.8：存活时间 / 连续刷怪 / 临时罪孽寿命（同一套暂停条件）
 	if state.tick_combat_time(logic_dt):
 		_consume_expired_temp_events()
 		_refresh()
@@ -1154,9 +1153,6 @@ func _process(delta: float) -> void:
 		_refresh()
 	else:
 		_update_enemy_glide_visuals()
-		if muzzle_changed:
-			_refresh_muzzle_hud()
-			_refresh_hud_only()
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
 

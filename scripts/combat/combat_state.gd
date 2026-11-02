@@ -1144,8 +1144,10 @@ func _mount_muzzle_from(flags: Dictionary) -> void:
 		if not _muzzle_pierce:
 			_log("  → 枪口【穿甲】（最多 1 层，%.1f 秒）" % dur)
 		_muzzle_add_layer(_muzzle_pierce_layers, dur, 1)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "pierce", "stacks_after": 1})
 	if bool(flags.get("gas", false)):
 		_muzzle_add_layer(_muzzle_gas_layers, dur, 1)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "gas", "stacks_after": 1})
 	if bool(flags.get("fire", false)):
 		var was_fire: bool = _muzzle_fire
 		_muzzle_add_layer(_muzzle_fire_layers, dur, 1)
@@ -1156,8 +1158,10 @@ func _mount_muzzle_from(flags: Dictionary) -> void:
 		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "flame", "stacks_after": 1})
 	if bool(flags.get("water", false)):
 		_muzzle_add_layer(_muzzle_water_layers, dur, 1)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "water", "stacks_after": 1})
 	if bool(flags.get("thunder", false)):
 		_muzzle_add_layer(_muzzle_thunder_layers, dur, 1)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "thunder", "stacks_after": 1})
 	if bool(flags.get("echo", false)):
 		var was: bool = _muzzle_echo
 		_muzzle_add_layer(_muzzle_echo_layers, dur, 1)
@@ -1219,6 +1223,7 @@ func _mount_sin_muzzle_from(flags: Dictionary) -> void:
 		_log("  → 枪口【暴食】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
 			_muzzle_gluttony, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC, _muzzle_gluttony_t
 		])
+		_seed_gluttony_heal_budget()
 		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "gluttony", "stacks_after": _muzzle_gluttony})
 	if bool(flags.get("sloth", false)):
 		_muzzle_add_layer(_muzzle_sloth_layers, CombatConstants.MUZZLE_DURATION_SLOTH_SEC)
@@ -1493,6 +1498,15 @@ func _try_gluttony_heal_on_kill() -> void:
 	_gluttony_heal_budget -= 1.0
 	_apply_player_heal(CombatConstants.GLUTTONY_HEAL_ON_KILL, "暴食")
 	hooks.emit_hook(&"on_gluttony_heal", {"cs": self, "amount": CombatConstants.GLUTTONY_HEAL_ON_KILL})
+
+
+func _seed_gluttony_heal_budget() -> void:
+	## 挂上/沙盒设暴食时立刻给满 1 秒预算（层数×每秒次数），无需先推进战斗时间。
+	if _muzzle_gluttony <= 0:
+		_gluttony_heal_budget = 0.0
+		return
+	var cap: float = float(_muzzle_gluttony) * CombatConstants.GLUTTONY_PROCS_PER_SEC_PER_LAYER
+	_gluttony_heal_budget = maxf(_gluttony_heal_budget, cap)
 
 
 func _note_last_non_sin_ammo(ammo_id: int) -> void:
@@ -3912,6 +3926,9 @@ func tick_combat_time(delta_sec: float) -> bool:
 	if fire_lock_remaining > 0.0:
 		fire_lock_remaining = maxf(0.0, fire_lock_remaining - delta_sec)
 		changed = true
+	# 枪口层时长：与战斗秒同一入口，避免沙盒/脚本只推 tick_combat_time 时永不掉层。
+	# UI 勿再另调 tick_muzzle_durations，否则会双倍衰减。
+	changed = tick_muzzle_durations(delta_sec) or changed
 	# 暴食击杀回血预算：每秒回复 = 层数 × GLUTTONY_PROCS_PER_SEC_PER_LAYER，上限=层数
 	if _muzzle_gluttony > 0:
 		var cap: float = float(_muzzle_gluttony) * CombatConstants.GLUTTONY_PROCS_PER_SEC_PER_LAYER
@@ -4516,16 +4533,24 @@ func dev_spawn_enemy(enemy_id: int, cell: int = -1) -> void:
 
 static func sandbox_muzzle_kinds() -> PackedStringArray:
 	return PackedStringArray([
-		"pierce", "gas", "fire", "water", "thunder", "echo", "explosive", "lifesteal",
+		"pierce", "gas", "flame", "water", "thunder", "echo", "explosive", "lifesteal",
 		"wrath", "pride", "greed", "lust", "envy", "gluttony", "sloth",
 	])
 
 
+static func _sandbox_normalize_muzzle_kind(kind: String) -> String:
+	## 挂弹路径 emit kind=flame；沙盒对外统一 flame（兼容旧别名 fire）。
+	if kind == "fire":
+		return "flame"
+	return kind
+
+
 static func sandbox_muzzle_label(kind: String) -> String:
+	kind = _sandbox_normalize_muzzle_kind(kind)
 	match kind:
 		"pierce": return "穿甲"
 		"gas": return "汽油"
-		"fire": return "火焰"
+		"flame": return "火焰"
 		"water": return "水"
 		"thunder": return "雷"
 		"echo": return "回声"
@@ -4542,10 +4567,11 @@ static func sandbox_muzzle_label(kind: String) -> String:
 
 
 func _sandbox_muzzle_layers(kind: String) -> Array:
+	kind = _sandbox_normalize_muzzle_kind(kind)
 	match kind:
 		"pierce": return _muzzle_pierce_layers
 		"gas": return _muzzle_gas_layers
-		"fire": return _muzzle_fire_layers
+		"flame": return _muzzle_fire_layers
 		"water": return _muzzle_water_layers
 		"thunder": return _muzzle_thunder_layers
 		"echo": return _muzzle_echo_layers
@@ -4562,8 +4588,9 @@ func _sandbox_muzzle_layers(kind: String) -> Array:
 
 
 func _sandbox_muzzle_max_stacks(kind: String) -> int:
+	kind = _sandbox_normalize_muzzle_kind(kind)
 	match kind:
-		"pierce", "gas", "fire", "water", "thunder", "echo", "explosive":
+		"pierce", "gas", "flame", "water", "thunder", "echo", "explosive":
 			return 1
 		_:
 			return 99
@@ -4571,6 +4598,7 @@ func _sandbox_muzzle_max_stacks(kind: String) -> int:
 
 func sandbox_set_muzzle(kind: String, stacks: int, duration_sec: float) -> bool:
 	## 用自定义层数与每层剩余秒覆写枪口（stacks=0 或 duration<=0 即清除该种）。
+	kind = _sandbox_normalize_muzzle_kind(kind)
 	if kind not in sandbox_muzzle_kinds():
 		_log("[沙盒] 未知枪口 kind=%s" % kind)
 		return false
@@ -4580,6 +4608,12 @@ func sandbox_set_muzzle(kind: String, stacks: int, duration_sec: float) -> bool:
 	if stacks > 0 and duration_sec > 0.0:
 		for _i in stacks:
 			layers.append(duration_sec)
+	if kind == "gluttony":
+		# 覆写层数时直接对齐 cap（勿用 maxf，避免减层后预算偏高）
+		if _muzzle_gluttony > 0:
+			_gluttony_heal_budget = float(_muzzle_gluttony) * CombatConstants.GLUTTONY_PROCS_PER_SEC_PER_LAYER
+		else:
+			_gluttony_heal_budget = 0.0
 	_log("[沙盒] 枪口【%s】→ ×%d · 每层 %.1fs" % [sandbox_muzzle_label(kind), layers.size(), maxf(0.0, duration_sec)])
 	hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": kind, "stacks_after": layers.size()})
 	_emit()

@@ -1,3 +1,12 @@
+## 2026-11-02 — v0.4.18 正确性（钩子/暴食预算/枪口时间/kind）
+- 任务（t382u）：先修 bug，平衡不动。
+- P0：`_mount_muzzle_from` 对 pierce/gas/water/thunder 补 `on_muzzle_apply`。
+- P1：暴食挂层/沙盒设层立刻 `_seed_gluttony_heal_budget`（满 1 秒 cap）。
+- P1：`tick_combat_time` 内调 `tick_muzzle_durations`；UI 去掉另调，防双倍衰减。
+- P2：沙盒 muzzle kind=`flame`（兼容 `fire`）；emit 与挂弹路径一致。
+- GUT：`test_rr_v0418`；压测脚本断言随行为更新。
+- 推 main + Pages。
+
 ## 2026-11-02 — v0.4.17 沙盒模式
 - 主菜单「沙盒」入口；`CombatState.start_sandbox` 暂停连续刷怪与地图商店。
 - 沙盒面板：自定义枪口层数/秒、袋内永久/临时 TTL、生成怪/木桩、前敌与玩家计时状态。

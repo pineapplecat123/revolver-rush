@@ -66,9 +66,9 @@ func _prep_mid_slide(cs: CombatState) -> void:
 
 func _simulate_frames_while_open(cs: CombatState, sec: float) -> void:
 	## 与 UI _process 同顺序调用；即便 UI 门控漏了，状态层也不得前进。
+	## v0.4.18：tick_combat_time 已含枪口衰减，勿再另调 tick_muzzle_durations。
 	var n := int(sec / 0.016)
 	for _i in n:
-		cs.tick_muzzle_durations(0.016)
 		cs.tick_combat_time(0.016)
 		cs.advance_enemy_glide(0.016)
 

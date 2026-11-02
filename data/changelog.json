@@ -2,6 +2,16 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.18",
+      "date": "2026-11-02",
+      "items": [
+        "正确性：穿甲/汽油/水/雷挂枪口补 emit on_muzzle_apply（kind=pierce|gas|water|thunder）",
+        "暴食：挂层或 sandbox_set_muzzle 时立刻给满 1 秒击杀回血预算，无需先推进战斗时间",
+        "tick_combat_time 内调用 tick_muzzle_durations；沙盒推进时间同步掉枪口；UI 不再双调",
+        "沙盒枪口 kind 统一为 flame（兼容旧别名 fire）；钩子字符串与挂弹路径一致"
+      ]
+    },
+    {
       "version": "0.4.17",
       "date": "2026-11-02",
       "items": [

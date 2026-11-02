@@ -67,3 +67,7 @@
 ## v0.4.14
 - `on_slow` / `on_sloth_fire_penalty`：懒惰减速与射速窗
 
+## v0.4.18
+- `on_muzzle_apply`：补 `kind=pierce|gas|water|thunder`（与 flame/echo 对齐）
+- 沙盒 `sandbox_set_muzzle` kind 统一 `flame`（旧别名 `fire` 归一）
+
