@@ -55,6 +55,7 @@ const WAVE_SPAWN_COUNT_MULT := 1.5
 const MUZZLE_DURATION_WRATH_SEC := 4.0
 const MUZZLE_DURATION_GREED_SEC := 4.0
 const MUZZLE_DURATION_ELEMENT_SEC := 4.0  ## 穿甲/汽油/火/水/雷/回声
+const MUZZLE_DURATION_LIFESTEAL_SEC := 4.0  ## 吸血（可叠层）
 ## v0.3.7：傲慢也计时，明显长于其它枪口（口头「计时比较久」→ 选 12 秒）。
 const MUZZLE_DURATION_PRIDE_SEC := 12.0
 
@@ -95,4 +96,8 @@ const MAP_SHOP_FIRST_SEC := 45.0
 const MAP_SHOP_RESPAWN_SEC := 90.0
 ## 幽灵 TTL：与临时罪孽同寿命。
 const GHOST_TTL_SEC := TEMP_SIN_LIFETIME_SEC
+
+## 吸血枪口：每层概率与回血比例。
+const LIFESTEAL_CHANCE_PER_STACK := 0.20
+const LIFESTEAL_HEAL_RATIO := 0.50
 

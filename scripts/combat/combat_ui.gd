@@ -1054,6 +1054,9 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_ECHO:
 			# 回声：青绿叠影
 			return {"bg": Color(0.35, 0.9, 0.78), "fg": Color(0.04, 0.16, 0.14)}
+		FireResolver.ID_LIFESTEAL:
+			# 吸血：血红
+			return {"bg": Color(0.78, 0.12, 0.28), "fg": Color(1.0, 0.92, 0.94)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:

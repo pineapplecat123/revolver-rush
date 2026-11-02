@@ -297,6 +297,22 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "枪口回声：窗内每发打两次"
+    },
+    {
+      "id": 25,
+      "name": "吸血弹药",
+      "rarity": null,
+      "base_damage": 1,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害1。每发射1发，枪口+1层【吸血】（每层独立计时4.0秒）。每层带来20%吸血概率（最多100%）；造成伤害后若触发，将本次伤害的50%（四舍五入）转化为生命恢复。本发即生效。",
+      "tags": [
+        "枪口",
+        "吸血"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "枪口吸血：每层20%吸50%伤害"
     }
   ]
 }

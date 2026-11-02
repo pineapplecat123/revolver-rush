@@ -29,6 +29,7 @@ signal state_changed
 signal enemy_damaged(cell: int, amount: int, kind: String)
 ## 玩家实际扣血（怪物普攻、愤怒自伤等）；UI 抖玩家格 + 飘字。
 signal player_damaged(amount: int, kind: String)
+signal player_healed(amount: int, kind: String)
 ## UI：贪婪掉金时抛出（cell + 掉落金币量），用于金色飘字
 signal gold_gained(cell: int, amount: int)
 
@@ -95,6 +96,7 @@ var _muzzle_fire_layers: Array = []
 var _muzzle_water_layers: Array = []
 var _muzzle_thunder_layers: Array = []
 var _muzzle_echo_layers: Array = []
+var _muzzle_lifesteal_layers: Array = []
 var _muzzle_wrath_layers: Array = []
 var _muzzle_pride_layers: Array = []
 var _muzzle_greed_layers: Array = []
@@ -198,6 +200,12 @@ var _muzzle_echo: bool:
 	set(v):
 		_muzzle_set_flag(_muzzle_echo_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
 
+var _muzzle_lifesteal: int:
+	get:
+		return _muzzle_lifesteal_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_lifesteal_layers, v, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC)
+
 var _muzzle_wrath: int:
 	get:
 		return _muzzle_wrath_layers.size()
@@ -269,6 +277,12 @@ var _muzzle_echo_t: float:
 		return _muzzle_soonest(_muzzle_echo_layers)
 	set(v):
 		_muzzle_set_soonest_or_all(_muzzle_echo_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_lifesteal_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_lifesteal_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_lifesteal_layers, v, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC)
 
 ## 本局所选罪孽弹药 id（愤怒/傲慢/贪婪之一）
 var selected_sin_ammo_id: int = FireResolver.ID_WRATH
@@ -453,6 +467,8 @@ func muzzle_status_parts() -> PackedStringArray:
 		parts.append("雷")
 	if _muzzle_echo:
 		parts.append("回声")
+	if _muzzle_lifesteal > 0:
+		parts.append("吸血")
 	if _muzzle_wrath > 0:
 		parts.append("愤怒")
 	if _muzzle_pride > 0:
@@ -473,6 +489,7 @@ func muzzle_status_entries() -> Array:
 		["水", _muzzle_water_layers, el],
 		["雷", _muzzle_thunder_layers, el],
 		["回声", _muzzle_echo_layers, el],
+		["吸血", _muzzle_lifesteal_layers, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC],
 		["愤怒", _muzzle_wrath_layers, CombatConstants.MUZZLE_DURATION_WRATH_SEC],
 		["傲慢", _muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC],
 		["贪婪", _muzzle_greed_layers, CombatConstants.MUZZLE_DURATION_GREED_SEC],
@@ -517,6 +534,8 @@ func _muzzle_outline_ammo_ids_for_shot() -> Array[int]:
 		out.append(FireResolver.ID_ARMOR_PIERCE)
 	if _muzzle_echo:
 		out.append(FireResolver.ID_ECHO)
+	if _muzzle_lifesteal > 0:
+		out.append(FireResolver.ID_LIFESTEAL)
 	return out
 
 
@@ -586,6 +605,11 @@ func muzzle_damage_tip_text() -> String:
 		lines.append("穿甲：击穿怪物；首个全伤，之后每穿一个 -1，减到 0 为止")
 	if _muzzle_echo:
 		lines.append("回声：每发弹药结算两次（双发，均吃当前枪口）· 剩余 %.1f 秒" % _muzzle_echo_t)
+	if _muzzle_lifesteal > 0:
+		var chance: float = minf(1.0, float(_muzzle_lifesteal) * CombatConstants.LIFESTEAL_CHANCE_PER_STACK)
+		lines.append("吸血×%d：每击 %.0f%% 概率恢复本次伤害的 %.0f%% · 最短层剩余 %.1f 秒" % [
+			_muzzle_lifesteal, chance * 100.0, CombatConstants.LIFESTEAL_HEAL_RATIO * 100.0, _muzzle_lifesteal_t
+		])
 	return "\n".join(lines)
 
 
@@ -597,6 +621,7 @@ func _reset_muzzle() -> void:
 	_muzzle_water_layers.clear()
 	_muzzle_thunder_layers.clear()
 	_muzzle_echo_layers.clear()
+	_muzzle_lifesteal_layers.clear()
 
 
 func _clear_turn_sin_muzzle() -> void:
@@ -629,6 +654,7 @@ func tick_muzzle_durations(delta_sec: float) -> bool:
 	changed = _tick_muzzle_named_layers(_muzzle_water_layers, delta_sec, "水") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_thunder_layers, delta_sec, "雷") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_echo_layers, delta_sec, "回声") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_lifesteal_layers, delta_sec, "吸血") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_wrath_layers, delta_sec, "愤怒") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_pride_layers, delta_sec, "傲慢") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_greed_layers, delta_sec, "贪婪") or changed
@@ -969,6 +995,12 @@ func _mount_muzzle_from(flags: Dictionary) -> void:
 		else:
 			_log("  → 枪口【回声】刷新 %.1f 秒" % dur)
 		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "echo", "stacks_after": 1})
+	if bool(flags.get("lifesteal", false)):
+		_muzzle_add_layer(_muzzle_lifesteal_layers, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC)
+		_log("  → 枪口【吸血】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_lifesteal, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC, _muzzle_lifesteal_t
+		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "lifesteal", "stacks_after": _muzzle_lifesteal})
 
 
 func _mount_sin_muzzle_from(flags: Dictionary) -> void:
@@ -1087,6 +1119,38 @@ func _try_greed_gold_drop(dealt: int, cell: int = -1) -> void:
 			_log("  → 贪婪掉金 +%d（现 %d）" % [dealt, gold])
 			if cell >= 0:
 				gold_gained.emit(cell, dealt)
+
+
+func _lifesteal_chance() -> float:
+	if _muzzle_lifesteal <= 0:
+		return 0.0
+	return minf(1.0, float(_muzzle_lifesteal) * CombatConstants.LIFESTEAL_CHANCE_PER_STACK)
+
+
+func _try_lifesteal_heal(dealt: int) -> int:
+	## 按层概率触发；成功则恢复 dealt×50%（四舍五入）。返回实际恢复量。
+	if dealt <= 0 or _muzzle_lifesteal <= 0:
+		return 0
+	var chance: float = _lifesteal_chance()
+	if rng.randf() >= chance:
+		return 0
+	var heal: int = int(round(float(dealt) * CombatConstants.LIFESTEAL_HEAL_RATIO))
+	if heal <= 0:
+		return 0
+	return _apply_player_heal(heal, "吸血")
+
+
+func _apply_player_heal(amount: int, kind: String = "") -> int:
+	if amount <= 0:
+		return 0
+	var before: int = player_hp
+	player_hp = mini(player_max_hp, player_hp + amount)
+	var gained: int = player_hp - before
+	if gained <= 0:
+		return 0
+	_log("  → %s回复 +%d（HP %d/%d）" % [kind if kind != "" else "治疗", gained, player_hp, player_max_hp])
+	player_healed.emit(gained, kind)
+	return gained
 
 
 func _set_phase(p: int) -> void:
@@ -2146,6 +2210,7 @@ func _hit_enemy_with_elements(
 	var dealt: int = e.apply_hit(dmg)
 	_notify_enemy_damage(e, dealt, damage_kind)
 	_try_greed_gold_drop(dealt, e.cell)
+	_try_lifesteal_heal(dealt)
 	_log("击发[%s] → %s 格%d 伤害%d（HP %d/%d）%s" % [
 		_ammo_name(ammo_id), e.name_zh, e.cell, dealt, e.hp, e.max_hp,
 		(" " + e.status_text()) if e.status_text() != "" else ""

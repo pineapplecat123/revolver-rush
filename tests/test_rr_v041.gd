@@ -42,8 +42,9 @@ func _log_has(cs: CombatState, needle: String) -> bool:
 	return false
 
 
-func test_version_is_0_4_1() -> void:
-	assert_eq(GameVersion.STRING, "0.4.1")
+func test_changelog_has_0_4_1_entry() -> void:
+	var text := FileAccess.get_file_as_string("res://data/changelog.json")
+	assert_true('"version": "0.4.1"' in text or '"version":"0.4.1"' in text)
 
 
 func test_echo_ammo_def_and_flags() -> void:

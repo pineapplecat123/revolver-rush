@@ -30,6 +30,7 @@ const ID_BURST := 21  ## 连发子弹（原超级回合）
 const ID_ARMOR_PIERCE := 22  ## 穿甲（设计表编号12）
 const ID_DUMP := 23  ## 倾泻
 const ID_ECHO := 24  ## 回声（设计表编号21）
+const ID_LIFESTEAL := 25  ## 吸血（设计表编号22）
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -138,6 +139,8 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 			return 3
 		ID_ECHO:
 			return 1
+		ID_LIFESTEAL:
+			return 1
 		_:
 			return 0
 
@@ -185,6 +188,7 @@ static func inherits_from(ammo_id: int) -> Dictionary:
 		"pride": ammo_id == ID_PRIDE,
 		"greed": ammo_id == ID_GREED,
 		"echo": ammo_id == ID_ECHO,
+		"lifesteal": ammo_id == ID_LIFESTEAL,
 	}
 
 
