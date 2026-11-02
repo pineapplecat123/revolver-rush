@@ -41,3 +41,6 @@
 
 ## v0.4.4
 - `on_muzzle_apply`：`kind=explosive`
+
+## v0.4.6
+- `on_insurance_swap`：保险挡住第3颗罪孽；`sin_id`

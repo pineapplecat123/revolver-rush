@@ -16,6 +16,7 @@ class_name CombatHooks
 ##   on_burst_window      — 连发窗开启或刷新；remaining
 ##   on_temp_sin_spawn    — 临时罪孽入袋；sin_id, source ("load33"|"penalty_legacy")
 ##   on_dot_tick          — DoT 跳（燃烧/流血）；kind
+##   on_insurance_swap    — 保险挡住第3罪孽装填；sin_id
 ##
 ## 用法：cs.hooks.subscribe("on_shot", callable) / cs.hooks.emit_hook("on_shot", {...})
 

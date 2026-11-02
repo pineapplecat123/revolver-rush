@@ -1063,6 +1063,9 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_SCATTER:
 			# 散射：浅紫多线
 			return {"bg": Color(0.72, 0.55, 0.95), "fg": Color(0.1, 0.05, 0.18)}
+		FireResolver.ID_INSURANCE:
+			# 保险：银灰盾
+			return {"bg": Color(0.78, 0.82, 0.88), "fg": Color(0.08, 0.1, 0.14)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:

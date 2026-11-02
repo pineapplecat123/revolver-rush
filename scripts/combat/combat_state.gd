@@ -1110,6 +1110,51 @@ func _try_spawn_temp_sin_on_load(resolved: int) -> void:
 const SIN_PENALTY_THRESHOLD := 3
 
 
+func _bag_has_ammo(ammo_id: int) -> bool:
+	for x in bag:
+		if int(x) == ammo_id:
+			return true
+	return false
+
+
+func _take_one_ammo_from_bag_by_id(ammo_id: int) -> Dictionary:
+	## 从袋中取出指定 id 一发；返回 {ok, id, temp}。
+	_sync_temp_arrays()
+	for i in bag.size():
+		if int(bag[i]) != ammo_id:
+			continue
+		var tv = bag_temp[i] if i < bag_temp.size() else 0.0
+		bag.remove_at(i)
+		if i < bag_temp.size():
+			bag_temp.remove_at(i)
+		hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": ammo_id, "reason": "insurance_swap"})
+		return {"ok": true, "id": ammo_id, "temp": Magazine.temp_value(tv)}
+	return {"ok": false, "id": -1, "temp": 0.0}
+
+
+func _try_insurance_swap_third_sin(resolved: int, raw_temp) -> Dictionary:
+	## 若装入 resolved 会使同种罪孽达到 3，且袋中有保险：罪孽退回袋，改装保险。
+	## 返回 {ammo_id, temp, swapped}。
+	var out := {"ammo_id": resolved, "temp": raw_temp, "swapped": false}
+	if resolved != FireResolver.ID_WRATH and resolved != FireResolver.ID_PRIDE and resolved != FireResolver.ID_GREED:
+		return out
+	if magazine == null:
+		return out
+	var already: int = _count_ammo_in(magazine.slots, resolved)
+	if already != SIN_PENALTY_THRESHOLD - 1:
+		return out
+	if not _bag_has_ammo(FireResolver.ID_INSURANCE):
+		return out
+	var taken: Dictionary = _take_one_ammo_from_bag_by_id(FireResolver.ID_INSURANCE)
+	if not bool(taken.get("ok", false)):
+		return out
+	# 罪孽退回袋（刚抽出来的那发）
+	_bag_append(resolved, Magazine.temp_value(raw_temp))
+	_log("保险弹药：挡住第 3 颗%s，改装保险（罪孽退回袋）。" % _ammo_name(resolved))
+	hooks.emit_hook(&"on_insurance_swap", {"cs": self, "sin_id": resolved})
+	return {"ammo_id": FireResolver.ID_INSURANCE, "temp": taken.get("temp", 0.0), "swapped": true}
+
+
 func _check_sin_threshold_after_insert(resolved: int) -> void:
 	## v0.3.5 rush!：每装入 1 发罪孽后数转轮内同种罪孽；数量刚达到 3（2→3）立刻触发三罪孽惩罚。
 	## 打掉一些后再装回 3 会再触发；第 4、5 发不重复触发（与旧「一次装填 ≥3 触发一次」一致）。
@@ -1488,6 +1533,9 @@ func load_next_chamber() -> Dictionary:
 	_load_raw_ids.append(raw_id)
 	var resolved_arr: Array[int] = _resolve_black_white_with_prev([raw_id], last_load_ids)
 	var resolved: int = resolved_arr[0]
+	var swap: Dictionary = _try_insurance_swap_third_sin(resolved, raw_temp)
+	resolved = int(swap.get("ammo_id", resolved))
+	raw_temp = swap.get("temp", raw_temp)
 	_load_resolved_ids.append(resolved)
 	var slot: int = magazine.chamber_at_load_port()
 	assert(magazine.slots[slot] == Magazine.EMPTY)
@@ -2800,6 +2848,9 @@ func _auto_load_and_fire_once() -> bool:
 			var raw_temp = _last_drawn_temps[0] if not _last_drawn_temps.is_empty() else 0.0
 			var resolved_arr: Array[int] = _resolve_black_white_with_prev(drawn, last_load_ids)
 			var resolved: int = resolved_arr[0]
+			var swap: Dictionary = _try_insurance_swap_third_sin(resolved, raw_temp)
+			resolved = int(swap.get("ammo_id", resolved))
+			raw_temp = swap.get("temp", raw_temp)
 			magazine.set_slot(port, resolved, raw_temp)
 			last_load_ids = drawn.duplicate()
 			hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": port, "temporary": Magazine.temp_value(raw_temp) > 0.0})

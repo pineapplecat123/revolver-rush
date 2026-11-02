@@ -361,6 +361,21 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "伤害均分全场；少于3人则各30%"
+    },
+    {
+      "id": 29,
+      "name": "保险弹药",
+      "rarity": null,
+      "base_damage": 1,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害1。袋中持有时：即将装入会使转轮内同种罪孽达到3颗的那一发，改为从袋中取出保险装入，罪孽弹退回弹药袋，从而避免三罪孽惩罚。",
+      "tags": [
+        "保险"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "挡下即将触发的三罪孽装填"
     }
   ]
 }
