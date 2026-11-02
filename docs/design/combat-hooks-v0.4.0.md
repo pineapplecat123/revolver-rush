@@ -54,3 +54,16 @@
 
 ## v0.4.10
 - `on_gold_ammo_spend`：金币弹每发扣金；`gold_after`
+
+## v0.4.11
+- `on_confuse` / `on_confuse_attack` / `on_player_confuse` / `on_self_hit`：色欲混乱链路
+
+## v0.4.12
+- `on_envy_copy` / `on_envy_discard`：嫉妒复制与三罪弃牌
+
+## v0.4.13
+- `on_gluttony_heal` / `on_gluttony_self_dot`：暴食击杀回血与自 DoT
+
+## v0.4.14
+- `on_slow` / `on_sloth_fire_penalty`：懒惰减速与射速窗
+

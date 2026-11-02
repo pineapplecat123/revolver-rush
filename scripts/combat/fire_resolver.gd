@@ -39,6 +39,10 @@ const ID_FOCUS := 30  ## 聚能（设计表编号19）
 const ID_STONE := 31  ## 石头（设计表编号13）
 const ID_PEBBLE := 32  ## 小石头（设计表编号14）
 const ID_JUSTICE := 33  ## 正义（设计表编号20）
+const ID_LUST := 34  ## 色欲
+const ID_ENVY := 35  ## 嫉妒
+const ID_GLUTTONY := 36  ## 暴食
+const ID_SLOTH := 37  ## 懒惰
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -165,6 +169,8 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 			return 1
 		ID_JUSTICE:
 			return 3
+		ID_LUST, ID_ENVY, ID_GLUTTONY, ID_SLOTH:
+			return 2
 		_:
 			return 0
 
@@ -211,6 +217,10 @@ static func inherits_from(ammo_id: int) -> Dictionary:
 		"wrath": ammo_id == ID_WRATH,
 		"pride": ammo_id == ID_PRIDE,
 		"greed": ammo_id == ID_GREED,
+		"lust": ammo_id == ID_LUST,
+		"envy": ammo_id == ID_ENVY,
+		"gluttony": ammo_id == ID_GLUTTONY,
+		"sloth": ammo_id == ID_SLOTH,
 		"echo": ammo_id == ID_ECHO,
 		"lifesteal": ammo_id == ID_LIFESTEAL,
 		"explosive": ammo_id == ID_EXPLOSIVE,

@@ -2,6 +2,16 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.11",
+      "date": "2026-11-02",
+      "items": [
+        "「色欲弹药」（id=34）开局可选：枪口【色欲】每层独立 4s；每层 20% 使命中敌人混乱 1s；混乱怪攻击邻近怪",
+        "三罪（转轮同种 2→3）：玩家自混乱 1s，期间所有攻击打到自己；装入 33% 临时罪仍适用",
+        "CombatHooks：on_confuse / on_confuse_attack / on_player_confuse / on_self_hit",
+        "基建：嫉妒/暴食/懒惰弹药定义与开局选项一并挂上（机制随 v0.4.12–14 验收）"
+      ]
+    },
+    {
       "version": "0.4.10",
       "date": "2026-11-02",
       "items": [

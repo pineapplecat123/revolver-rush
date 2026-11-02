@@ -103,3 +103,24 @@ const PEBBLE_TTL_SEC := TEMP_SIN_LIFETIME_SEC
 const LIFESTEAL_CHANCE_PER_STACK := 0.20
 const LIFESTEAL_HEAL_RATIO := 0.50
 
+## ——— v0.4.11+ 空壳四罪 ———
+const MUZZLE_DURATION_LUST_SEC := 4.0
+const MUZZLE_DURATION_ENVY_SEC := 4.0
+const MUZZLE_DURATION_GLUTTONY_SEC := 4.0
+const MUZZLE_DURATION_SLOTH_SEC := 4.0
+## 色欲：每层使命中敌人混乱的概率；混乱持续秒数；三罪自混乱秒数。
+const LUST_CONFUSE_CHANCE_PER_STACK := 0.20
+const LUST_CONFUSE_SEC := 1.0
+const LUST_SELF_CONFUSE_SEC := 1.0
+## 嫉妒：击杀时每层复制上一发非罪的概率；三罪弃牌数。
+const ENVY_COPY_CHANCE_PER_STACK := 0.30
+const ENVY_THREE_SIN_DISCARD := 2
+## 暴食：击杀回 1 HP；每层每秒最多 1 次；三罪自伤 DoT 每跳伤害。
+const GLUTTONY_HEAL_ON_KILL := 1
+const GLUTTONY_PROCS_PER_SEC_PER_LAYER := 1.0
+const GLUTTONY_SELF_DOT_DAMAGE := 1
+## 懒惰：减速层时长；三罪射速窗与开火锁（窗内每次开火后锁住，近似 −50% 射速）。
+const SLOTH_SLOW_LAYER_SEC := 3.0
+const SLOTH_FIRE_PENALTY_SEC := 4.0
+const SLOTH_FIRE_LOCK_SEC := 0.5
+

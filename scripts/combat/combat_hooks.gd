@@ -21,6 +21,16 @@ class_name CombatHooks
 ##   on_pebble_fuse       — 小石头相邻融合点射；count, damage
 ##   on_justice_strip     — 正义卸除已装罪孽；stripped, bonus_after
 ##   on_gold_ammo_spend   — 金币弹扣金；gold_after
+##   on_confuse           — 敌人被加混乱；enemy_id, remaining
+##   on_confuse_attack    — 混乱怪攻击邻近怪；attacker_id, victim_id, dealt
+##   on_player_confuse    — 色欲三罪玩家自混乱；remaining
+##   on_self_hit          — 自混乱期间攻击打自己；ammo_id, dealt
+##   on_envy_copy         — 嫉妒击杀复制非罪 TTL；ammo_id
+##   on_envy_discard      — 嫉妒三罪弃永久非罪；moved
+##   on_gluttony_heal     — 暴食击杀回血；amount
+##   on_gluttony_self_dot — 暴食三罪自 DoT 挂上；remaining
+##   on_slow              — 懒惰命中减速；enemy_id, stacks
+##   on_sloth_fire_penalty— 懒惰三罪射速窗；remaining
 ##
 ## 用法：cs.hooks.subscribe("on_shot", callable) / cs.hooks.emit_hook("on_shot", {...})
 

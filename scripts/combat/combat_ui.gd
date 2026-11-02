@@ -1038,6 +1038,14 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 			return {"bg": Color(0.55, 0.35, 0.85), "fg": Color(0.98, 0.95, 1.0)}
 		FireResolver.ID_GREED:
 			return {"bg": Color(0.2, 0.65, 0.35), "fg": Color(0.95, 1.0, 0.95)}
+		FireResolver.ID_LUST:
+			return {"bg": Color(0.85, 0.25, 0.55), "fg": Color(1.0, 0.94, 0.97)}
+		FireResolver.ID_ENVY:
+			return {"bg": Color(0.25, 0.7, 0.45), "fg": Color(0.94, 1.0, 0.96)}
+		FireResolver.ID_GLUTTONY:
+			return {"bg": Color(0.75, 0.45, 0.15), "fg": Color(1.0, 0.96, 0.9)}
+		FireResolver.ID_SLOTH:
+			return {"bg": Color(0.45, 0.55, 0.75), "fg": Color(0.94, 0.96, 1.0)}
 		FireResolver.ID_TOMBSTONE:
 			return {"bg": Color(0.42, 0.4, 0.38), "fg": Color(0.95, 0.93, 0.88)}
 		FireResolver.ID_GHOST:
@@ -3284,17 +3292,25 @@ func _build_sin_pick_panel() -> void:
 	vbox.add_child(hint)
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 12)
+	row.add_theme_constant_override("separation", 8)
 	vbox.add_child(row)
 	_sin_add_choice_btn(row, "愤怒", "伤3 · 枪口愤怒叠伤\n装≥3自伤6", FireResolver.ID_WRATH, Color(0.75, 0.18, 0.18))
 	_sin_add_choice_btn(row, "傲慢", "伤2 · 枪口傲慢本场\n装≥3拉近敌人", FireResolver.ID_PRIDE, Color(0.55, 0.35, 0.85))
 	_sin_add_choice_btn(row, "贪婪", "伤2 · 枪口贪婪掉金\n装≥3金币-6", FireResolver.ID_GREED, Color(0.2, 0.65, 0.35))
+	_sin_add_choice_btn(row, "色欲", "伤2 · 枪口混乱\n装≥3自混乱自伤", FireResolver.ID_LUST, Color(0.85, 0.25, 0.55))
+	var row2 := HBoxContainer.new()
+	row2.alignment = BoxContainer.ALIGNMENT_CENTER
+	row2.add_theme_constant_override("separation", 8)
+	vbox.add_child(row2)
+	_sin_add_choice_btn(row2, "嫉妒", "伤2 · 击杀复制上发\n装≥3弃2永久", FireResolver.ID_ENVY, Color(0.25, 0.7, 0.45))
+	_sin_add_choice_btn(row2, "暴食", "伤2 · 击杀回血\n装≥3持续掉血", FireResolver.ID_GLUTTONY, Color(0.75, 0.45, 0.15))
+	_sin_add_choice_btn(row2, "懒惰", "伤2 · 命中减速\n装≥3射速-50%", FireResolver.ID_SLOTH, Color(0.45, 0.55, 0.75))
 	add_child(_sin_panel)
 
 
 func _sin_add_choice_btn(parent: Control, title: String, blurb: String, ammo_id: int, accent: Color) -> void:
 	var b := Button.new()
-	b.custom_minimum_size = Vector2(170, 150)
+	b.custom_minimum_size = Vector2(140, 120)
 	b.text = "%s\n%s" % [title, blurb]
 	b.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var sb := StyleBoxFlat.new()

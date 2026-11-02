@@ -103,6 +103,10 @@ var _muzzle_lifesteal_layers: Array = []
 var _muzzle_wrath_layers: Array = []
 var _muzzle_pride_layers: Array = []
 var _muzzle_greed_layers: Array = []
+var _muzzle_lust_layers: Array = []
+var _muzzle_envy_layers: Array = []
+var _muzzle_gluttony_layers: Array = []
+var _muzzle_sloth_layers: Array = []
 
 
 func _muzzle_soonest(layers: Array) -> float:
@@ -233,6 +237,30 @@ var _muzzle_greed: int:
 	set(v):
 		_muzzle_set_stack_count(_muzzle_greed_layers, v, CombatConstants.MUZZLE_DURATION_GREED_SEC)
 
+var _muzzle_lust: int:
+	get:
+		return _muzzle_lust_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_lust_layers, v, CombatConstants.MUZZLE_DURATION_LUST_SEC)
+
+var _muzzle_envy: int:
+	get:
+		return _muzzle_envy_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_envy_layers, v, CombatConstants.MUZZLE_DURATION_ENVY_SEC)
+
+var _muzzle_gluttony: int:
+	get:
+		return _muzzle_gluttony_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_gluttony_layers, v, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC)
+
+var _muzzle_sloth: int:
+	get:
+		return _muzzle_sloth_layers.size()
+	set(v):
+		_muzzle_set_stack_count(_muzzle_sloth_layers, v, CombatConstants.MUZZLE_DURATION_SLOTH_SEC)
+
 var _muzzle_wrath_t: float:
 	get:
 		return _muzzle_soonest(_muzzle_wrath_layers)
@@ -250,6 +278,30 @@ var _muzzle_greed_t: float:
 		return _muzzle_soonest(_muzzle_greed_layers)
 	set(v):
 		_muzzle_set_soonest_or_all(_muzzle_greed_layers, v, CombatConstants.MUZZLE_DURATION_GREED_SEC)
+
+var _muzzle_lust_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_lust_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_lust_layers, v, CombatConstants.MUZZLE_DURATION_LUST_SEC)
+
+var _muzzle_envy_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_envy_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_envy_layers, v, CombatConstants.MUZZLE_DURATION_ENVY_SEC)
+
+var _muzzle_gluttony_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_gluttony_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_gluttony_layers, v, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC)
+
+var _muzzle_sloth_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_sloth_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_sloth_layers, v, CombatConstants.MUZZLE_DURATION_SLOTH_SEC)
 
 var _muzzle_pierce_t: float:
 	get:
@@ -308,6 +360,17 @@ var _combat_bag_baseline: Array[int] = []
 var _pending_gold_autofires: int = 0
 ## v0.4.0 连发窗剩余秒（>0 时点射=免费平庸伤）；刷新不叠加。
 var burst_window_remaining: float = 0.0
+## v0.4.11 色欲：玩家自混乱剩余秒（期间攻击打自己）。
+var player_confuse_remaining: float = 0.0
+## v0.4.12 嫉妒：上一发非罪孽弹药 id（-1=尚无）。
+var last_non_sin_ammo_id: int = -1
+## v0.4.13 暴食：击杀回血预算（每秒按层数回复上限）。
+var _gluttony_heal_budget: float = 0.0
+## v0.4.13 暴食三罪：持续自伤 DoT 剩余秒（与 DoT 同频跳）。
+var gluttony_self_dot_remaining: float = 0.0
+## v0.4.14 懒惰三罪：射速惩罚窗 / 开火锁。
+var sloth_fire_penalty_remaining: float = 0.0
+var fire_lock_remaining: float = 0.0
 ## 本装填周期已击发的聚能发数（聚能伤害递增）。
 var _focus_shots_fired: int = 0
 ## 本发小石头融合段长（≥2 时一次清空多仓）。
@@ -414,6 +477,12 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	wave_player_turns = 0
 	rush_shop_done = false
 	burst_window_remaining = 0.0
+	player_confuse_remaining = 0.0
+	last_non_sin_ammo_id = -1
+	_gluttony_heal_budget = 0.0
+	gluttony_self_dot_remaining = 0.0
+	sloth_fire_penalty_remaining = 0.0
+	fire_lock_remaining = 0.0
 	_reset_focus_shot_counter()
 	_pebble_fuse_count = 0
 	_dump_pending = false
@@ -499,6 +568,14 @@ func muzzle_status_parts() -> PackedStringArray:
 		parts.append("傲慢")
 	if _muzzle_greed > 0:
 		parts.append("贪婪")
+	if _muzzle_lust > 0:
+		parts.append("色欲")
+	if _muzzle_envy > 0:
+		parts.append("嫉妒")
+	if _muzzle_gluttony > 0:
+		parts.append("暴食")
+	if _muzzle_sloth > 0:
+		parts.append("懒惰")
 	return parts
 
 
@@ -518,6 +595,10 @@ func muzzle_status_entries() -> Array:
 		["愤怒", _muzzle_wrath_layers, CombatConstants.MUZZLE_DURATION_WRATH_SEC],
 		["傲慢", _muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC],
 		["贪婪", _muzzle_greed_layers, CombatConstants.MUZZLE_DURATION_GREED_SEC],
+		["色欲", _muzzle_lust_layers, CombatConstants.MUZZLE_DURATION_LUST_SEC],
+		["嫉妒", _muzzle_envy_layers, CombatConstants.MUZZLE_DURATION_ENVY_SEC],
+		["暴食", _muzzle_gluttony_layers, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC],
+		["懒惰", _muzzle_sloth_layers, CombatConstants.MUZZLE_DURATION_SLOTH_SEC],
 	]
 	for d in defs:
 		var layers: Array = d[1]
@@ -555,6 +636,14 @@ func _muzzle_outline_ammo_ids_for_shot() -> Array[int]:
 		out.append(FireResolver.ID_PRIDE)
 	if _muzzle_greed > 0:
 		out.append(FireResolver.ID_GREED)
+	if _muzzle_lust > 0:
+		out.append(FireResolver.ID_LUST)
+	if _muzzle_envy > 0:
+		out.append(FireResolver.ID_ENVY)
+	if _muzzle_gluttony > 0:
+		out.append(FireResolver.ID_GLUTTONY)
+	if _muzzle_sloth > 0:
+		out.append(FireResolver.ID_SLOTH)
 	if _muzzle_pierce:
 		out.append(FireResolver.ID_ARMOR_PIERCE)
 	if _muzzle_echo:
@@ -669,6 +758,16 @@ func _clear_all_sin_muzzle(include_pride: bool = true) -> void:
 	_muzzle_wrath_layers.clear()
 	_muzzle_greed_layers.clear()
 	_muzzle_pride_layers.clear()
+	_muzzle_lust_layers.clear()
+	_muzzle_envy_layers.clear()
+	_muzzle_gluttony_layers.clear()
+	_muzzle_sloth_layers.clear()
+	player_confuse_remaining = 0.0
+	gluttony_self_dot_remaining = 0.0
+	sloth_fire_penalty_remaining = 0.0
+	fire_lock_remaining = 0.0
+	_gluttony_heal_budget = 0.0
+	last_non_sin_ammo_id = -1
 	if not include_pride:
 		pass
 
@@ -691,6 +790,10 @@ func tick_muzzle_durations(delta_sec: float) -> bool:
 	changed = _tick_muzzle_named_layers(_muzzle_wrath_layers, delta_sec, "愤怒") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_pride_layers, delta_sec, "傲慢") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_greed_layers, delta_sec, "贪婪") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_lust_layers, delta_sec, "色欲") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_envy_layers, delta_sec, "嫉妒") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_gluttony_layers, delta_sec, "暴食") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_sloth_layers, delta_sec, "懒惰") or changed
 	return changed
 
 
@@ -709,7 +812,7 @@ func _tick_muzzle_named_layers(layers: Array, delta_sec: float, label: String) -
 
 
 func _apply_sin_choice(sin_ammo_id: int, refill_bag: bool = true) -> void:
-	if sin_ammo_id != FireResolver.ID_WRATH and sin_ammo_id != FireResolver.ID_PRIDE and sin_ammo_id != FireResolver.ID_GREED:
+	if not _is_opening_sin_id(sin_ammo_id):
 		sin_ammo_id = FireResolver.ID_WRATH
 	selected_sin_ammo_id = sin_ammo_id
 	if refill_bag:
@@ -1071,6 +1174,30 @@ func _mount_sin_muzzle_from(flags: Dictionary) -> void:
 			_muzzle_greed, CombatConstants.MUZZLE_DURATION_GREED_SEC, _muzzle_greed_t
 		])
 		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "greed", "stacks_after": _muzzle_greed})
+	if bool(flags.get("lust", false)):
+		_muzzle_add_layer(_muzzle_lust_layers, CombatConstants.MUZZLE_DURATION_LUST_SEC)
+		_log("  → 枪口【色欲】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_lust, CombatConstants.MUZZLE_DURATION_LUST_SEC, _muzzle_lust_t
+		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "lust", "stacks_after": _muzzle_lust})
+	if bool(flags.get("envy", false)):
+		_muzzle_add_layer(_muzzle_envy_layers, CombatConstants.MUZZLE_DURATION_ENVY_SEC)
+		_log("  → 枪口【嫉妒】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_envy, CombatConstants.MUZZLE_DURATION_ENVY_SEC, _muzzle_envy_t
+		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "envy", "stacks_after": _muzzle_envy})
+	if bool(flags.get("gluttony", false)):
+		_muzzle_add_layer(_muzzle_gluttony_layers, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC)
+		_log("  → 枪口【暴食】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_gluttony, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC, _muzzle_gluttony_t
+		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "gluttony", "stacks_after": _muzzle_gluttony})
+	if bool(flags.get("sloth", false)):
+		_muzzle_add_layer(_muzzle_sloth_layers, CombatConstants.MUZZLE_DURATION_SLOTH_SEC)
+		_log("  → 枪口【懒惰】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
+			_muzzle_sloth, CombatConstants.MUZZLE_DURATION_SLOTH_SEC, _muzzle_sloth_t
+		])
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "sloth", "stacks_after": _muzzle_sloth})
 
 
 func _count_ammo_in(ids: Array, ammo_id: int) -> int:
@@ -1086,6 +1213,10 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 	var wrath_n := _count_ammo_in(loaded, FireResolver.ID_WRATH)
 	var pride_n := _count_ammo_in(loaded, FireResolver.ID_PRIDE)
 	var greed_n := _count_ammo_in(loaded, FireResolver.ID_GREED)
+	var lust_n := _count_ammo_in(loaded, FireResolver.ID_LUST)
+	var envy_n := _count_ammo_in(loaded, FireResolver.ID_ENVY)
+	var glut_n := _count_ammo_in(loaded, FireResolver.ID_GLUTTONY)
+	var sloth_n := _count_ammo_in(loaded, FireResolver.ID_SLOTH)
 	if wrath_n >= 3:
 		_apply_player_damage(6, "愤怒")
 		_log("罪孽[愤怒]：本匣愤怒 ×%d（≥3）→ 玩家自伤 6（HP %d/%d）。" % [wrath_n, player_hp, player_max_hp])
@@ -1096,6 +1227,25 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 	if greed_n >= 3:
 		gold -= 6
 		_log("罪孽[贪婪]：本匣贪婪 ×%d（≥3）→ 金币 -6（现 %d）。" % [greed_n, gold])
+	if lust_n >= 3:
+		player_confuse_remaining = maxf(player_confuse_remaining, CombatConstants.LUST_SELF_CONFUSE_SEC)
+		_log("罪孽[色欲]：本匣色欲 ×%d（≥3）→ 玩家混乱 %.1fs（期间攻击打自己）。" % [
+			lust_n, player_confuse_remaining
+		])
+		hooks.emit_hook(&"on_player_confuse", {"cs": self, "remaining": player_confuse_remaining})
+	if envy_n >= 3:
+		_envy_discard_permanent_nonsin(CombatConstants.ENVY_THREE_SIN_DISCARD)
+	if glut_n >= 3:
+		# 持续掉血：挂一段自伤 DoT（与 tick_dot 同频）
+		gluttony_self_dot_remaining = maxf(gluttony_self_dot_remaining, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC)
+		_log("罪孽[暴食]：本匣暴食 ×%d（≥3）→ 持续掉血 %.1fs。" % [glut_n, gluttony_self_dot_remaining])
+		hooks.emit_hook(&"on_gluttony_self_dot", {"cs": self, "remaining": gluttony_self_dot_remaining})
+	if sloth_n >= 3:
+		sloth_fire_penalty_remaining = maxf(sloth_fire_penalty_remaining, CombatConstants.SLOTH_FIRE_PENALTY_SEC)
+		_log("罪孽[懒惰]：本匣懒惰 ×%d（≥3）→ 射速−50%% 窗 %.1fs。" % [
+			sloth_n, sloth_fire_penalty_remaining
+		])
+		hooks.emit_hook(&"on_sloth_fire_penalty", {"cs": self, "remaining": sloth_fire_penalty_remaining})
 	# v0.4.0：三罪孽惩罚不再加临时罪孽；临时罪只走「装入时 33%」。
 
 
@@ -1104,6 +1254,14 @@ func _spawn_penalty_temp_sin(sin_id: int) -> void:
 	penalty_temp_sins_spawned += 1
 	_log("罪孽惩罚：袋内 +1 颗临时%s（%.0f 秒后消失）。" % [_ammo_name(sin_id), CombatConstants.TEMP_SIN_LIFETIME_SEC])
 
+
+
+func _is_opening_sin_id(ammo_id: int) -> bool:
+	## 开局可选七罪。
+	return ammo_id in [
+		FireResolver.ID_WRATH, FireResolver.ID_PRIDE, FireResolver.ID_GREED,
+		FireResolver.ID_LUST, FireResolver.ID_ENVY, FireResolver.ID_GLUTTONY, FireResolver.ID_SLOTH,
+	]
 
 
 func _is_sin_ammo_id(ammo_id: int) -> bool:
@@ -1136,7 +1294,7 @@ func _apply_justice_strip_on_load(resolved: int) -> int:
 
 func _try_spawn_temp_sin_on_load(resolved: int) -> void:
 	## v0.4.0：装入罪孽时 33% 袋内 +1 同种临时罪孽（三罪孽惩罚不再加）。
-	if resolved != FireResolver.ID_WRATH and resolved != FireResolver.ID_PRIDE and resolved != FireResolver.ID_GREED:
+	if not _is_opening_sin_id(resolved):
 		return
 	if rng.randf() >= CombatConstants.LOAD_TEMP_SIN_CHANCE:
 		return
@@ -1175,7 +1333,7 @@ func _try_insurance_swap_third_sin(resolved: int, raw_temp) -> Dictionary:
 	## 若装入 resolved 会使同种罪孽达到 3，且袋中有保险：罪孽退回袋，改装保险。
 	## 返回 {ammo_id, temp, swapped}。
 	var out := {"ammo_id": resolved, "temp": raw_temp, "swapped": false}
-	if resolved != FireResolver.ID_WRATH and resolved != FireResolver.ID_PRIDE and resolved != FireResolver.ID_GREED:
+	if not _is_opening_sin_id(resolved):
 		return out
 	if magazine == null:
 		return out
@@ -1197,7 +1355,7 @@ func _try_insurance_swap_third_sin(resolved: int, raw_temp) -> Dictionary:
 func _check_sin_threshold_after_insert(resolved: int) -> void:
 	## v0.3.5 rush!：每装入 1 发罪孽后数转轮内同种罪孽；数量刚达到 3（2→3）立刻触发三罪孽惩罚。
 	## 打掉一些后再装回 3 会再触发；第 4、5 发不重复触发（与旧「一次装填 ≥3 触发一次」一致）。
-	if resolved != FireResolver.ID_WRATH and resolved != FireResolver.ID_PRIDE and resolved != FireResolver.ID_GREED:
+	if not _is_opening_sin_id(resolved):
 		return
 	if magazine == null:
 		return
@@ -1230,6 +1388,129 @@ func _pull_enemies_to_face(pride_n: int = 3) -> void:
 		next_cell += 1
 		_log("罪孽[傲慢]：%s 被拉至格 %d。" % [e.name_zh, e.cell])
 	_log("罪孽[傲慢]：本匣傲慢 ×%d（≥3）→ 敌人拉至面前。" % pride_n)
+
+
+func _envy_discard_permanent_nonsin(n: int) -> int:
+	## 嫉妒三罪：从袋中随机弃掉最多 n 发非罪孽永久弹到弃牌堆。
+	_sync_temp_arrays()
+	var candidates: Array[int] = []
+	for i in bag.size():
+		var aid: int = int(bag[i])
+		var tv: float = Magazine.temp_value(bag_temp[i] if i < bag_temp.size() else 0.0)
+		if tv > 0.0:
+			continue
+		if _is_sin_ammo_id(aid):
+			continue
+		candidates.append(i)
+	candidates.shuffle()
+	var moved := 0
+	# 从高下标删，避免打乱未选中的下标：先收集 id 再按 index 降序删
+	var pick: Array[int] = []
+	for i in mini(n, candidates.size()):
+		pick.append(candidates[i])
+	pick.sort()
+	pick.reverse()
+	for i in pick:
+		var aid: int = int(bag[i])
+		bag.remove_at(i)
+		if i < bag_temp.size():
+			bag_temp.remove_at(i)
+		_discard_append(aid, 0.0)
+		hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": aid, "reason": "envy_discard"})
+		moved += 1
+	if moved > 0:
+		_log("罪孽[嫉妒]：随机弃掉非罪永久弹 ×%d 入弃牌。" % moved)
+		hooks.emit_hook(&"on_envy_discard", {"cs": self, "moved": moved})
+	else:
+		_log("罪孽[嫉妒]：袋中无可弃的非罪永久弹。")
+	return moved
+
+
+func _try_lust_confuse_on_hit(e: EnemyInstance) -> void:
+	if e == null or not e.is_alive() or _muzzle_lust <= 0:
+		return
+	var chance: float = minf(1.0, float(_muzzle_lust) * CombatConstants.LUST_CONFUSE_CHANCE_PER_STACK)
+	if rng.randf() >= chance:
+		return
+	e.apply_confuse(CombatConstants.LUST_CONFUSE_SEC)
+	_log("  → 色欲：%s 混乱 %.1fs" % [e.name_zh, e.confuse_remaining])
+	hooks.emit_hook(&"on_confuse", {"cs": self, "enemy_id": e.get_instance_id(), "remaining": e.confuse_remaining})
+
+
+func _try_sloth_slow_on_hit(e: EnemyInstance) -> void:
+	if e == null or not e.is_alive() or _muzzle_sloth <= 0:
+		return
+	e.add_slow_layer(CombatConstants.SLOTH_SLOW_LAYER_SEC)
+	_log("  → 懒惰：%s 减速层 ×%d" % [e.name_zh, e.slow_stacks()])
+	hooks.emit_hook(&"on_slow", {"cs": self, "enemy_id": e.get_instance_id(), "stacks": e.slow_stacks()})
+
+
+func _try_envy_copy_on_kill() -> void:
+	if _muzzle_envy <= 0 or last_non_sin_ammo_id < 0:
+		return
+	var chance: float = minf(1.0, float(_muzzle_envy) * CombatConstants.ENVY_COPY_CHANCE_PER_STACK)
+	if rng.randf() >= chance:
+		return
+	var aid: int = last_non_sin_ammo_id
+	_bag_append(aid, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	_log("  → 嫉妒：复制上一发非罪[%s] TTL 入袋。" % _ammo_name(aid))
+	hooks.emit_hook(&"on_envy_copy", {"cs": self, "ammo_id": aid})
+
+
+func _try_gluttony_heal_on_kill() -> void:
+	if _muzzle_gluttony <= 0:
+		return
+	if _gluttony_heal_budget < 1.0:
+		return
+	_gluttony_heal_budget -= 1.0
+	_apply_player_heal(CombatConstants.GLUTTONY_HEAL_ON_KILL, "暴食")
+	hooks.emit_hook(&"on_gluttony_heal", {"cs": self, "amount": CombatConstants.GLUTTONY_HEAL_ON_KILL})
+
+
+func _note_last_non_sin_ammo(ammo_id: int) -> void:
+	if ammo_id < 0 or _is_sin_ammo_id(ammo_id):
+		return
+	last_non_sin_ammo_id = ammo_id
+
+
+func _enemy_attack_or_confuse(e: EnemyInstance) -> void:
+	## 进入射程时：混乱则打邻近怪，否则打玩家。
+	if e == null or not e.is_alive():
+		return
+	if e.confuse_remaining > 0.0:
+		var victim: EnemyInstance = _nearest_other_enemy(e)
+		if victim != null:
+			var dmg: int = maxi(1, int(e.atk))
+			var dealt: int = victim.apply_hit(dmg)
+			_notify_enemy_damage(victim, dealt, "混乱")
+			_log("%s 混乱攻击 %s，造成 %d（HP %d/%d）" % [
+				e.name_zh, victim.name_zh, dealt, victim.hp, victim.max_hp
+			])
+			hooks.emit_hook(&"on_confuse_attack", {
+				"cs": self, "attacker_id": e.get_instance_id(), "victim_id": victim.get_instance_id(), "dealt": dealt
+			})
+			return
+		_log("%s 混乱但无邻近目标，跳过攻击。" % e.name_zh)
+		return
+	var incoming: int = int(round(float(e.atk) * _incoming_pride_multiplier()))
+	_apply_player_damage(incoming, "")
+	_log("%s 攻击玩家，造成 %d（玩家 HP %d/%d · 射程 %d%s）" % [
+		e.name_zh, incoming, player_hp, player_max_hp, e.attack_range,
+		(" · 傲慢×%d" % _muzzle_pride) if _muzzle_pride > 0 else ""
+	])
+
+
+func _nearest_other_enemy(origin: EnemyInstance) -> EnemyInstance:
+	var best: EnemyInstance = null
+	var best_d := 9999
+	for e in alive_enemies():
+		if e == origin:
+			continue
+		var d: int = absi(e.cell - origin.cell)
+		if d < best_d:
+			best_d = d
+			best = e
+	return best
 
 
 func _try_greed_gold_drop(dealt: int, cell: int = -1) -> void:
@@ -1454,6 +1735,8 @@ func _can_act_with_partial_load() -> bool:
 func can_fire() -> bool:
 	## 锤位有弹即可开火；连发窗内即使匣空也可点射（免费平庸）；倾泻中可点射以中断。升级三选一期间暂停。
 	if reward_pending:
+		return false
+	if fire_lock_remaining > 0.0:
 		return false
 	if _dump_pending:
 		return phase != Phase.WON and phase != Phase.LOST
@@ -2167,8 +2450,10 @@ func fire_next_shot() -> bool:
 	_spend_gold_ammo_cost(ammo_id)
 	_fire_index += 1
 
-	if pace_after_fire:
+	_note_last_non_sin_ammo(ammo_id)
+	if pace_after_fire and player_confuse_remaining <= 0.0:
 		# 只规划命中路径；扣血/飘字等拖尾飞到怪身上再 resolve_paced_hit
+		# 色欲自混乱期间改为同步结算（伤害打自己）。
 		var plan: Array = _build_shot_plan(base_dmg, pierce, ammo_id)
 		for h in plan:
 			last_shot_hit_cells.append(int(h.get("cell", -1)))
@@ -2405,6 +2690,21 @@ func _apply_shot_to_enemies(
 	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool,
 	explosive: bool = false
 ) -> int:
+	_note_last_non_sin_ammo(ammo_id)
+	if player_confuse_remaining > 0.0:
+		var self_dmg: int = maxi(0, base_dmg)
+		_apply_player_damage(self_dmg, "色欲")
+		_log("击发[%s] → 玩家混乱中，伤害 %d 打到自己（HP %d/%d）。" % [
+			_ammo_name(ammo_id), self_dmg, player_hp, player_max_hp
+		])
+		last_shot_hit_cell = CombatConstants.PLAYER_CELL
+		last_shot_dealt = self_dmg
+		last_shot_hit_cells = [CombatConstants.PLAYER_CELL]
+		last_shot_hit_amounts = [self_dmg]
+		hooks.emit_hook(&"on_self_hit", {"cs": self, "ammo_id": ammo_id, "dealt": self_dmg})
+		if player_hp <= 0:
+			_lose_hp()
+		return self_dmg
 	var targets: Array = enemies_sorted_by_cell()
 	if targets.is_empty():
 		_log("击发[%s] → 无可击中目标。" % _ammo_name(ammo_id))
@@ -2512,6 +2812,8 @@ func _hit_enemy_with_elements(
 	_notify_enemy_damage(e, dealt, damage_kind)
 	_try_greed_gold_drop(dealt, e.cell)
 	_try_lifesteal_heal(dealt)
+	_try_lust_confuse_on_hit(e)
+	_try_sloth_slow_on_hit(e)
 	if use_explosive and was_burning:
 		var n_side: int = maxi(1, dmg - 2)
 		dealt += _explosive_splash(e, dmg * 3, ammo_id, gas, fire, water, thunder, n_side)
@@ -2901,14 +3203,17 @@ func tick_enemy_auto_step() -> bool:
 	var movers: Dictionary = _glide_movers if _glide_movers_valid else compute_enemy_movers()
 	for e in enemies_sorted_by_cell():
 		if movers.has(e.get_instance_id()):
-			_move_enemy_steps(e, 1)
+			var stacks: int = e.slow_stacks()
+			if stacks > 0:
+				e.slow_skip = (e.slow_skip + 1) % (1 + stacks)
+				if e.slow_skip == 0:
+					_move_enemy_steps(e, 1)
+				else:
+					_log("%s 减速跳过移动（缓×%d）。" % [e.name_zh, stacks])
+			else:
+				_move_enemy_steps(e, 1)
 		if can_attack_player(e):
-			var incoming: int = int(round(float(e.atk) * _incoming_pride_multiplier()))
-			_apply_player_damage(incoming, "")
-			_log("%s 攻击玩家，造成 %d（玩家 HP %d/%d · 射程 %d%s）" % [
-				e.name_zh, incoming, player_hp, player_max_hp, e.attack_range,
-				(" · 傲慢×%d" % _muzzle_pride) if _muzzle_pride > 0 else ""
-			])
+			_enemy_attack_or_confuse(e)
 	if player_hp <= 0:
 		_lose_hp()
 		_emit()
@@ -3098,6 +3403,8 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 		interrupt_dump()
 		return shots
 	hooks.emit_hook(&"on_fire", {"cs": self, "burst_window": burst_window_remaining > 0.0})
+	if sloth_fire_penalty_remaining > 0.0:
+		fire_lock_remaining = maxf(fire_lock_remaining, CombatConstants.SLOTH_FIRE_LOCK_SEC)
 	if burst_window_remaining > 0.0:
 		var free_rec: Dictionary = _fire_virtual_ammo_shot(CombatConstants.WHITE_AMMO_ID, 0.0, false)
 		free_rec["burst_free"] = true
@@ -3374,6 +3681,8 @@ func _remove_dead() -> void:
 		else:
 			_log("%s 被击败。" % e.name_zh)
 			hooks.emit_hook(&"on_kill", {"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell, "def_id": e.def_id})
+			_try_envy_copy_on_kill()
+			_try_gluttony_heal_on_kill()
 			gain_xp(xp_for_enemy(e))
 	enemies = kept
 
@@ -3524,6 +3833,24 @@ func tick_combat_time(delta_sec: float) -> bool:
 	if burst_window_remaining > 0.0:
 		burst_window_remaining = maxf(0.0, burst_window_remaining - delta_sec)
 		changed = true
+	if player_confuse_remaining > 0.0:
+		player_confuse_remaining = maxf(0.0, player_confuse_remaining - delta_sec)
+		changed = true
+	if sloth_fire_penalty_remaining > 0.0:
+		sloth_fire_penalty_remaining = maxf(0.0, sloth_fire_penalty_remaining - delta_sec)
+		changed = true
+	if fire_lock_remaining > 0.0:
+		fire_lock_remaining = maxf(0.0, fire_lock_remaining - delta_sec)
+		changed = true
+	# 暴食击杀回血预算：每秒回复 = 层数 × GLUTTONY_PROCS_PER_SEC_PER_LAYER，上限=层数
+	if _muzzle_gluttony > 0:
+		var cap: float = float(_muzzle_gluttony) * CombatConstants.GLUTTONY_PROCS_PER_SEC_PER_LAYER
+		_gluttony_heal_budget = minf(cap, _gluttony_heal_budget + cap * delta_sec)
+	else:
+		_gluttony_heal_budget = 0.0
+	for e in enemies:
+		if e != null:
+			e.tick_status_timers(delta_sec)
 	changed = tick_temp_sin_lifetimes(delta_sec) or changed
 	changed = tick_dot(delta_sec) or changed
 	changed = tick_map_shop(delta_sec) or changed
@@ -3607,6 +3934,15 @@ func tick_dot(delta_sec: float) -> bool:
 		_dot_timer = CombatConstants.DOT_TICK_SEC
 	var changed := false
 	hooks.emit_hook(&"on_dot_tick", {"cs": self, "kind": "all"})
+	if gluttony_self_dot_remaining > 0.0:
+		gluttony_self_dot_remaining = maxf(0.0, gluttony_self_dot_remaining - CombatConstants.DOT_TICK_SEC)
+		_apply_player_damage(CombatConstants.GLUTTONY_SELF_DOT_DAMAGE, "暴食")
+		_log("暴食持续掉血 %d（HP %d/%d · 剩余 %.1fs）" % [
+			CombatConstants.GLUTTONY_SELF_DOT_DAMAGE, player_hp, player_max_hp, gluttony_self_dot_remaining
+		])
+		changed = true
+		if player_hp <= 0:
+			_lose_hp()
 	if _resolve_burn_dot_tick():
 		changed = true
 	_remove_dead()
@@ -3745,12 +4081,7 @@ func _run_enemy_turn() -> void:
 	for e in order:
 		_move_enemy(e)
 		if can_attack_player(e):
-			var incoming: int = int(round(float(e.atk) * _incoming_pride_multiplier()))
-			_apply_player_damage(incoming, "")
-			_log("%s 攻击玩家，造成 %d（玩家 HP %d/%d · 射程 %d%s）" % [
-				e.name_zh, incoming, player_hp, player_max_hp, e.attack_range,
-				(" · 傲慢×%d" % _muzzle_pride) if _muzzle_pride > 0 else ""
-			])
+			_enemy_attack_or_confuse(e)
 		else:
 			_log("%s 未进入射程，不攻击（格 %d · 射程 %d）。" % [e.name_zh, e.cell, e.attack_range])
 	if player_hp <= 0:
