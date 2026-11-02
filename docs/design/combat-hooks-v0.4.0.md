@@ -27,3 +27,7 @@
 | `on_dot_tick` | DoT 跳 | `kind` |
 
 当前订阅方可为空；弹药机制已在既有路径 emit。
+
+## v0.4.1
+- `on_muzzle_apply`：`kind=echo`（回声挂上/刷新）
+- `on_shot`：回声第二波带 `echo: true`

@@ -94,6 +94,7 @@ var _muzzle_gas_layers: Array = []
 var _muzzle_fire_layers: Array = []
 var _muzzle_water_layers: Array = []
 var _muzzle_thunder_layers: Array = []
+var _muzzle_echo_layers: Array = []
 var _muzzle_wrath_layers: Array = []
 var _muzzle_pride_layers: Array = []
 var _muzzle_greed_layers: Array = []
@@ -191,6 +192,12 @@ var _muzzle_thunder: bool:
 	set(v):
 		_muzzle_set_flag(_muzzle_thunder_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
 
+var _muzzle_echo: bool:
+	get:
+		return not _muzzle_echo_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_echo_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
 var _muzzle_wrath: int:
 	get:
 		return _muzzle_wrath_layers.size()
@@ -257,6 +264,12 @@ var _muzzle_thunder_t: float:
 	set(v):
 		_muzzle_set_soonest_or_all(_muzzle_thunder_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
 
+var _muzzle_echo_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_echo_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_echo_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
 ## 本局所选罪孽弹药 id（愤怒/傲慢/贪婪之一）
 var selected_sin_ammo_id: int = FireResolver.ID_WRATH
 ## 本场战斗内袋重置次数；每次重置灌袋 = 构筑基线 + 本计数发额外临时罪孽。开局/波末/下场清零。
@@ -314,6 +327,10 @@ var last_shot_muzzle_outline_ids: Array[int] = []
 var last_shot_hit_cells: Array[int] = []
 var last_shot_hit_amounts: Array[int] = []
 var last_shot_was_pierce: bool = false
+## 本发是否因【回声】做了第二次结算；供 fire_tap 追加回声分录。
+var last_shot_was_echoed: bool = false
+var last_echo_hit_cells: Array[int] = []
+var last_echo_hit_amounts: Array[int] = []
 ## pace：本发已规划、待视觉命中时再结算的命中（空=无待结算）
 var _paced_shot: Dictionary = {}
 
@@ -434,6 +451,8 @@ func muzzle_status_parts() -> PackedStringArray:
 		parts.append("水")
 	if _muzzle_thunder:
 		parts.append("雷")
+	if _muzzle_echo:
+		parts.append("回声")
 	if _muzzle_wrath > 0:
 		parts.append("愤怒")
 	if _muzzle_pride > 0:
@@ -453,6 +472,7 @@ func muzzle_status_entries() -> Array:
 		["火", _muzzle_fire_layers, el],
 		["水", _muzzle_water_layers, el],
 		["雷", _muzzle_thunder_layers, el],
+		["回声", _muzzle_echo_layers, el],
 		["愤怒", _muzzle_wrath_layers, CombatConstants.MUZZLE_DURATION_WRATH_SEC],
 		["傲慢", _muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC],
 		["贪婪", _muzzle_greed_layers, CombatConstants.MUZZLE_DURATION_GREED_SEC],
@@ -495,6 +515,8 @@ func _muzzle_outline_ammo_ids_for_shot() -> Array[int]:
 		out.append(FireResolver.ID_GREED)
 	if _muzzle_pierce:
 		out.append(FireResolver.ID_ARMOR_PIERCE)
+	if _muzzle_echo:
+		out.append(FireResolver.ID_ECHO)
 	return out
 
 
@@ -556,10 +578,14 @@ func muzzle_damage_tip_text() -> String:
 		elems.append("水%.1fs" % _muzzle_water_t)
 	if _muzzle_thunder:
 		elems.append("雷%.1fs" % _muzzle_thunder_t)
+	if _muzzle_echo:
+		elems.append("回声%.1fs" % _muzzle_echo_t)
 	if not elems.is_empty():
 		lines.append("元素附带：%s（不改倍率）" % " · ".join(elems))
 	if _muzzle_pierce:
 		lines.append("穿甲：击穿怪物；首个全伤，之后每穿一个 -1，减到 0 为止")
+	if _muzzle_echo:
+		lines.append("回声：每发弹药结算两次（双发，均吃当前枪口）· 剩余 %.1f 秒" % _muzzle_echo_t)
 	return "\n".join(lines)
 
 
@@ -570,6 +596,7 @@ func _reset_muzzle() -> void:
 	_muzzle_fire_layers.clear()
 	_muzzle_water_layers.clear()
 	_muzzle_thunder_layers.clear()
+	_muzzle_echo_layers.clear()
 
 
 func _clear_turn_sin_muzzle() -> void:
@@ -601,6 +628,7 @@ func tick_muzzle_durations(delta_sec: float) -> bool:
 	changed = _tick_muzzle_named_layers(_muzzle_fire_layers, delta_sec, "火") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_water_layers, delta_sec, "水") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_thunder_layers, delta_sec, "雷") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_echo_layers, delta_sec, "回声") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_wrath_layers, delta_sec, "愤怒") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_pride_layers, delta_sec, "傲慢") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_greed_layers, delta_sec, "贪婪") or changed
@@ -933,6 +961,14 @@ func _mount_muzzle_from(flags: Dictionary) -> void:
 		_muzzle_add_layer(_muzzle_water_layers, dur, 1)
 	if bool(flags.get("thunder", false)):
 		_muzzle_add_layer(_muzzle_thunder_layers, dur, 1)
+	if bool(flags.get("echo", false)):
+		var was: bool = _muzzle_echo
+		_muzzle_add_layer(_muzzle_echo_layers, dur, 1)
+		if not was:
+			_log("  → 枪口【回声】（最多 1 层，%.1f 秒；窗内每发结算两次）" % dur)
+		else:
+			_log("  → 枪口【回声】刷新 %.1f 秒" % dur)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "echo", "stacks_after": 1})
 
 
 func _mount_sin_muzzle_from(flags: Dictionary) -> void:
@@ -1651,7 +1687,7 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 	if to_discard:
 		_discard_append(ammo_id, shot_temp)
 	_mount_muzzle_from(flags)
-	var dealt_total := _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	var dealt_total := _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 	_fire_total_damage += dealt_total
 	_remove_dead()
 	var rec := {
@@ -1667,7 +1703,17 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 		"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
 		"pierce": last_shot_was_pierce,
 	}
-	hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": ammo_id, "virtual": true, "dealt": dealt_total})
+	var first_dealt_hook: int = 0
+	for a in rec.get("hit_amounts", []):
+		first_dealt_hook += int(a)
+	hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": ammo_id, "virtual": true, "dealt": first_dealt_hook})
+	if last_shot_was_echoed:
+		var twin_dealt: int = 0
+		for a in last_echo_hit_amounts:
+			twin_dealt += int(a)
+		rec["echo_twin_cells"] = last_echo_hit_cells.duplicate()
+		rec["echo_twin_amounts"] = last_echo_hit_amounts.duplicate()
+		hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": ammo_id, "virtual": true, "echo": true, "dealt": twin_dealt})
 	# 恢复主发锤位/弹药 id，避免幽灵连射冲掉墓碑等主发的 last_fired_slot
 	last_fired_slot = saved_slot
 	last_shot_ammo_id = saved_ammo
@@ -1850,6 +1896,7 @@ func fire_next_shot() -> bool:
 			"fire": fire,
 			"water": water,
 			"thunder": thunder,
+			"echo": _muzzle_echo,
 			"hits": plan,
 			"thunder_done": false,
 			"resolved_total": 0,
@@ -1859,7 +1906,7 @@ func fire_next_shot() -> bool:
 		_emit()
 		return more_paced
 
-	var dealt_total := _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	var dealt_total := _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 	_fire_total_damage += dealt_total
 	_remove_dead()
 
@@ -1980,6 +2027,34 @@ func finalize_paced_shot() -> void:
 	if not bool(_paced_shot.get("thunder_done", false)):
 		_resolve_paced_thunder_chain()
 	var total: int = int(_paced_shot.get("resolved_total", 0))
+	last_shot_was_echoed = false
+	last_echo_hit_cells.clear()
+	last_echo_hit_amounts.clear()
+	if bool(_paced_shot.get("echo", false)):
+		_log("枪口【回声】：再次结算本发。")
+		var first_cells: Array[int] = last_shot_hit_cells.duplicate()
+		var first_amts: Array[int] = last_shot_hit_amounts.duplicate()
+		var first_cell: int = last_shot_hit_cell
+		var first_dealt: int = last_shot_dealt
+		last_shot_hit_cells.clear()
+		last_shot_hit_amounts.clear()
+		var echo_total: int = _apply_shot_to_enemies(
+			int(_paced_shot.get("ammo_id", -1)),
+			int(_paced_shot.get("base_dmg", 0)),
+			bool(_paced_shot.get("pierce", false)),
+			bool(_paced_shot.get("gas", false)),
+			bool(_paced_shot.get("fire", false)),
+			bool(_paced_shot.get("water", false)),
+			bool(_paced_shot.get("thunder", false)),
+		)
+		last_shot_was_echoed = true
+		last_echo_hit_cells = last_shot_hit_cells.duplicate()
+		last_echo_hit_amounts = last_shot_hit_amounts.duplicate()
+		last_shot_hit_cells = first_cells
+		last_shot_hit_amounts = first_amts
+		last_shot_hit_cell = first_cell
+		last_shot_dealt = first_dealt
+		total += echo_total
 	_fire_total_damage += total
 	if bool(_paced_shot.get("gold", false)):
 		_queue_extra_autofire_from_shot(int(_paced_shot.get("ammo_id", -1)))
@@ -2033,6 +2108,35 @@ func _apply_shot_to_enemies(
 		if thunder and e.wet_stacks > 0:
 			total += _thunder_chain(e, base_dmg, gas, fire, water)
 	return total
+
+
+func _apply_shot_with_optional_echo(
+	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool
+) -> int:
+	## 若枪口【回声】激活：同一发再结算一次（不递归叠回声、不重挂枪口）。
+	last_shot_was_echoed = false
+	last_echo_hit_cells.clear()
+	last_echo_hit_amounts.clear()
+	var total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	if not _muzzle_echo:
+		return total
+	var first_cells: Array[int] = last_shot_hit_cells.duplicate()
+	var first_amts: Array[int] = last_shot_hit_amounts.duplicate()
+	var first_cell: int = last_shot_hit_cell
+	var first_dealt: int = last_shot_dealt
+	last_shot_hit_cells.clear()
+	last_shot_hit_amounts.clear()
+	_log("枪口【回声】：再次结算本发。")
+	var echo_total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	last_shot_was_echoed = true
+	last_echo_hit_cells = last_shot_hit_cells.duplicate()
+	last_echo_hit_amounts = last_shot_hit_amounts.duplicate()
+	# 主记录保留第一波，供 UI 第一条弹道；回声波在 last_echo_*
+	last_shot_hit_cells = first_cells
+	last_shot_hit_amounts = first_amts
+	last_shot_hit_cell = first_cell
+	last_shot_dealt = first_dealt
+	return total + echo_total
 
 
 func _hit_enemy_with_elements(
@@ -2566,9 +2670,10 @@ func _auto_load_and_fire_once() -> bool:
 		last_shot_hit_cells.clear()
 		last_shot_hit_amounts.clear()
 		last_shot_was_pierce = pierce
-		_fire_total_damage += _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+		# 额外轮：先挂元素枪口（含回声），本发即享受
 		_discard_append(ammo_id, shot_temp)
 		_mount_muzzle_from(flags)
+		_fire_total_damage += _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 		if ammo_id == FireResolver.ID_TOMBSTONE:
 			_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())
 		_fire_index += 1
@@ -2626,7 +2731,8 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 		free_rec["burst_free"] = true
 		free_rec["extra"] = true
 		shots.append(free_rec)
-		hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": CombatConstants.WHITE_AMMO_ID, "virtual": true, "burst_free": true, "dealt": int(free_rec.get("hit_amounts", [0])[0] if free_rec.get("hit_amounts", []) else 0)})
+		# on_shot 已在 virtual 内发出（含回声第二下）；此处只补 UI 分录
+		_append_echo_twin_shot(shots, free_rec, false)
 		if auto_enemy_advance:
 			finalize_post_fire()
 		elif _post_fire_enemy_pending:
@@ -2643,6 +2749,7 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 	# 墓碑幽灵连射已在 fire_next_shot 非 paced 路径或 finalize 后由 _pending_tombstone_ghost_shots 注入
 	for g in _consume_pending_tombstone_ghost_shots():
 		shots.append(g)
+		_append_echo_twin_from_rec(shots, g)
 	# 倾泻：主发是倾泻则自动打剩余仓
 	if fired_id_before == FireResolver.ID_DUMP and phase != Phase.WON and phase != Phase.LOST:
 		_dump_pending = true
@@ -2674,6 +2781,7 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 		_fire_tap_one(shots, true)
 		for g2 in _consume_pending_tombstone_ghost_shots():
 			shots.append(g2)
+			_append_echo_twin_from_rec(shots, g2)
 	if auto_enemy_advance:
 		finalize_post_fire()
 	elif _post_fire_enemy_pending:
@@ -2699,6 +2807,7 @@ func take_dump_shot() -> Array:
 	_fire_tap_one(out, true)
 	for g in _consume_pending_tombstone_ghost_shots():
 		out.append(g)
+		_append_echo_twin_from_rec(out, g)
 	if magazine == null or magazine.is_empty():
 		_finish_dump(false)
 	return out
@@ -2734,6 +2843,7 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 			rec["start_after"] = magazine.start_index if magazine != null else 0
 			shots.append(rec)
 			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": int(rec["ammo_id"]), "virtual": false, "dealt": _sum_hit_amounts(rec)})
+			_append_echo_twin_shot(shots, rec)
 		elif last_shot_ammo_id >= 0:
 			# 非 paced 路径（测试常关 pace）：补一条记录
 			var rec2 := {
@@ -2750,6 +2860,40 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 			}
 			shots.append(rec2)
 			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": last_shot_ammo_id, "virtual": false, "dealt": _sum_hit_amounts(rec2)})
+			_append_echo_twin_shot(shots, rec2)
+
+
+func _append_echo_twin_from_rec(shots: Array, primary: Dictionary) -> void:
+	## 仅用 rec 自带的 echo_twin_*（幽灵等虚拟击发），不读全局 last_echo_*。
+	if not primary.has("echo_twin_amounts"):
+		return
+	var twin: Dictionary = primary.duplicate(true)
+	twin["echo"] = true
+	twin["hit_cells"] = primary.get("echo_twin_cells", [])
+	twin["hit_amounts"] = primary.get("echo_twin_amounts", [])
+	shots.append(twin)
+
+
+func _append_echo_twin_shot(shots: Array, primary: Dictionary, emit_hook: bool = true) -> void:
+	## 回声第二波：再记一条 shot 供 UI 播第二发；可选再 emit 一次 on_shot。
+	if primary.has("echo_twin_amounts") and not last_shot_was_echoed:
+		_append_echo_twin_from_rec(shots, primary)
+		return
+	if not last_shot_was_echoed:
+		return
+	var twin: Dictionary = primary.duplicate(true)
+	twin["echo"] = true
+	twin["hit_cells"] = last_echo_hit_cells.duplicate()
+	twin["hit_amounts"] = last_echo_hit_amounts.duplicate()
+	shots.append(twin)
+	if emit_hook:
+		hooks.emit_hook(&"on_shot", {
+			"cs": self,
+			"ammo_id": int(twin.get("ammo_id", -1)),
+			"virtual": bool(twin.get("virtual", false)),
+			"echo": true,
+			"dealt": _sum_hit_amounts(twin),
+		})
 
 
 func _sum_hit_amounts(rec: Dictionary) -> int:

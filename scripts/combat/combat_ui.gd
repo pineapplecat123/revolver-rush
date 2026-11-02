@@ -1051,6 +1051,9 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_ARMOR_PIERCE:
 			# 钢青银光：与旧穿透浅蓝区分，强调穿甲枪线
 			return {"bg": Color(0.55, 0.78, 0.92), "fg": Color(0.04, 0.12, 0.2)}
+		FireResolver.ID_ECHO:
+			# 回声：青绿叠影
+			return {"bg": Color(0.35, 0.9, 0.78), "fg": Color(0.04, 0.16, 0.14)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:

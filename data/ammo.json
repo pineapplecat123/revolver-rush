@@ -281,6 +281,22 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "击发后倾泻剩余仓；可中断"
+    },
+    {
+      "id": 24,
+      "name": "回声弹药",
+      "rarity": null,
+      "base_damage": 1,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害1。每发射1发，枪口挂上1层【回声】（最多1层，挂上刷新为4.0秒）。【回声】持续期间：每发弹药结算两次（双发，均享受当前枪口）。本发即生效。",
+      "tags": [
+        "枪口",
+        "回声"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "枪口回声：窗内每发打两次"
     }
   ]
 }

@@ -32,8 +32,10 @@ func _shot(cs: CombatState) -> Array:
 	return cs.fire_tap()
 
 
-func test_version_is_0_4_0() -> void:
-	assert_eq(GameVersion.STRING, "0.4.0")
+func test_changelog_has_0_4_0_entry() -> void:
+	## 版本号会继续递增；此处只断言 0.4.0 条目仍在更新日志中。
+	var text := FileAccess.get_file_as_string("res://data/changelog.json")
+	assert_true('"version": "0.4.0"' in text or '"version":"0.4.0"' in text)
 
 
 func test_ammo_defs_burst_and_dump() -> void:

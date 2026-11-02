@@ -54,7 +54,7 @@ const WAVE_SPAWN_COUNT_MULT := 1.5
 ## 设计表原为「挂上到回合结束」；rush! 无经典回合，改为固定秒数。
 const MUZZLE_DURATION_WRATH_SEC := 4.0
 const MUZZLE_DURATION_GREED_SEC := 4.0
-const MUZZLE_DURATION_ELEMENT_SEC := 4.0  ## 穿甲/汽油/火/水/雷
+const MUZZLE_DURATION_ELEMENT_SEC := 4.0  ## 穿甲/汽油/火/水/雷/回声
 ## v0.3.7：傲慢也计时，明显长于其它枪口（口头「计时比较久」→ 选 12 秒）。
 const MUZZLE_DURATION_PRIDE_SEC := 12.0
 
