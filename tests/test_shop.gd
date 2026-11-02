@@ -29,7 +29,7 @@ func test_ammo_price_scales_by_rarity() -> void:
 	var shop := ShopState.new()
 	assert_eq(shop.ammo_price(CombatConstants.WHITE_AMMO_ID), int(ShopConstants.RARITY_PRICE["common"]))
 	assert_eq(shop.ammo_price(8), int(ShopConstants.RARITY_PRICE["uncommon"]))  # 金币
-	assert_eq(shop.ammo_price(24), int(ShopConstants.RARITY_PRICE["rare"]))  # 回声
+	assert_eq(shop.ammo_price(24), int(ShopConstants.RARITY_PRICE["epic"]))  # 回声
 	assert_eq(shop.ammo_price(19), int(ShopConstants.RARITY_PRICE["epic"]))  # 墓碑
 	assert_eq(shop.ammo_price(33), int(ShopConstants.RARITY_PRICE["epic"]))  # 正义
 

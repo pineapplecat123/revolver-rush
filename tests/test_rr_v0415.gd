@@ -20,19 +20,19 @@ func test_shop_pool_rarity_table_snapshot() -> void:
 	var expect := {
 		1: "common",
 		8: "uncommon",
-		16: "rare",
+		16: "epic",
 		17: "rare",
 		18: "rare",
 		19: "epic",
-		21: "uncommon",
+		21: "rare",
 		22: "uncommon",
-		23: "rare",
-		24: "rare",
+		23: "epic",
+		24: "epic",
 		25: "uncommon",
-		26: "uncommon",
-		27: "rare",
-		28: "rare",
-		29: "uncommon",
+		26: "rare",
+		27: "epic",
+		28: "uncommon",
+		29: "common",
 		30: "uncommon",
 		31: "uncommon",
 		33: "epic",
@@ -50,7 +50,7 @@ func test_price_formula_matches_constants() -> void:
 	var shop := ShopState.new()
 	assert_eq(shop.ammo_price(1), 5)
 	assert_eq(shop.ammo_price(22), 8)
-	assert_eq(shop.ammo_price(24), 14)
+	assert_eq(shop.ammo_price(24), 22)
 	assert_eq(shop.ammo_price(19), 22)
 	assert_eq(ShopConstants.price_for_rarity("common"), 5)
 	assert_eq(ShopConstants.price_for_rarity("uncommon"), 8)

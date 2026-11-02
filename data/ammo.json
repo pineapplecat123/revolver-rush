@@ -173,7 +173,7 @@
     {
       "id": 16,
       "name": "愤怒子弹",
-      "rarity": "rare",
+      "rarity": "epic",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。每发射1发，枪口+1层【愤怒】（回合结束清除）。枪口每层使造成伤害+100%（×(1+层)）。一次装填愤怒≥3发时，对玩家造成6点伤害。",
@@ -242,7 +242,7 @@
     {
       "id": 21,
       "name": "连发子弹",
-      "rarity": "uncommon",
+      "rarity": "rare",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。击发后开启1秒连发窗（再次击发连发则刷新，不叠多窗）。窗内每次点射击出1发免费平庸伤害弹（享受当前枪口，不耗仓、不转轮）。",
@@ -273,7 +273,7 @@
     {
       "id": 23,
       "name": "倾泻",
-      "rarity": "rare",
+      "rarity": "epic",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。击发后自动连续打出转轮内剩余已装填弹药（约0.06秒/发）；期间再点射击可中断倾泻。",
@@ -288,7 +288,7 @@
     {
       "id": 24,
       "name": "回声弹药",
-      "rarity": "rare",
+      "rarity": "epic",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口挂上1层【回声】（最多1层，挂上刷新为4.0秒）。【回声】持续期间：每发弹药结算两次（双发，均享受当前枪口）。本发即生效。",
@@ -320,7 +320,7 @@
     {
       "id": 26,
       "name": "火焰弹药",
-      "rarity": "uncommon",
+      "rarity": "rare",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口挂上1层【火焰】（最多1层，挂上刷新为4.0秒）。【火焰】持续期间：射击敌人附加等于本次伤害层数的【燃烧】。本发即生效。",
@@ -336,7 +336,7 @@
     {
       "id": 27,
       "name": "炸药弹药",
-      "rarity": "rare",
+      "rarity": "epic",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口挂上1层【炸药】（最多1层，挂上刷新为4.0秒）。【炸药】持续期间：若射击目标已处于【燃烧】，则对该目标及其左右各 N 个相邻敌人造成 3 倍伤害（N=本次基础伤害-2，至少为1）。本发即生效。",
@@ -352,7 +352,7 @@
     {
       "id": 28,
       "name": "散射弹药",
-      "rarity": "rare",
+      "rarity": "uncommon",
       "base_damage": 5,
       "base_damage_mode": "fixed",
       "special": "基础伤害5。射击后，实际伤害均分给场上所有敌人（四舍五入）。若敌人少于3人，则每人只受到实际伤害的30%（四舍五入）。",
@@ -368,7 +368,7 @@
     {
       "id": 29,
       "name": "保险弹药",
-      "rarity": "uncommon",
+      "rarity": "common",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。袋中持有时：即将装入会使转轮内同种罪孽达到3颗的那一发，改为从袋中取出保险装入，罪孽弹退回弹药袋，从而避免三罪孽惩罚。",
