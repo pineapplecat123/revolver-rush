@@ -122,7 +122,7 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 		ID_BLUE:
 			return 1 + unique_count(order)
 		ID_GOLD:
-			return 0
+			return 3
 		ID_PINK:
 			return 3 + pink_bonus
 		ID_BW:

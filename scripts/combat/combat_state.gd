@@ -1955,6 +1955,23 @@ func _reset_focus_shot_counter() -> void:
 
 
 
+
+func _gold_ammo_damage() -> int:
+	## 金币弹：3 + ⌊金币×20%⌋。
+	return 3 + int(gold * 0.20)
+
+
+func _spend_gold_ammo_cost(ammo_id: int) -> void:
+	## 每射一发金币弹：金币≥1 则 −1。
+	if ammo_id != FireResolver.ID_GOLD:
+		return
+	if gold < 1:
+		return
+	gold -= 1
+	_log("金币弹药：金币 −1（现 %d）。" % gold)
+	hooks.emit_hook(&"on_gold_ammo_spend", {"cs": self, "gold_after": gold})
+
+
 func _adjacent_pebble_run_from_hammer() -> int:
 	## 自击发点起不跳空、连续小石头段长（邻接判定）。
 	if magazine == null:
@@ -2005,6 +2022,8 @@ func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -
 	var dmg0: int = int(full_dmg[0])
 	if ammo0 == FireResolver.ID_FOCUS:
 		dmg0 = _next_focus_damage()
+	elif ammo0 == FireResolver.ID_GOLD:
+		dmg0 = _gold_ammo_damage()
 	elif ammo0 == FireResolver.ID_PEBBLE:
 		var run: int = _adjacent_pebble_run_from_hammer()
 		if run >= 2:
@@ -2145,6 +2164,7 @@ func fire_next_shot() -> bool:
 	_mount_muzzle_from(flags)
 	if ammo_id == FireResolver.ID_TOMBSTONE:
 		_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())
+	_spend_gold_ammo_cost(ammo_id)
 	_fire_index += 1
 
 	if pace_after_fire:
@@ -2169,7 +2189,7 @@ func fire_next_shot() -> bool:
 			"hits": plan,
 			"thunder_done": false,
 			"resolved_total": 0,
-			"gold": ammo_id == FireResolver.ID_GOLD or ammo_id == FireResolver.ID_SUPER_ROUND,
+			"gold": ammo_id == FireResolver.ID_BURST or ammo_id == FireResolver.ID_SUPER_ROUND,
 			"await_finish": not more_paced,
 		}
 		_emit()
@@ -2691,19 +2711,9 @@ func _abort_fire_cleared() -> void:
 
 
 func _queue_extra_autofire_from_shot(ammo_id: int) -> void:
-	## 金色：击发计入待追加额外装填射击轮（额外轮内金色不叠）。全链有硬上限防软锁。
-	## v0.4.0：连发弹药改为开启/刷新连发窗，不再走额外补弹轮。
-	var cap: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN
-	if ammo_id == FireResolver.ID_GOLD:
-		if _in_gold_extra_round:
-			return
-		if _extra_autofires_granted_this_chain >= cap:
-			_log("金色弹药：额外轮已达上限（%d），本发不再追加。" % cap)
-			return
-		_pending_gold_autofires += 1
-		_extra_autofires_granted_this_chain += 1
-		_log("金色弹药：击发金 → 待追加额外轮 ×%d。" % _pending_gold_autofires)
-	elif ammo_id == FireResolver.ID_BURST or ammo_id == FireResolver.ID_SUPER_ROUND:
+	## v0.4.10：金币弹改为公式伤+扣金，不再追加额外轮。
+	## v0.4.0：连发弹药开启/刷新连发窗。
+	if ammo_id == FireResolver.ID_BURST or ammo_id == FireResolver.ID_SUPER_ROUND:
 		_open_burst_window()
 
 
@@ -3037,6 +3047,7 @@ func _auto_load_and_fire_once() -> bool:
 		_maybe_spawn_pebbles_from_stone(ammo_id, dealt_auto)
 		if ammo_id == FireResolver.ID_TOMBSTONE:
 			_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())
+		_spend_gold_ammo_cost(ammo_id)
 		_fire_index += 1
 		_queue_extra_autofire_from_shot(ammo_id)
 		_remove_dead()

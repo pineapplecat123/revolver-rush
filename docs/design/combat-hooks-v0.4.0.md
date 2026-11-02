@@ -51,3 +51,6 @@
 
 ## v0.4.9
 - `on_justice_strip`：正义卸除已装罪孽；`stripped`, `bonus_after`
+
+## v0.4.10
+- `on_gold_ammo_spend`：金币弹每发扣金；`gold_after`

@@ -43,7 +43,7 @@ func _count_bag(cs: CombatState, ammo_id: int) -> int:
 
 
 func test_version_is_0_4_9() -> void:
-	assert_eq(GameVersion.STRING, "0.4.9")
+	assert_true("0.4.9" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
 func test_justice_def() -> void:

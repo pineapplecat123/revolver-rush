@@ -1,5 +1,5 @@
 extends GutTest
-## 弹药效果审计：金色额外轮、中途清场停射、练习战重置弹袋、各色关键路径。
+## 弹药效果审计：金币公式伤、中途清场停射、练习战重置弹袋、各色关键路径。
 
 
 func before_each() -> void:
@@ -29,41 +29,43 @@ func _log_has(cs: CombatState, needle: String) -> bool:
 
 
 func test_gold_triggers_extra_auto_load_and_fire() -> void:
-	## 整匣打完后按本匣击发金数追加额外自动装填射击一轮。
+	## v0.4.10：金币弹按公式造成伤害并扣金，不再追加额外轮。
 	var cs := CombatState.new(808)
 	cs.start_rush(808)
 	while cs.enemies.size() > 1:
 		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
+	cs.enemies[0].atk = 0
+	cs.gold = 10
 	cs.bag.clear()
 	cs.discard.clear()
 	for _i in 6:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
 	cs.dev_force_load([
 		FireResolver.ID_GOLD,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
+	cs.magazine.set_start(0)
 	var hp0: int = cs.enemies[0].hp
-	assert_true(cs.do_fire())
-	# rush! 单发：金0 + 5白×3=15；金触发额外轮再补射袋中白×3 → 至少 18
-	var dealt: int = hp0 - cs.enemies[0].hp
-	assert_gte(dealt, 18, "gold extra should add at least one white, dealt=%d" % dealt)
-	assert_true(_log_has(cs, "金色弹药"), "should log gold autofire")
-	assert_true(_log_has(cs, "额外"), "extras should run")
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	var expect: int = 3 + int(10 * 0.20)  # 伤害按扣金前金币
+	assert_eq(hp0 - cs.enemies[0].hp, expect)
+	assert_eq(cs.gold, 9)
+	assert_eq(cs.pending_gold_autofires(), 0)
 
 
 func test_gold_whites_fire_before_extras_then_clear() -> void:
-	## 金色整匣后触发：先打完同匣白弹；白弹清场后仍记录金色并尝试追加（场空则跳过）。
+	## v0.4.10：金币弹不再挂待追加；点射后 pending 为 0。
 	var cs := CombatState.new(820)
 	cs.start_rush(820)
 	while cs.enemies.size() > 1:
 		cs.enemies.pop_back()
-	# 平民 10HP；金0 + 白弹清场
+	cs.enemies[0].atk = 0
+	cs.gold = 5
 	cs.bag.clear()
 	cs.discard.clear()
 	for _i in 6:
@@ -71,37 +73,27 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 	cs.dev_force_load([
 		FireResolver.ID_GOLD,
 		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
-	assert_eq(cs.enemies[0].hp, 10)
-	# rush!：点射金 → pace 下需 finalize 才入账待追加
+	cs.magazine.set_start(0)
 	assert_true(cs.begin_fire())
-	var more: bool = cs.fire_next_shot()
-	assert_false(more, "single-shot fire finishes after gold")
+	cs.fire_next_shot()
 	if cs.has_paced_shot_pending():
 		cs.finalize_paced_shot()
-	assert_true(_log_has(cs, "击发金") or _log_has(cs, "金色弹药"))
-	assert_eq(cs.enemies[0].hp, 10)
-	assert_gt(cs.pending_gold_autofires(), 0)
-	var first = cs.enemies[0]
-	assert_true(cs.do_fire())
-	cs.tick_enemy_auto_step()
-	# v0.3.8 无波次：清场后立刻补刷，不进胜利
-	assert_ne(cs.phase, CombatState.Phase.WON)
-	assert_false(cs.alive_enemies().is_empty())
+	assert_eq(cs.pending_gold_autofires(), 0)
+	assert_true(_log_has(cs, "金币弹药") or _log_has(cs, "金币"))
 
 
 func test_gold_extra_round_keeps_muzzle() -> void:
-	## 枪口效果跨金色额外轮保留（额外轮内白弹仍带火）。
+	## v0.4.10：火弹挂枪口后，金币弹仍享受火枪口（本发元素附带）。
 	var cs := CombatState.new(809)
 	cs.start_rush(809)
 	while cs.enemies.size() > 1:
 		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
+	cs.enemies[0].atk = 0
+	cs.gold = 0
 	cs.bag.clear()
 	cs.discard.clear()
 	for _i in 6:
@@ -109,13 +101,22 @@ func test_gold_extra_round_keeps_muzzle() -> void:
 	cs.dev_force_load([
 		FireResolver.ID_FIRE,
 		FireResolver.ID_GOLD,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
-	assert_true(cs.do_fire())
-	assert_gt(cs.enemies[0].burn_stacks, 3, "muzzle fire should apply across gold extra round whites")
+	cs.magazine.set_start(0)
+	# 先打火挂枪口
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	assert_true(cs._muzzle_fire)
+	var burn0: int = cs.enemies[0].burn_stacks
+	# 再打金币（带火）
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	assert_gt(cs.enemies[0].burn_stacks, burn0)
 
 
 func test_stone_enemy_disabled_in_combat_pool() -> void:
@@ -454,60 +455,57 @@ func test_bw_transforms_to_tied_most_common() -> void:
 
 
 func test_gold_extra_when_bag_empty_after_full_load() -> void:
-	## 袋空时装满匣再开火：整匣打完后弃牌洗回，额外轮应打出实质白伤（不再「白打」）。
+	## v0.4.10：袋空时金币弹仍按公式结算，不依赖额外轮洗牌。
 	var cs := CombatState.new(830)
 	cs.start_rush(830)
 	while cs.enemies.size() > 1:
 		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
+	cs.enemies[0].atk = 0
+	cs.gold = 20
 	cs.bag.clear()
 	cs.discard.clear()
 	cs.dev_force_load([
 		FireResolver.ID_GOLD,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
-	assert_eq(cs.bag.size(), 0)
+	cs.magazine.set_start(0)
 	var hp0: int = cs.enemies[0].hp
-	assert_true(cs.do_fire())
-	var dealt: int = hp0 - cs.enemies[0].hp
-	# rush!：主匣 5×3=15 + 金额外轮至少 +3；总额 ≥ 18
-	assert_gte(dealt, 18, "empty-bag gold extras should add damage, dealt=%d" % dealt)
-	assert_true(_log_has(cs, "金色弹药"))
+	var expect: int = 3 + int(20 * 0.20)
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	assert_eq(hp0 - cs.enemies[0].hp, expect)
+	assert_eq(cs.gold, 19)
 
 
 func test_gold_extras_after_remaining_whites() -> void:
-	## rush!：金点射立刻记待追加；额外轮在该发收束后即可打，不需先清空匣。
+	## v0.4.10：金币弹有伤；金币＜1 时不扣金。
 	var cs := CombatState.new(831)
 	cs.start_rush(831)
 	while cs.enemies.size() > 1:
 		cs.enemies.pop_back()
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
+	cs.enemies[0].atk = 0
+	cs.gold = 0
 	cs.bag.clear()
 	cs.discard.clear()
-	for _i in 6:
-		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
 	cs.dev_force_load([
 		FireResolver.ID_GOLD,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
+	cs.magazine.set_start(0)
 	var hp0: int = cs.enemies[0].hp
-	_shot_one(cs)  # gold
-	assert_eq(cs.enemies[0].hp, hp0, "gold deals 0")
-	assert_gt(cs.pending_gold_autofires(), 0)
-	# 打光剩余白 + 额外轮
-	assert_true(cs.do_fire())
-	var dealt: int = hp0 - cs.enemies[0].hp
-	assert_gte(dealt, 18, "whites + gold extra, dealt=%d" % dealt)
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	assert_eq(hp0 - cs.enemies[0].hp, 3)
+	assert_eq(cs.gold, 0)
+	assert_eq(cs.pending_gold_autofires(), 0)
 
 
 func test_wet_then_thunder_chains() -> void:

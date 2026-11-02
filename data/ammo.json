@@ -80,15 +80,18 @@
     },
     {
       "id": 8,
-      "name": "金色子弹",
+      "name": "金币弹药",
       "rarity": null,
-      "base_damage": 0,
-      "base_damage_mode": "fixed",
-      "special": "基础伤害0。击发后追加一轮自动补弹射击（额外轮内金色不再叠加新轮）。枪口效果跨额外轮保留。",
-      "tags": [],
+      "base_damage": null,
+      "base_damage_mode": "formula",
+      "special": "基础伤害 X=3+⌊目前金币×20%⌋。每射击一发金币−1；金币＜1 时不再减少。与商店金币消费共用金币池。",
+      "tags": [
+        "金币"
+      ],
       "enabled_in_combat": true,
-      "blurb": "击发后追加额外补弹射击",
-      "in_reward_pool": true
+      "blurb": "伤随金币；每发−1金",
+      "in_reward_pool": true,
+      "ephemeral": false
     },
     {
       "id": 9,
