@@ -85,7 +85,7 @@ const SPAWN_LANE_CELLS := 3
 ## ——— v0.4.0 语法基建 ———
 ## 连发子弹：击发后 1.0s 连发窗（刷新不叠）；窗内每次射击=免费平庸伤一发（不耗仓、不转轮）。
 const BURST_WINDOW_SEC := 1.0
-## 倾泻：自动打剩余已装填仓，约 0.06s/发（UI 步进；逻辑可同步打完）。
+## 倾泻：自动打剩余已装填仓，约 0.06s/发（v0.4.16 UI `_run_dump_autofire` 步进；测试/逻辑可同步打完）。
 const DUMP_SHOT_INTERVAL_SEC := 0.06
 ## 装入罪孽时 33% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。
 const LOAD_TEMP_SIN_CHANCE := 0.33

@@ -378,6 +378,8 @@ var _pebble_fuse_count: int = 0
 ## v0.4.0 倾泻：击发倾泻后待自动打出的剩余仓；可被下一次点射中断。
 var _dump_pending: bool = false
 var _dump_interrupted: bool = false
+## UI 异步倾泻：跳过 fire_tap 末尾金色/收束，等倾泻结束（含中断）再补。
+var _dump_followup_pending: bool = false
 ## v0.4.0 DoT 独立计时。
 var _dot_timer: float = 0.0
 ## v0.4.0 地图商店实体（格位；-1=不在场）。碰到玩家（cell<=1）打开商店。
@@ -487,6 +489,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	_pebble_fuse_count = 0
 	_dump_pending = false
 	_dump_interrupted = false
+	_dump_followup_pending = false
 	_dot_timer = CombatConstants.DOT_TICK_SEC
 	shop_cell = -1
 	shop_spawn_count = 0
@@ -3042,6 +3045,7 @@ func interrupt_dump() -> bool:
 	_dump_pending = false
 	_log("倾泻：被点射中断。")
 	hooks.emit_hook(&"on_dump_end", {"cs": self, "interrupted": true})
+	_complete_dump_followup()
 	return true
 
 
@@ -3398,6 +3402,7 @@ func do_fire() -> bool:
 func fire_tap(resolve_dump_sync: bool = true) -> Array:
 	## v0.4.0：连发窗内点射=免费平庸；倾泻可同步打完剩余仓（resolve_dump_sync）或由 UI 步进 take_dump_shot。
 	## 倾泻进行中再点射 → 中断倾泻（不另开火）。
+	## v0.4.16：resolve_dump_sync=false 时延后金色额外轮与 finalize，等倾泻结束/中断后再收束。
 	var shots: Array = []
 	if _dump_pending:
 		interrupt_dump()
@@ -3443,6 +3448,10 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 				if more.is_empty():
 					break
 				shots.append_array(more)
+		else:
+			# UI 按 DUMP_SHOT_INTERVAL_SEC 步进；金色/收束延到倾泻结束。
+			_dump_followup_pending = true
+			return shots
 	var guard: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
 	while _pending_gold_autofires > 0 and guard > 0 and phase != Phase.WON and phase != Phase.LOST:
 		guard -= 1
@@ -3500,6 +3509,38 @@ func _finish_dump(interrupted: bool) -> void:
 		_dump_interrupted = true
 	_log("倾泻：结束%s。" % ("（中断）" if interrupted else ""))
 	hooks.emit_hook(&"on_dump_end", {"cs": self, "interrupted": interrupted})
+	_complete_dump_followup()
+
+
+func _complete_dump_followup() -> void:
+	## 异步倾泻结束后补跑金色额外轮 + 收束（与 fire_tap 同步路径末尾对齐）。
+	if not _dump_followup_pending:
+		return
+	_dump_followup_pending = false
+	if phase == Phase.WON or phase == Phase.LOST:
+		return
+	var guard: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
+	while _pending_gold_autofires > 0 and guard > 0 and phase != Phase.WON and phase != Phase.LOST:
+		guard -= 1
+		if not begin_gold_extra_load():
+			break
+		if _load_session_active:
+			var lr: Dictionary = load_next_chamber()
+			if bool(lr.get("ok", false)) and not bool(lr.get("done", false)):
+				apply_load_rotate()
+			commit_load_session_if_active()
+		if magazine == null or magazine.is_empty() or not can_fire():
+			break
+		if not begin_fire():
+			break
+		var discard: Array = []
+		_fire_tap_one(discard, true)
+		for g2 in _consume_pending_tombstone_ghost_shots():
+			pass
+	if auto_enemy_advance:
+		finalize_post_fire()
+	elif _post_fire_enemy_pending:
+		resolve_post_fire_enemy_turn()
 
 
 func _fire_tap_one(shots: Array, extra: bool = false) -> void:

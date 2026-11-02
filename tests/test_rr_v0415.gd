@@ -9,8 +9,8 @@ func before_each() -> void:
 	DataRegistry.reload()
 
 
-func test_version_is_0_4_15() -> void:
-	assert_eq(GameVersion.STRING, "0.4.15")
+func test_changelog_has_0_4_15_entry() -> void:
+	## 版本号会继续递增；此处只断言 0.4.15 条目仍在更新日志中。
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.15"' in text or '"version":"0.4.15"' in text)
 

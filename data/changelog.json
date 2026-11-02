@@ -2,6 +2,15 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.16",
+      "date": "2026-11-02",
+      "items": [
+        "倾泻弹药：UI 按约 0.06s/发步进剩余仓（逻辑 take_dump_shot；点射仍可中断）",
+        "异步倾泻延后金色额外轮与收束，结束/中断后再补齐",
+        "常量 DUMP_SHOT_INTERVAL_SEC=0.06 与战斗速度滑条联动"
+      ]
+    },
+    {
       "version": "0.4.15",
       "date": "2026-11-02",
       "items": [

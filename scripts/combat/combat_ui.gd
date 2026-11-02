@@ -137,6 +137,9 @@ var _fire_flash_slot: int = -1
 var _disk_tween: Tween
 var _fire_disk_tweening: bool = false
 var _fire_disk_target: float = 0.0
+## v0.4.16：倾泻 UI 步进（约 DUMP_SHOT_INTERVAL_SEC/发）；gen 用于点射中断取消协程。
+var _dump_ui_running: bool = false
+var _dump_ui_gen: int = 0
 var _in_flight_shots: int = 0
 var _fire_ring: Panel = null
 var _load_marker: Label = null
@@ -1305,6 +1308,7 @@ func _on_fire() -> void:
 	if _fire_blocked():
 		return
 	if state != null and state.is_dump_pending():
+		_dump_ui_gen += 1
 		state.interrupt_dump()
 		_refresh()
 		return
@@ -1323,6 +1327,7 @@ func _snap_fire_disk() -> void:
 
 func _run_fire_tap() -> void:
 	## rush! v0.3.5：点一下 = 本帧同步结算 1 发（+额外轮），弹道/飚血/飘字并发播放；转盘快速补间可被下一次点击打断。
+	## v0.4.16：倾泻主发后由 _run_dump_autofire 按 ~0.06s/发步进剩余仓（可中断）。
 	if state == null or not state.can_fire():
 		_refresh()
 		return
@@ -1331,7 +1336,7 @@ func _run_fire_tap() -> void:
 	var start_before: int = state.magazine.start_index
 	_pending_hit_vfx.clear()
 	_defer_hit_vfx = true
-	var shots: Array = state.fire_tap()
+	var shots: Array = state.fire_tap(false)
 	_defer_hit_vfx = false
 	var hit_events: Array = _pending_hit_vfx.duplicate()
 	_pending_hit_vfx.clear()
@@ -1340,17 +1345,22 @@ func _run_fire_tap() -> void:
 			_spawn_hit_event(ev)
 		_refresh()
 		return
+	_present_tap_shots(shots, hit_events, visual_before, start_before)
+	if state != null and state.is_dump_pending():
+		_run_dump_autofire()
+
+
+func _present_tap_shots(shots: Array, hit_events: Array, visual_before: float, start_before: int) -> void:
+	## 播放一批已结算的点射记录（主发或倾泻步进）。
 	_begin_fire_flash(-1)
-	# 转盘：按逻辑锤位前进的步数快速补间（额外轮也一并转到最终锤位）
 	var steps: int = 0
 	for rec in shots:
 		var d: int = (int(rec.get("start_after", 0)) - int(rec.get("start_before", 0)) + CombatConstants.MAGAZINE_SIZE) % CombatConstants.MAGAZINE_SIZE
 		if d == 0:
 			d = int(rec.get("blank_skip", 0)) + 1
 		steps += d
-	var start_now: int = state.magazine.start_index if state.magazine != null else 0
-	if not state.magazine.is_empty():
-		# 额外轮装弹会对齐上弹口改变锤位：以逻辑终点为准
+	var start_now: int = state.magazine.start_index if state != null and state.magazine != null else 0
+	if state != null and state.magazine != null and not state.magazine.is_empty():
 		var drift: int = (start_now - (start_before + steps)) % CombatConstants.MAGAZINE_SIZE
 		drift = (drift + CombatConstants.MAGAZINE_SIZE) % CombatConstants.MAGAZINE_SIZE
 		steps += drift
@@ -1364,10 +1374,37 @@ func _run_fire_tap() -> void:
 	_disk_tween.finished.connect(_on_fire_disk_tween_done.bind(_disk_tween))
 	_refresh_mag_contents()
 	_refresh()
-	# 弹道并发：每发独立飞，命中时播该发的飘字/飚血
 	_in_flight_shots += shots.size()
 	for i in shots.size():
 		_play_tap_shot(shots[i], hit_events if i == 0 else [], i)
+
+
+func _run_dump_autofire() -> void:
+	## 倾泻剩余仓：逻辑+表现按 CombatConstants.DUMP_SHOT_INTERVAL_SEC（约 0.06s）步进；点射可中断。
+	if _dump_ui_running:
+		return
+	_dump_ui_running = true
+	var gen: int = _dump_ui_gen
+	while state != null and state.is_dump_pending() and gen == _dump_ui_gen:
+		await _pwait(_paced(CombatConstants.DUMP_SHOT_INTERVAL_SEC))
+		if state == null or not state.is_dump_pending() or gen != _dump_ui_gen:
+			break
+		_snap_fire_disk()
+		var visual_before: float = _wheel_visual_steps
+		var start_before: int = state.magazine.start_index if state.magazine != null else 0
+		_pending_hit_vfx.clear()
+		_defer_hit_vfx = true
+		var more: Array = state.take_dump_shot()
+		_defer_hit_vfx = false
+		var hit_events: Array = _pending_hit_vfx.duplicate()
+		_pending_hit_vfx.clear()
+		if more.is_empty():
+			for ev in hit_events:
+				_spawn_hit_event(ev)
+			_refresh()
+			break
+		_present_tap_shots(more, hit_events, visual_before, start_before)
+	_dump_ui_running = false
 
 
 func _on_fire_disk_tween_done(tw: Tween) -> void:

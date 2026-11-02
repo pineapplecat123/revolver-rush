@@ -1,3 +1,9 @@
+## 2026-11-02 — v0.4.16 倾泻节奏抛光
+- UI：`fire_tap(false)` + `_run_dump_autofire` 按 `DUMP_SHOT_INTERVAL_SEC`（0.06s，受战斗速度）步进剩余仓；点射仍 `interrupt_dump`。
+- 状态：异步倾泻延后金色额外轮/`finalize_post_fire`，结束或中断后 `_complete_dump_followup`。
+- GUT：`test_rr_v0416`；同步倾泻路径不变。
+- 推 main + Pages。
+
 ## 2026-11-02 — v0.4.15 商店稀有度
 - 全弹药 rarity：common/uncommon/rare/epic（按强度；商店池见测试快照）。
 - 货架 5 栏按权重 45/30/18/7 抽档再抽弹（尽量不重复）；售价 5/8/14/22（精良=旧统一价8）。
