@@ -96,6 +96,7 @@ var _muzzle_fire_layers: Array = []
 var _muzzle_water_layers: Array = []
 var _muzzle_thunder_layers: Array = []
 var _muzzle_echo_layers: Array = []
+var _muzzle_explosive_layers: Array = []
 var _muzzle_lifesteal_layers: Array = []
 var _muzzle_wrath_layers: Array = []
 var _muzzle_pride_layers: Array = []
@@ -200,6 +201,12 @@ var _muzzle_echo: bool:
 	set(v):
 		_muzzle_set_flag(_muzzle_echo_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
 
+var _muzzle_explosive: bool:
+	get:
+		return not _muzzle_explosive_layers.is_empty()
+	set(v):
+		_muzzle_set_flag(_muzzle_explosive_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
 var _muzzle_lifesteal: int:
 	get:
 		return _muzzle_lifesteal_layers.size()
@@ -277,6 +284,12 @@ var _muzzle_echo_t: float:
 		return _muzzle_soonest(_muzzle_echo_layers)
 	set(v):
 		_muzzle_set_soonest_or_all(_muzzle_echo_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
+
+var _muzzle_explosive_t: float:
+	get:
+		return _muzzle_soonest(_muzzle_explosive_layers)
+	set(v):
+		_muzzle_set_soonest_or_all(_muzzle_explosive_layers, v, CombatConstants.MUZZLE_DURATION_ELEMENT_SEC)
 
 var _muzzle_lifesteal_t: float:
 	get:
@@ -467,6 +480,8 @@ func muzzle_status_parts() -> PackedStringArray:
 		parts.append("雷")
 	if _muzzle_echo:
 		parts.append("回声")
+	if _muzzle_explosive:
+		parts.append("炸药")
 	if _muzzle_lifesteal > 0:
 		parts.append("吸血")
 	if _muzzle_wrath > 0:
@@ -489,6 +504,7 @@ func muzzle_status_entries() -> Array:
 		["水", _muzzle_water_layers, el],
 		["雷", _muzzle_thunder_layers, el],
 		["回声", _muzzle_echo_layers, el],
+		["炸药", _muzzle_explosive_layers, el],
 		["吸血", _muzzle_lifesteal_layers, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC],
 		["愤怒", _muzzle_wrath_layers, CombatConstants.MUZZLE_DURATION_WRATH_SEC],
 		["傲慢", _muzzle_pride_layers, CombatConstants.MUZZLE_DURATION_PRIDE_SEC],
@@ -534,6 +550,8 @@ func _muzzle_outline_ammo_ids_for_shot() -> Array[int]:
 		out.append(FireResolver.ID_ARMOR_PIERCE)
 	if _muzzle_echo:
 		out.append(FireResolver.ID_ECHO)
+	if _muzzle_explosive:
+		out.append(FireResolver.ID_EXPLOSIVE)
 	if _muzzle_lifesteal > 0:
 		out.append(FireResolver.ID_LIFESTEAL)
 	return out
@@ -599,12 +617,16 @@ func muzzle_damage_tip_text() -> String:
 		elems.append("雷%.1fs" % _muzzle_thunder_t)
 	if _muzzle_echo:
 		elems.append("回声%.1fs" % _muzzle_echo_t)
+	if _muzzle_explosive:
+		elems.append("炸药%.1fs" % _muzzle_explosive_t)
 	if not elems.is_empty():
 		lines.append("元素附带：%s（不改倍率）" % " · ".join(elems))
 	if _muzzle_pierce:
 		lines.append("穿甲：击穿怪物；首个全伤，之后每穿一个 -1，减到 0 为止")
 	if _muzzle_echo:
 		lines.append("回声：每发弹药结算两次（双发，均吃当前枪口）· 剩余 %.1f 秒" % _muzzle_echo_t)
+	if _muzzle_explosive:
+		lines.append("炸药：打已燃烧目标 → 目标及左右各 N 格 3 倍伤（N=底伤-2，至少1）· 剩余 %.1f 秒" % _muzzle_explosive_t)
 	if _muzzle_lifesteal > 0:
 		var chance: float = minf(1.0, float(_muzzle_lifesteal) * CombatConstants.LIFESTEAL_CHANCE_PER_STACK)
 		lines.append("吸血×%d：每击 %.0f%% 概率恢复本次伤害的 %.0f%% · 最短层剩余 %.1f 秒" % [
@@ -621,6 +643,7 @@ func _reset_muzzle() -> void:
 	_muzzle_water_layers.clear()
 	_muzzle_thunder_layers.clear()
 	_muzzle_echo_layers.clear()
+	_muzzle_explosive_layers.clear()
 	_muzzle_lifesteal_layers.clear()
 
 
@@ -654,6 +677,7 @@ func tick_muzzle_durations(delta_sec: float) -> bool:
 	changed = _tick_muzzle_named_layers(_muzzle_water_layers, delta_sec, "水") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_thunder_layers, delta_sec, "雷") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_echo_layers, delta_sec, "回声") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_explosive_layers, delta_sec, "炸药") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_lifesteal_layers, delta_sec, "吸血") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_wrath_layers, delta_sec, "愤怒") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_pride_layers, delta_sec, "傲慢") or changed
@@ -1001,6 +1025,14 @@ func _mount_muzzle_from(flags: Dictionary) -> void:
 		else:
 			_log("  → 枪口【回声】刷新 %.1f 秒" % dur)
 		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "echo", "stacks_after": 1})
+	if bool(flags.get("explosive", false)):
+		var was_x: bool = _muzzle_explosive
+		_muzzle_add_layer(_muzzle_explosive_layers, dur, 1)
+		if not was_x:
+			_log("  → 枪口【炸药】（最多 1 层，%.1f 秒；打燃烧目标 3 倍溅射）" % dur)
+		else:
+			_log("  → 枪口【炸药】刷新 %.1f 秒" % dur)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "explosive", "stacks_after": 1})
 	if bool(flags.get("lifesteal", false)):
 		_muzzle_add_layer(_muzzle_lifesteal_layers, CombatConstants.MUZZLE_DURATION_LIFESTEAL_SEC)
 		_log("  → 枪口【吸血】+1（现 %d，新层 %.1f 秒，最短 %.1f）" % [
@@ -2141,7 +2173,8 @@ func finalize_paced_shot() -> void:
 
 
 func _apply_shot_to_enemies(
-	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool
+	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool,
+	explosive: bool = false
 ) -> int:
 	var targets: Array = enemies_sorted_by_cell()
 	if targets.is_empty():
@@ -2154,7 +2187,7 @@ func _apply_shot_to_enemies(
 		for e in targets:
 			if dmg <= 0:
 				break
-			var dealt_e: int = _hit_enemy_with_elements(e, dmg, ammo_id, gas, fire, water, thunder)
+			var dealt_e: int = _hit_enemy_with_elements(e, dmg, ammo_id, gas, fire, water, thunder, "", explosive)
 			total += dealt_e
 			last_shot_hit_cells.append(e.cell)
 			last_shot_hit_amounts.append(dealt_e)
@@ -2169,7 +2202,7 @@ func _apply_shot_to_enemies(
 			total += _thunder_chain(chain_origin, base_dmg, gas, fire, water)
 	else:
 		var e: EnemyInstance = targets[0]
-		var dealt_e: int = _hit_enemy_with_elements(e, base_dmg, ammo_id, gas, fire, water, thunder)
+		var dealt_e: int = _hit_enemy_with_elements(e, base_dmg, ammo_id, gas, fire, water, thunder, "", explosive)
 		total += dealt_e
 		last_shot_hit_cell = e.cell
 		last_shot_dealt = dealt_e
@@ -2181,13 +2214,14 @@ func _apply_shot_to_enemies(
 
 
 func _apply_shot_with_optional_echo(
-	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool
+	ammo_id: int, base_dmg: int, pierce: bool, gas: bool, fire: bool, water: bool, thunder: bool,
+	explosive: bool = false
 ) -> int:
 	## 若枪口【回声】激活：同一发再结算一次（不递归叠回声、不重挂枪口）。
 	last_shot_was_echoed = false
 	last_echo_hit_cells.clear()
 	last_echo_hit_amounts.clear()
-	var total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	var total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder, explosive)
 	if not _muzzle_echo:
 		return total
 	var first_cells: Array[int] = last_shot_hit_cells.duplicate()
@@ -2197,7 +2231,7 @@ func _apply_shot_with_optional_echo(
 	last_shot_hit_cells.clear()
 	last_shot_hit_amounts.clear()
 	_log("枪口【回声】：再次结算本发。")
-	var echo_total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
+	var echo_total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder, explosive)
 	last_shot_was_echoed = true
 	last_echo_hit_cells = last_shot_hit_cells.duplicate()
 	last_echo_hit_amounts = last_shot_hit_amounts.duplicate()
@@ -2209,14 +2243,47 @@ func _apply_shot_with_optional_echo(
 	return total + echo_total
 
 
+func _explosive_splash(
+	origin: EnemyInstance, boom_dmg: int, ammo_id: int, gas: bool, fire: bool, water: bool, thunder: bool, n_side: int
+) -> int:
+	## 炸药溅射：原点左右各最多 n_side 个相邻存活敌人，各吃 boom_dmg（不再二次炸药 AOE）。
+	var total := 0
+	var by_cell := occupied_cells()
+	for dir in [-1, 1]:
+		var found := 0
+		var c: int = origin.cell + dir
+		while found < n_side and c > CombatConstants.PLAYER_CELL and c < CombatConstants.BOARD_SIZE:
+			if by_cell.has(c):
+				var other: EnemyInstance = by_cell[c] as EnemyInstance
+				if other != null and other.is_alive() and other != origin:
+					var d: int = _hit_enemy_with_elements(
+						other, boom_dmg, ammo_id, gas, fire, water, thunder, "炸药", false, false
+					)
+					total += d
+					_log("  → 炸药溅射 %s 格%d 伤害%d" % [other.name_zh, other.cell, d])
+					found += 1
+			c += dir
+	return total
+
+
 func _hit_enemy_with_elements(
 	e: EnemyInstance, dmg: int, ammo_id: int, gas: bool, fire: bool, water: bool, thunder: bool,
-	damage_kind: String = ""
+	damage_kind: String = "", explosive: bool = false, allow_explosive_aoe: bool = true
 ) -> int:
-	var dealt: int = e.apply_hit(dmg)
+	var was_burning: bool = e.burn_stacks > 0
+	var use_explosive: bool = allow_explosive_aoe and (explosive or _muzzle_explosive)
+	var hit_dmg: int = dmg
+	if use_explosive and was_burning:
+		hit_dmg = dmg * 3
+		if damage_kind == "":
+			damage_kind = "炸药"
+	var dealt: int = e.apply_hit(hit_dmg)
 	_notify_enemy_damage(e, dealt, damage_kind)
 	_try_greed_gold_drop(dealt, e.cell)
 	_try_lifesteal_heal(dealt)
+	if use_explosive and was_burning:
+		var n_side: int = maxi(1, dmg - 2)
+		dealt += _explosive_splash(e, dmg * 3, ammo_id, gas, fire, water, thunder, n_side)
 	_log("击发[%s] → %s 格%d 伤害%d（HP %d/%d）%s" % [
 		_ammo_name(ammo_id), e.name_zh, e.cell, dealt, e.hp, e.max_hp,
 		(" " + e.status_text()) if e.status_text() != "" else ""

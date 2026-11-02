@@ -329,6 +329,22 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "枪口火焰：命中上燃烧"
+    },
+    {
+      "id": 27,
+      "name": "炸药弹药",
+      "rarity": null,
+      "base_damage": 1,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害1。每发射1发，枪口挂上1层【炸药】（最多1层，挂上刷新为4.0秒）。【炸药】持续期间：若射击目标已处于【燃烧】，则对该目标及其左右各 N 个相邻敌人造成 3 倍伤害（N=本次基础伤害-2，至少为1）。本发即生效。",
+      "tags": [
+        "枪口",
+        "炸药"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "枪口炸药：打燃烧目标3倍溅射"
     }
   ]
 }

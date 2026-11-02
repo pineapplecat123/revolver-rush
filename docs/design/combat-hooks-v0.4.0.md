@@ -38,3 +38,6 @@
 ## v0.4.3
 - `on_muzzle_apply`：`kind=flame`
 - `on_dot_tick`：燃烧跳前先扩散
+
+## v0.4.4
+- `on_muzzle_apply`：`kind=explosive`

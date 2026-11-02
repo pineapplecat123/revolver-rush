@@ -1057,6 +1057,9 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_LIFESTEAL:
 			# 吸血：血红
 			return {"bg": Color(0.78, 0.12, 0.28), "fg": Color(1.0, 0.92, 0.94)}
+		FireResolver.ID_EXPLOSIVE:
+			# 炸药：暗橙爆裂
+			return {"bg": Color(0.95, 0.4, 0.08), "fg": Color(0.12, 0.04, 0.0)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:
