@@ -16,6 +16,7 @@ func _ready() -> void:
 
 func _style_menu() -> void:
 	%BtnStart.custom_minimum_size = Vector2(420, 110)
+	%BtnSandbox.custom_minimum_size = Vector2(420, 72)
 	%BtnChangelog.custom_minimum_size = Vector2(420, 72)
 	%BtnClearCache.custom_minimum_size = Vector2(420, 64)
 	%BtnQuit.custom_minimum_size = Vector2(420, 64)
@@ -91,13 +92,21 @@ func _set_changelog_open(open: bool) -> void:
 	%ChangelogDimmer.visible = open
 	%ChangelogPanel.visible = open
 	%BtnStart.disabled = open
+	%BtnSandbox.disabled = open
 	%BtnChangelog.disabled = open
 	%BtnClearCache.disabled = open
 	%BtnQuit.disabled = open
 
 
 func _on_start_pressed() -> void:
-	## rush!：唯一模式，直接进战斗（先选罪孽）。
+	## rush!：直接进战斗（先选罪孽）。
+	CombatState.boot_sandbox = false
+	get_tree().change_scene_to_file("res://scenes/combat.tscn")
+
+
+func _on_sandbox_pressed() -> void:
+	## 沙盒：进战斗后跳过罪孽三选，开沙盒面板。
+	CombatState.boot_sandbox = true
 	get_tree().change_scene_to_file("res://scenes/combat.tscn")
 
 

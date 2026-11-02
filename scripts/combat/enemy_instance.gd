@@ -21,6 +21,8 @@ var slow_layers: Array = []
 var slow_skip: int = 0
 ## 攻击距离（格）；1=仅邻接。精英/Boss 灰盒可抬高。
 var attack_range: int = 1
+## 沙盒木桩：不移动、不攻击。
+var is_dummy: bool = false
 
 
 func _init(def: Dictionary = {}, spawn_cell: int = CombatConstants.BOARD_SIZE - 1) -> void:
@@ -44,6 +46,11 @@ func _init(def: Dictionary = {}, spawn_cell: int = CombatConstants.BOARD_SIZE - 
 	slow_layers.clear()
 	slow_skip = 0
 	attack_range = 1
+	is_dummy = bool(def.get("dummy", false)) or ("木桩" in tags)
+	if is_dummy:
+		mobility = 0
+		atk = 0
+		attack_range = 0
 
 
 func is_alive() -> bool:

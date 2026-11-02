@@ -25,8 +25,8 @@ func _rush(seed_v: int = 41601) -> CombatState:
 	return cs
 
 
-func test_version_is_0_4_16() -> void:
-	assert_eq(GameVersion.STRING, "0.4.16")
+func test_changelog_still_has_0_4_16() -> void:
+	## 版本号会继续递增；此处只断言 0.4.16 条目仍在更新日志中。
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.16"' in text or '"version":"0.4.16"' in text)
 

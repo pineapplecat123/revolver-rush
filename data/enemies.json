@@ -91,6 +91,20 @@
       ],
       "type": "小怪",
       "enabled_in_combat": false
+    },
+    {
+      "id": 900,
+      "name": "木桩",
+      "hp": 999,
+      "atk": 0,
+      "mobility": 0,
+      "special": "沙盒木桩：不移动、不攻击",
+      "tags": [
+        "木桩"
+      ],
+      "type": "沙盒",
+      "enabled_in_combat": true,
+      "dummy": true
     }
   ]
 }

@@ -9,6 +9,8 @@ const WHITE_AMMO_ID := 1
 const CIVILIAN_ENEMY_ID := 1
 const ZOMBIE_ENEMY_ID := 4
 const SUPER_ZOMBIE_ENEMY_ID := 5
+const DUMMY_ENEMY_ID := 900  ## 沙盒木桩
+const SANDBOX_DUMMY_DEFAULT_HP := 999
 ## 灰盒开局：平庸弹 + 所选罪孽弹。
 const STARTER_WHITE_COUNT := 10
 const STARTER_SIN_COUNT := 5

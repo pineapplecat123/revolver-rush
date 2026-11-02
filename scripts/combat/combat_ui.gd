@@ -273,11 +273,24 @@ func _ready() -> void:
 	_ensure_muzzle_hud()
 	_ensure_speed_hud()
 	_fit_modals_portrait()
-	# rush!（唯一模式）：先选罪孽，再开第 1 波
 	btn_menu.text = "返回主菜单"
-	btn_next_wave.text = "重新开始 rush!"
 	state.pace_after_fire = true
-	_open_sin_pick()
+	var want_sandbox: bool = CombatState.boot_sandbox
+	CombatState.boot_sandbox = false
+	if want_sandbox:
+		btn_next_wave.text = "重新开始沙盒"
+		btn_dev.text = "沙盒"
+		var title_n := get_node_or_null("%DevTitle") as Label
+		if title_n != null:
+			title_n.text = "沙盒工具"
+		state.start_sandbox(0, FireResolver.ID_WRATH)
+		_rebuild_dev_tool_body()
+		_refresh()
+		_toggle_dev()  # 开局直接打开沙盒面板
+	else:
+		btn_next_wave.text = "重新开始 rush!"
+		# rush!：先选罪孽，再开第 1 波
+		_open_sin_pick()
 
 
 func _style_overlay_panels() -> void:
@@ -2182,6 +2195,7 @@ func _play_roll_spin_visual(logic_steps: int) -> void:
 
 
 func _on_menu_pressed() -> void:
+	CombatState.boot_sandbox = false
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
@@ -2190,7 +2204,11 @@ func _on_reward_continue() -> void:
 
 
 func _on_next_wave() -> void:
-	## v0.3.8 无波次：此按钮只在战败后作「重新开始」。
+	## 战败后「重新开始」；沙盒下也可随时重置。
+	if state != null and state.sandbox_mode:
+		CombatState.boot_sandbox = true
+		get_tree().reload_current_scene()
+		return
 	if state.phase == CombatState.Phase.LOST:
 		get_tree().reload_current_scene()
 
@@ -3391,7 +3409,10 @@ func _wire_dev_buttons() -> void:
 
 
 func _rebuild_dev_tool_body() -> void:
-	## 三列：常规 | 弹药袋 | 敌人
+	## rush：三列常规/袋/敌人；沙盒：四列含枪口与状态。
+	if state != null and state.sandbox_mode:
+		_rebuild_sandbox_tool_body()
+		return
 	var inner: VBoxContainer = get_node_or_null("%DevInner") as VBoxContainer
 	if inner == null and dev_panel != null:
 		inner = dev_panel.get_node_or_null("DevMargin/DevVBox/DevScroll/DevInner") as VBoxContainer
@@ -3465,6 +3486,307 @@ func _rebuild_dev_tool_body() -> void:
 		var eid: int = int(item.get("id", 0))
 		var ename: String = str(item.get("name", eid))
 		_dev_add_btn(col_enemy["box"], "添加%s" % ename, func(id := eid): state.dev_spawn_enemy(id))
+
+
+
+func _rebuild_sandbox_tool_body() -> void:
+	## 沙盒面板：常规 | 枪口 | 弹药袋 | 敌人/状态
+	var inner: VBoxContainer = get_node_or_null("%DevInner") as VBoxContainer
+	if inner == null and dev_panel != null:
+		inner = dev_panel.get_node_or_null("DevMargin/DevVBox/DevScroll/DevInner") as VBoxContainer
+	if inner == null:
+		push_error("DevInner missing; skip rebuild_sandbox_tool_body")
+		return
+	for c in inner.get_children():
+		inner.remove_child(c)
+		c.free()
+	var cols := HBoxContainer.new()
+	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cols.add_theme_constant_override("separation", 8)
+	inner.add_child(cols)
+	var col_general := _dev_make_column("常规")
+	var col_muzzle := _dev_make_column("枪口")
+	var col_ammo := _dev_make_column("弹药袋")
+	var col_enemy := _dev_make_column("敌人/状态")
+	for col in [col_general, col_muzzle, col_ammo, col_enemy]:
+		cols.add_child(col["root"])
+		var sc: ScrollContainer = col["root"].get_child(1) as ScrollContainer
+		if sc != null:
+			sc.custom_minimum_size = Vector2(150, 760)
+
+	_dev_add_btn(col_general["box"], "重置沙盒", func():
+		state.sandbox_reset()
+		_rebuild_dev_tool_body()
+		_refresh()
+	)
+	_dev_add_btn(col_general["box"], "清场敌人", func(): state.sandbox_clear_enemies(); _refresh())
+	_dev_add_btn(col_general["box"], "空仓补平庸", func(): state.sandbox_refill_empty_chambers(); _refresh())
+	_dev_add_btn(col_general["box"], "金币 +10", func(): state.dev_add_gold(10); _refresh())
+	_dev_add_btn(col_general["box"], "玩家 HP +5", func(): state.dev_set_player_hp(state.player_hp + 5); _refresh())
+	_dev_add_btn(col_general["box"], "玩家 HP -5", func(): state.dev_set_player_hp(state.player_hp - 5); _refresh())
+	_dev_add_btn(col_general["box"], "强制装 6 平庸", func():
+		var ids: Array[int] = [
+			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
+			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
+			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID
+		]
+		state.dev_force_load(ids)
+		_refresh()
+	)
+	var spawn_lab := Label.new()
+	spawn_lab.text = "刷怪：%s" % ("暂停" if state.spawn_paused else "开启")
+	spawn_lab.add_theme_font_size_override("font_size", 14)
+	col_general["box"].add_child(spawn_lab)
+	_dev_add_btn(col_general["box"], "切换刷怪暂停", func():
+		state.sandbox_set_spawn_paused(not state.spawn_paused)
+		_rebuild_dev_tool_body()
+		_refresh()
+	)
+
+	_dev_add_btn(col_muzzle["box"], "清空全部枪口", func(): state.sandbox_clear_muzzle(); _refresh())
+	for kind in CombatState.sandbox_muzzle_kinds():
+		var k: String = str(kind)
+		var row := VBoxContainer.new()
+		row.add_theme_constant_override("separation", 2)
+		col_muzzle["box"].add_child(row)
+		var title := Label.new()
+		title.text = CombatState.sandbox_muzzle_label(k)
+		title.add_theme_font_size_override("font_size", 14)
+		row.add_child(title)
+		var controls := HBoxContainer.new()
+		controls.add_theme_constant_override("separation", 2)
+		row.add_child(controls)
+		var sp_stacks := SpinBox.new()
+		sp_stacks.min_value = 0
+		sp_stacks.max_value = 20
+		sp_stacks.value = 1
+		sp_stacks.custom_minimum_size = Vector2(64, 28)
+		sp_stacks.tooltip_text = "层数"
+		controls.add_child(sp_stacks)
+		var sp_dur := SpinBox.new()
+		sp_dur.min_value = 0.0
+		sp_dur.max_value = 120.0
+		sp_dur.step = 0.5
+		sp_dur.value = 4.0
+		sp_dur.custom_minimum_size = Vector2(72, 28)
+		sp_dur.tooltip_text = "每层秒"
+		controls.add_child(sp_dur)
+		var b_apply := Button.new()
+		b_apply.text = "设"
+		b_apply.custom_minimum_size = Vector2(36, 28)
+		b_apply.pressed.connect(func(kk := k, ss := sp_stacks, dd := sp_dur):
+			state.sandbox_set_muzzle(kk, int(ss.value), float(dd.value))
+			_refresh()
+		)
+		controls.add_child(b_apply)
+
+	_dev_add_btn(col_ammo["box"], "清空弹药袋", func(): state.dev_clear_bag(); _refresh())
+	var ttl_row := HBoxContainer.new()
+	ttl_row.add_theme_constant_override("separation", 4)
+	col_ammo["box"].add_child(ttl_row)
+	var ttl_lab := Label.new()
+	ttl_lab.text = "临时秒"
+	ttl_lab.add_theme_font_size_override("font_size", 12)
+	ttl_row.add_child(ttl_lab)
+	var sp_ttl := SpinBox.new()
+	sp_ttl.min_value = 0.0
+	sp_ttl.max_value = 120.0
+	sp_ttl.step = 1.0
+	sp_ttl.value = CombatConstants.TEMP_SIN_LIFETIME_SEC
+	sp_ttl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	ttl_row.add_child(sp_ttl)
+	var bag_idx_row := HBoxContainer.new()
+	bag_idx_row.add_theme_constant_override("separation", 4)
+	col_ammo["box"].add_child(bag_idx_row)
+	var idx_lab := Label.new()
+	idx_lab.text = "改TTL下标"
+	idx_lab.add_theme_font_size_override("font_size", 12)
+	bag_idx_row.add_child(idx_lab)
+	var sp_idx := SpinBox.new()
+	sp_idx.min_value = 0
+	sp_idx.max_value = 99
+	sp_idx.value = 0
+	bag_idx_row.add_child(sp_idx)
+	var b_set_ttl := Button.new()
+	b_set_ttl.text = "写入"
+	b_set_ttl.pressed.connect(func():
+		state.sandbox_set_bag_temp(int(sp_idx.value), float(sp_ttl.value))
+		_refresh()
+	)
+	bag_idx_row.add_child(b_set_ttl)
+	var ammo_items: Array = DataRegistry.all_ammo().duplicate()
+	ammo_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
+	for item in ammo_items:
+		if not bool(item.get("enabled_in_combat", false)):
+			continue
+		var aid: int = int(item.get("id", 0))
+		var aname: String = str(item.get("name", aid))
+		var row2 := HBoxContainer.new()
+		row2.add_theme_constant_override("separation", 2)
+		col_ammo["box"].add_child(row2)
+		var lab := Label.new()
+		lab.text = aname
+		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lab.clip_text = true
+		lab.add_theme_font_size_override("font_size", 12)
+		row2.add_child(lab)
+		var b_add := Button.new()
+		b_add.text = "+"
+		b_add.custom_minimum_size = Vector2(28, 26)
+		b_add.tooltip_text = "永久 +1"
+		b_add.pressed.connect(func(id := aid): state.sandbox_add_ammo(id, 1, 0.0); _refresh())
+		row2.add_child(b_add)
+		var b_tmp := Button.new()
+		b_tmp.text = "临"
+		b_tmp.custom_minimum_size = Vector2(28, 26)
+		b_tmp.tooltip_text = "临时 +1（用上方秒数）"
+		b_tmp.pressed.connect(func(id := aid, ttl := sp_ttl): state.sandbox_add_ammo(id, 1, float(ttl.value)); _refresh())
+		row2.add_child(b_tmp)
+		var b_sub := Button.new()
+		b_sub.text = "-"
+		b_sub.custom_minimum_size = Vector2(28, 26)
+		b_sub.pressed.connect(func(id := aid): state.dev_remove_ammo(id, 1); _refresh())
+		row2.add_child(b_sub)
+
+	_dev_add_btn(col_enemy["box"], "生成木桩", func(): state.sandbox_spawn_dummy(); _refresh())
+	var dummy_hp_row := HBoxContainer.new()
+	dummy_hp_row.add_theme_constant_override("separation", 4)
+	col_enemy["box"].add_child(dummy_hp_row)
+	var dlab := Label.new()
+	dlab.text = "木桩HP"
+	dlab.add_theme_font_size_override("font_size", 12)
+	dummy_hp_row.add_child(dlab)
+	var sp_dummy_hp := SpinBox.new()
+	sp_dummy_hp.min_value = 1
+	sp_dummy_hp.max_value = 9999
+	sp_dummy_hp.value = CombatConstants.SANDBOX_DUMMY_DEFAULT_HP
+	dummy_hp_row.add_child(sp_dummy_hp)
+	var b_dummy_hp := Button.new()
+	b_dummy_hp.text = "生成"
+	b_dummy_hp.pressed.connect(func(): state.sandbox_spawn_dummy(int(sp_dummy_hp.value)); _refresh())
+	dummy_hp_row.add_child(b_dummy_hp)
+	_dev_add_btn(col_enemy["box"], "一键杀敌", func(): state.dev_kill_all_enemies(); _refresh())
+	_dev_add_btn(col_enemy["box"], "瞬移邻近", func(): state.dev_teleport_front_enemy(1); _refresh())
+	_dev_add_btn(col_enemy["box"], "瞬移远端", func(): state.dev_teleport_front_enemy(CombatConstants.BOARD_SIZE - 1); _refresh())
+	var enemy_items: Array = DataRegistry.all_enemies().duplicate()
+	enemy_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
+	for item in enemy_items:
+		if not bool(item.get("enabled_in_combat", false)):
+			continue
+		var eid: int = int(item.get("id", 0))
+		if eid == CombatConstants.DUMMY_ENEMY_ID:
+			continue
+		var ename: String = str(item.get("name", eid))
+		_dev_add_btn(col_enemy["box"], "添加%s" % ename, func(id := eid): state.sandbox_spawn_enemy(id); _refresh())
+
+	var st := Label.new()
+	st.text = "前敌状态"
+	st.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45))
+	col_enemy["box"].add_child(st)
+	for pair in [["燃", "burn", 3], ["油", "gas", 2], ["湿", "wet", 2], ["血", "bleed", 2]]:
+		var key: String = str(pair[1])
+		var row3 := HBoxContainer.new()
+		row3.add_theme_constant_override("separation", 2)
+		col_enemy["box"].add_child(row3)
+		var lb := Label.new()
+		lb.text = str(pair[0])
+		lb.custom_minimum_size = Vector2(28, 0)
+		row3.add_child(lb)
+		var sp := SpinBox.new()
+		sp.min_value = 0
+		sp.max_value = 99
+		sp.value = int(pair[2])
+		sp.custom_minimum_size = Vector2(64, 28)
+		row3.add_child(sp)
+		var bb := Button.new()
+		bb.text = "设"
+		bb.custom_minimum_size = Vector2(36, 28)
+		bb.pressed.connect(func(kk := key, ss := sp):
+			var o := {}
+			o[kk] = int(ss.value)
+			state.sandbox_set_enemy_status(o)
+			_refresh()
+		)
+		row3.add_child(bb)
+	var confuse_row := HBoxContainer.new()
+	confuse_row.add_theme_constant_override("separation", 2)
+	col_enemy["box"].add_child(confuse_row)
+	var clab := Label.new()
+	clab.text = "乱秒"
+	confuse_row.add_child(clab)
+	var sp_conf := SpinBox.new()
+	sp_conf.min_value = 0
+	sp_conf.max_value = 30
+	sp_conf.step = 0.5
+	sp_conf.value = 3.0
+	confuse_row.add_child(sp_conf)
+	var b_conf := Button.new()
+	b_conf.text = "设"
+	b_conf.pressed.connect(func():
+		state.sandbox_set_enemy_status({"confuse": float(sp_conf.value)})
+		_refresh()
+	)
+	confuse_row.add_child(b_conf)
+	var slow_row := HBoxContainer.new()
+	slow_row.add_theme_constant_override("separation", 2)
+	col_enemy["box"].add_child(slow_row)
+	var slab := Label.new()
+	slab.text = "缓层"
+	slow_row.add_child(slab)
+	var sp_slow_n := SpinBox.new()
+	sp_slow_n.min_value = 0
+	sp_slow_n.max_value = 10
+	sp_slow_n.value = 2
+	slow_row.add_child(sp_slow_n)
+	var sp_slow_t := SpinBox.new()
+	sp_slow_t.min_value = 0.5
+	sp_slow_t.max_value = 30
+	sp_slow_t.step = 0.5
+	sp_slow_t.value = CombatConstants.SLOTH_SLOW_LAYER_SEC
+	sp_slow_t.tooltip_text = "每层秒"
+	slow_row.add_child(sp_slow_t)
+	var b_slow := Button.new()
+	b_slow.text = "设"
+	b_slow.pressed.connect(func():
+		state.sandbox_set_enemy_status({
+			"slow_stacks": int(sp_slow_n.value),
+			"slow_sec": float(sp_slow_t.value),
+		})
+		_refresh()
+	)
+	slow_row.add_child(b_slow)
+
+	var pt := Label.new()
+	pt.text = "玩家计时"
+	pt.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45))
+	col_enemy["box"].add_child(pt)
+	for pair2 in [["连发窗", "burst"], ["自混乱", "confuse"], ["懒惰惩罚", "sloth_penalty"], ["射击锁", "fire_lock"], ["暴食自伤", "gluttony_dot"]]:
+		var pk: String = str(pair2[1])
+		var prow := HBoxContainer.new()
+		prow.add_theme_constant_override("separation", 2)
+		col_enemy["box"].add_child(prow)
+		var pl := Label.new()
+		pl.text = str(pair2[0])
+		pl.custom_minimum_size = Vector2(56, 0)
+		pl.add_theme_font_size_override("font_size", 11)
+		pl.clip_text = true
+		prow.add_child(pl)
+		var psp := SpinBox.new()
+		psp.min_value = 0
+		psp.max_value = 60
+		psp.step = 0.5
+		psp.value = 4.0
+		psp.custom_minimum_size = Vector2(64, 28)
+		prow.add_child(psp)
+		var pb := Button.new()
+		pb.text = "设"
+		pb.custom_minimum_size = Vector2(36, 28)
+		pb.pressed.connect(func(kk := pk, ss := psp):
+			state.sandbox_set_player_timer(kk, float(ss.value))
+			_refresh()
+		)
+		prow.add_child(pb)
 
 
 func _dev_make_column(title: String) -> Dictionary:

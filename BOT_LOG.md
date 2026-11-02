@@ -1,3 +1,10 @@
+## 2026-11-02 — v0.4.17 沙盒模式
+- 主菜单「沙盒」入口；`CombatState.start_sandbox` 暂停连续刷怪与地图商店。
+- 沙盒面板：自定义枪口层数/秒、袋内永久/临时 TTL、生成怪/木桩、前敌与玩家计时状态。
+- 木桩 `is_dummy`：不入 movers、不可攻击玩家；敌人表 id=900。
+- GUT：`test_rr_v0417`。
+- 推 main + Pages。
+
 ## 2026-11-02 — v0.4.16 倾泻节奏抛光
 - UI：`fire_tap(false)` + `_run_dump_autofire` 按 `DUMP_SHOT_INTERVAL_SEC`（0.06s，受战斗速度）步进剩余仓；点射仍 `interrupt_dump`。
 - 状态：异步倾泻延后金色额外轮/`finalize_post_fire`，结束或中断后 `_complete_dump_followup`。

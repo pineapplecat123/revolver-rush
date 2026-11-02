@@ -36,6 +36,13 @@ signal gold_gained(cell: int, amount: int)
 ## v0.4.0 连携钩子总线（见 combat_hooks.gd）
 var hooks: CombatHooks = CombatHooks.new()
 
+## 主菜单 → 战斗：true=沙盒开局（combat_ui 读取后清回 false）
+static var boot_sandbox: bool = false
+## 沙盒：可自定义枪口/袋/怪；默认暂停连续刷怪与地图商店
+var sandbox_mode: bool = false
+var spawn_paused: bool = false
+var map_shop_disabled: bool = false
+
 var phase: int = Phase.AWAIT_LOAD
 var player_hp: int = CombatConstants.PLAYER_MAX_HP
 var player_max_hp: int = CombatConstants.PLAYER_MAX_HP
@@ -501,6 +508,9 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	last_reward_base_gold = 0
 	pace_after_fire = true
 	auto_enemy_advance = true
+	sandbox_mode = false
+	spawn_paused = false
+	map_shop_disabled = false
 	reset_enemy_glide()
 	xp = 0
 	level = 1
@@ -519,6 +529,21 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 		CombatConstants.STARTER_WHITE_COUNT,
 		_ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_SIN_COUNT, wave_index
 	])
+	_emit()
+
+
+## 沙盒：同 rush 开局构筑，但清场、暂停刷怪与地图商店，保留装弹/射击。
+func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -> void:
+	start_rush(seed_value, sin_ammo_id)
+	sandbox_mode = true
+	spawn_paused = true
+	map_shop_disabled = true
+	enemies.clear()
+	shop_cell = -1
+	shop_touch_pending = false
+	_shop_move_prog = 0.0
+	_spawn_timer = 99999.0
+	_log("沙盒模式：刷怪与地图商店已暂停；用沙盒面板自定义枪口/袋/怪。")
 	_emit()
 
 
@@ -1681,7 +1706,7 @@ func is_adjacent_to_player(e: EnemyInstance) -> bool:
 
 ## 敌人是否在其 attack_range 内可攻击玩家（精英/Boss 可 >1）。
 func can_attack_player(e: EnemyInstance) -> bool:
-	if e == null or not e.is_alive():
+	if e == null or not e.is_alive() or e.is_dummy:
 		return false
 	var dist: int = e.cell - CombatConstants.PLAYER_CELL
 	return dist >= 1 and dist <= e.attack_range
@@ -3138,6 +3163,8 @@ func compute_enemy_movers() -> Dictionary:
 	var out := {}
 	var occ := occupied_cells()
 	for e in enemies_sorted_by_cell():
+		if e == null or e.is_dummy or int(e.mobility) <= 0:
+			continue
 		var next_cell: int = e.cell - 1
 		if next_cell <= CombatConstants.PLAYER_CELL:
 			continue
@@ -3798,6 +3825,8 @@ func _field_cleared() -> bool:
 	## 无波次：场上清空 → 立刻按规则补刷（不进胜利、不刷新任何状态）。永远返回 false。
 	if not alive_enemies().is_empty():
 		return false
+	if spawn_paused:
+		return false  # 沙盒：清场不自动补怪
 	if reward_pending or has_corpse_enemies():
 		# v0.3.9：升级三选一期间一律不刷怪（纯暂停）；选完恢复战斗时由 tick_combat_time 补刷。
 		# 还有尸体（pace 飚血未清）时也先不刷：尸体清掉才发经验，避免先刷怪、后弹升级。
@@ -3895,29 +3924,30 @@ func tick_combat_time(delta_sec: float) -> bool:
 	changed = tick_temp_sin_lifetimes(delta_sec) or changed
 	changed = tick_dot(delta_sec) or changed
 	changed = tick_map_shop(delta_sec) or changed
-	var boss_due: int = int(floor(elapsed_sec / CombatConstants.BOSS_EVERY_SEC))
-	if boss_due > _boss_spawned:
-		_boss_spawned = boss_due
-		var bn: int = mini(int(ceil(float(boss_due) * CombatConstants.WAVE_SPAWN_COUNT_MULT)), CombatConstants.SPAWN_LANE_CELLS)
-		var made := 0
-		for _i in bn:
-			if _spawn_enemy_at_lane(CombatConstants.SUPER_ZOMBIE_ENEMY_ID):
-				made += 1
-		if made > 0:
-			encounter_kind = EncounterKind.BOSS
-			_log("Boss 来袭：超级僵尸 ×%d（%.0f 秒）。" % [made, elapsed_sec])
+	if not spawn_paused:
+		var boss_due: int = int(floor(elapsed_sec / CombatConstants.BOSS_EVERY_SEC))
+		if boss_due > _boss_spawned:
+			_boss_spawned = boss_due
+			var bn: int = mini(int(ceil(float(boss_due) * CombatConstants.WAVE_SPAWN_COUNT_MULT)), CombatConstants.SPAWN_LANE_CELLS)
+			var made := 0
+			for _i in bn:
+				if _spawn_enemy_at_lane(CombatConstants.SUPER_ZOMBIE_ENEMY_ID):
+					made += 1
+			if made > 0:
+				encounter_kind = EncounterKind.BOSS
+				_log("Boss 来袭：超级僵尸 ×%d（%.0f 秒）。" % [made, elapsed_sec])
+				changed = true
+		if alive_enemies().is_empty() and not has_corpse_enemies():
+			# 三选一期间清场被推迟的补刷：恢复战斗第一帧补上（Boss 先占刷怪口）
+			_field_cleared()
 			changed = true
-	if alive_enemies().is_empty() and not has_corpse_enemies():
-		# 三选一期间清场被推迟的补刷：恢复战斗第一帧补上（Boss 先占刷怪口）
-		_field_cleared()
-		changed = true
-	_spawn_timer -= delta_sec
-	if _spawn_timer <= 0.0:
-		if alive_enemies().size() < spawn_alive_cap_now() and _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
-			changed = true
-			_spawn_timer = spawn_interval_now()
-		else:
-			_spawn_timer = 0.25  # 满员或刷怪口被占：稍后重试
+		_spawn_timer -= delta_sec
+		if _spawn_timer <= 0.0:
+			if alive_enemies().size() < spawn_alive_cap_now() and _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
+				changed = true
+				_spawn_timer = spawn_interval_now()
+			else:
+				_spawn_timer = 0.25  # 满员或刷怪口被占：稍后重试
 	if changed:
 		_emit()
 	return changed
@@ -4009,6 +4039,8 @@ func acknowledge_shop_touch() -> void:
 
 func tick_map_shop(delta_sec: float) -> bool:
 	## v0.4.0 地图商店骨架：右侧刷出商店实体，随时间向左靠近；碰到玩家（cell<=1）打开商店。
+	if map_shop_disabled:
+		return false
 	var changed := false
 	var due_first := elapsed_sec >= CombatConstants.MAP_SHOP_FIRST_SEC and shop_spawn_count == 0
 	var next_at := CombatConstants.MAP_SHOP_FIRST_SEC + float(shop_spawn_count) * CombatConstants.MAP_SHOP_RESPAWN_SEC
@@ -4478,3 +4510,244 @@ func dev_spawn_enemy(enemy_id: int, cell: int = -1) -> void:
 	enemies.append(EnemyInstance.new(def, c))
 	_log("[开发] 生成 %s 于格 %d" % [def.get("name", enemy_id), c])
 	_emit()
+
+
+# ——— 沙盒 ———
+
+static func sandbox_muzzle_kinds() -> PackedStringArray:
+	return PackedStringArray([
+		"pierce", "gas", "fire", "water", "thunder", "echo", "explosive", "lifesteal",
+		"wrath", "pride", "greed", "lust", "envy", "gluttony", "sloth",
+	])
+
+
+static func sandbox_muzzle_label(kind: String) -> String:
+	match kind:
+		"pierce": return "穿甲"
+		"gas": return "汽油"
+		"fire": return "火焰"
+		"water": return "水"
+		"thunder": return "雷"
+		"echo": return "回声"
+		"explosive": return "炸药"
+		"lifesteal": return "吸血"
+		"wrath": return "愤怒"
+		"pride": return "傲慢"
+		"greed": return "贪婪"
+		"lust": return "色欲"
+		"envy": return "嫉妒"
+		"gluttony": return "暴食"
+		"sloth": return "懒惰"
+		_: return kind
+
+
+func _sandbox_muzzle_layers(kind: String) -> Array:
+	match kind:
+		"pierce": return _muzzle_pierce_layers
+		"gas": return _muzzle_gas_layers
+		"fire": return _muzzle_fire_layers
+		"water": return _muzzle_water_layers
+		"thunder": return _muzzle_thunder_layers
+		"echo": return _muzzle_echo_layers
+		"explosive": return _muzzle_explosive_layers
+		"lifesteal": return _muzzle_lifesteal_layers
+		"wrath": return _muzzle_wrath_layers
+		"pride": return _muzzle_pride_layers
+		"greed": return _muzzle_greed_layers
+		"lust": return _muzzle_lust_layers
+		"envy": return _muzzle_envy_layers
+		"gluttony": return _muzzle_gluttony_layers
+		"sloth": return _muzzle_sloth_layers
+		_: return []
+
+
+func _sandbox_muzzle_max_stacks(kind: String) -> int:
+	match kind:
+		"pierce", "gas", "fire", "water", "thunder", "echo", "explosive":
+			return 1
+		_:
+			return 99
+
+
+func sandbox_set_muzzle(kind: String, stacks: int, duration_sec: float) -> bool:
+	## 用自定义层数与每层剩余秒覆写枪口（stacks=0 或 duration<=0 即清除该种）。
+	if kind not in sandbox_muzzle_kinds():
+		_log("[沙盒] 未知枪口 kind=%s" % kind)
+		return false
+	var layers: Array = _sandbox_muzzle_layers(kind)
+	stacks = clampi(stacks, 0, _sandbox_muzzle_max_stacks(kind))
+	layers.clear()
+	if stacks > 0 and duration_sec > 0.0:
+		for _i in stacks:
+			layers.append(duration_sec)
+	_log("[沙盒] 枪口【%s】→ ×%d · 每层 %.1fs" % [sandbox_muzzle_label(kind), layers.size(), maxf(0.0, duration_sec)])
+	hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": kind, "stacks_after": layers.size()})
+	_emit()
+	return true
+
+
+func sandbox_clear_muzzle(kind: String = "") -> void:
+	if kind.is_empty():
+		_reset_muzzle()
+		_clear_all_sin_muzzle(true)
+		_log("[沙盒] 已清空全部枪口")
+		_emit()
+		return
+	sandbox_set_muzzle(kind, 0, 0.0)
+
+
+func sandbox_add_ammo(ammo_id: int, count: int = 1, temp_life: float = 0.0) -> void:
+	## 沙盒：任意表内弹药可入袋；temp_life>0 则为临时寿命（秒）。
+	if DataRegistry.get_ammo(ammo_id).is_empty() and ammo_id != CombatConstants.INVALID_AMMO_ID:
+		_log("[沙盒] 未知弹药 id=%d" % ammo_id)
+		return
+	var n: int = maxi(0, count)
+	var life: float = maxf(0.0, temp_life)
+	for _i in n:
+		_bag_append(ammo_id, life)
+	_log("[沙盒] 袋 +%d × %s%s（现 %d）" % [
+		n, _ammo_name(ammo_id),
+		(" · TTL %.1fs" % life) if life > 0.0 else "",
+		bag.size()
+	])
+	_emit()
+
+
+func sandbox_set_bag_temp(index: int, temp_life: float) -> bool:
+	_sync_temp_arrays()
+	if index < 0 or index >= bag.size():
+		_log("[沙盒] 袋下标无效 %d" % index)
+		return false
+	bag_temp[index] = maxf(0.0, temp_life)
+	_log("[沙盒] 袋[%d] %s TTL → %.1fs" % [index, _ammo_name(int(bag[index])), float(bag_temp[index])])
+	_emit()
+	return true
+
+
+func sandbox_spawn_enemy(enemy_id: int, cell: int = -1) -> bool:
+	## 沙盒生成：允许表内 enabled 敌人（含木桩）。
+	var before: int = enemies.size()
+	dev_spawn_enemy(enemy_id, cell)
+	return enemies.size() > before
+
+
+func sandbox_spawn_dummy(hp: int = -1, cell: int = -1) -> EnemyInstance:
+	var def: Dictionary = DataRegistry.get_enemy(CombatConstants.DUMMY_ENEMY_ID)
+	if def.is_empty():
+		def = {
+			"id": CombatConstants.DUMMY_ENEMY_ID,
+			"name": "木桩",
+			"hp": CombatConstants.SANDBOX_DUMMY_DEFAULT_HP,
+			"atk": 0,
+			"mobility": 0,
+			"tags": ["木桩"],
+			"dummy": true,
+		}
+	var c := cell
+	if c < 0:
+		c = CombatConstants.BOARD_SIZE - 1
+		while occupied_cells().has(c) and c > CombatConstants.PLAYER_CELL + 1:
+			c -= 1
+	if occupied_cells().has(c) or c <= CombatConstants.PLAYER_CELL:
+		_log("[沙盒] 无法在格 %d 生成木桩" % c)
+		return null
+	var e := EnemyInstance.new(def, c)
+	e.is_dummy = true
+	e.mobility = 0
+	e.atk = 0
+	e.attack_range = 0
+	var want_hp: int = hp if hp > 0 else CombatConstants.SANDBOX_DUMMY_DEFAULT_HP
+	e.max_hp = want_hp
+	e.hp = want_hp
+	enemies.append(e)
+	_log("[沙盒] 木桩 HP%d 于格 %d" % [e.hp, e.cell])
+	_emit()
+	return e
+
+
+func sandbox_clear_enemies() -> void:
+	enemies.clear()
+	_log("[沙盒] 已清空场上敌人")
+	_emit()
+
+
+func sandbox_set_enemy_status(opts: Dictionary) -> bool:
+	## 作用于最前方存活敌人。键：burn/gas/wet/bleed(int)、confuse(float秒)、slow_stacks(int)、slow_sec(float)。
+	var e: EnemyInstance = front_enemy()
+	if e == null:
+		_log("[沙盒] 无敌人可改状态")
+		return false
+	if opts.has("burn"):
+		e.burn_stacks = maxi(0, int(opts.get("burn", 0)))
+	if opts.has("gas"):
+		e.gas_stacks = maxi(0, int(opts.get("gas", 0)))
+	if opts.has("wet"):
+		e.wet_stacks = maxi(0, int(opts.get("wet", 0)))
+	if opts.has("bleed"):
+		e.bleed_stacks = maxi(0, int(opts.get("bleed", 0)))
+	if opts.has("confuse"):
+		e.confuse_remaining = maxf(0.0, float(opts.get("confuse", 0.0)))
+	if opts.has("slow_stacks"):
+		e.slow_layers.clear()
+		var n: int = maxi(0, int(opts.get("slow_stacks", 0)))
+		var sec: float = float(opts.get("slow_sec", CombatConstants.SLOTH_SLOW_LAYER_SEC))
+		for _i in n:
+			e.add_slow_layer(maxf(0.01, sec))
+	if opts.has("hp"):
+		e.hp = clampi(int(opts.get("hp", e.hp)), 0, maxi(e.max_hp, int(opts.get("hp", e.hp))))
+		if int(opts.get("hp", 0)) > e.max_hp:
+			e.max_hp = int(opts.get("hp", e.max_hp))
+			e.hp = e.max_hp
+	_log("[沙盒] %s 状态 → %s" % [e.name_zh, e.status_text()])
+	_emit()
+	return true
+
+
+func sandbox_set_player_timer(kind: String, sec: float) -> bool:
+	var v: float = maxf(0.0, sec)
+	match kind:
+		"burst":
+			burst_window_remaining = v
+		"confuse":
+			player_confuse_remaining = v
+		"sloth_penalty":
+			sloth_fire_penalty_remaining = v
+		"fire_lock":
+			fire_lock_remaining = v
+		"gluttony_dot":
+			gluttony_self_dot_remaining = v
+		_:
+			_log("[沙盒] 未知玩家计时 kind=%s" % kind)
+			return false
+	_log("[沙盒] 玩家计时 %s → %.1fs" % [kind, v])
+	_emit()
+	return true
+
+
+func sandbox_refill_empty_chambers(ammo_id: int = CombatConstants.WHITE_AMMO_ID) -> int:
+	if magazine == null:
+		return 0
+	var n := 0
+	for i in magazine.slots.size():
+		if int(magazine.slots[i]) == Magazine.EMPTY:
+			magazine.set_slot(i, ammo_id, false)
+			n += 1
+	if n > 0:
+		if phase == Phase.AWAIT_LOAD:
+			_set_phase(Phase.AWAIT_ACTION)
+		_log("[沙盒] 空仓补 %d × %s" % [n, _ammo_name(ammo_id)])
+		_emit()
+	return n
+
+
+func sandbox_set_spawn_paused(paused: bool) -> void:
+	spawn_paused = paused
+	if not spawn_paused:
+		_spawn_timer = 0.25
+	_log("[沙盒] 连续刷怪 %s" % ("暂停" if spawn_paused else "恢复"))
+	_emit()
+
+
+func sandbox_reset(sin_ammo_id: int = -1) -> void:
+	var sid: int = selected_sin_ammo_id if sin_ammo_id < 0 else sin_ammo_id
+	start_sandbox(0, sid)
