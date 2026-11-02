@@ -31,6 +31,7 @@ const ID_ARMOR_PIERCE := 22  ## 穿甲（设计表编号12）
 const ID_DUMP := 23  ## 倾泻
 const ID_ECHO := 24  ## 回声（设计表编号21）
 const ID_LIFESTEAL := 25  ## 吸血（设计表编号22）
+const ID_FLAME := 26  ## 火焰（设计表编号17）
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -141,6 +142,8 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 			return 1
 		ID_LIFESTEAL:
 			return 1
+		ID_FLAME:
+			return 1
 		_:
 			return 0
 
@@ -181,7 +184,7 @@ static func inherits_from(ammo_id: int) -> Dictionary:
 	return {
 		"pierce": ammo_id == ID_PIERCE or ammo_id == ID_ARMOR_PIERCE,
 		"gas": ammo_id == ID_GAS,
-		"fire": ammo_id == ID_FIRE,
+		"fire": ammo_id == ID_FIRE or ammo_id == ID_FLAME,
 		"water": ammo_id == ID_WATER,
 		"thunder": ammo_id == ID_THUNDER,
 		"wrath": ammo_id == ID_WRATH,

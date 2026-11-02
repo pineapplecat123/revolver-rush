@@ -35,8 +35,9 @@ func _shot_one(cs: CombatState) -> void:
 		cs._post_fire_enemy_pending = false
 
 
-func test_version_is_0_4_2() -> void:
-	assert_eq(GameVersion.STRING, "0.4.2")
+func test_changelog_has_0_4_2_entry() -> void:
+	var text := FileAccess.get_file_as_string("res://data/changelog.json")
+	assert_true('"version": "0.4.2"' in text or '"version":"0.4.2"' in text)
 
 
 func test_lifesteal_ammo_def() -> void:

@@ -313,6 +313,22 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "枪口吸血：每层20%吸50%伤害"
+    },
+    {
+      "id": 26,
+      "name": "火焰弹药",
+      "rarity": null,
+      "base_damage": 1,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害1。每发射1发，枪口挂上1层【火焰】（最多1层，挂上刷新为4.0秒）。【火焰】持续期间：射击敌人附加等于本次伤害层数的【燃烧】。本发即生效。",
+      "tags": [
+        "枪口",
+        "火焰"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "枪口火焰：命中上燃烧"
     }
   ]
 }

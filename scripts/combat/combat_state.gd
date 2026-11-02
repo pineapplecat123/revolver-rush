@@ -460,7 +460,7 @@ func muzzle_status_parts() -> PackedStringArray:
 	if _muzzle_gas:
 		parts.append("汽油")
 	if _muzzle_fire:
-		parts.append("火")
+		parts.append("火焰")
 	if _muzzle_water:
 		parts.append("水")
 	if _muzzle_thunder:
@@ -485,7 +485,7 @@ func muzzle_status_entries() -> Array:
 	var defs: Array = [
 		["穿甲", _muzzle_pierce_layers, el],
 		["汽油", _muzzle_gas_layers, el],
-		["火", _muzzle_fire_layers, el],
+		["火焰", _muzzle_fire_layers, el],
 		["水", _muzzle_water_layers, el],
 		["雷", _muzzle_thunder_layers, el],
 		["回声", _muzzle_echo_layers, el],
@@ -592,7 +592,7 @@ func muzzle_damage_tip_text() -> String:
 	if _muzzle_gas:
 		elems.append("汽油%.1fs" % _muzzle_gas_t)
 	if _muzzle_fire:
-		elems.append("火%.1fs" % _muzzle_fire_t)
+		elems.append("火焰%.1fs" % _muzzle_fire_t)
 	if _muzzle_water:
 		elems.append("水%.1fs" % _muzzle_water_t)
 	if _muzzle_thunder:
@@ -650,7 +650,7 @@ func tick_muzzle_durations(delta_sec: float) -> bool:
 	var changed := false
 	changed = _tick_muzzle_named_layers(_muzzle_pierce_layers, delta_sec, "穿甲") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_gas_layers, delta_sec, "汽油") or changed
-	changed = _tick_muzzle_named_layers(_muzzle_fire_layers, delta_sec, "火") or changed
+	changed = _tick_muzzle_named_layers(_muzzle_fire_layers, delta_sec, "火焰") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_water_layers, delta_sec, "水") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_thunder_layers, delta_sec, "雷") or changed
 	changed = _tick_muzzle_named_layers(_muzzle_echo_layers, delta_sec, "回声") or changed
@@ -982,7 +982,13 @@ func _mount_muzzle_from(flags: Dictionary) -> void:
 	if bool(flags.get("gas", false)):
 		_muzzle_add_layer(_muzzle_gas_layers, dur, 1)
 	if bool(flags.get("fire", false)):
+		var was_fire: bool = _muzzle_fire
 		_muzzle_add_layer(_muzzle_fire_layers, dur, 1)
+		if not was_fire:
+			_log("  → 枪口【火焰】（最多 1 层，%.1f 秒）" % dur)
+		else:
+			_log("  → 枪口【火焰】刷新 %.1f 秒" % dur)
+		hooks.emit_hook(&"on_muzzle_apply", {"cs": self, "kind": "flame", "stacks_after": 1})
 	if bool(flags.get("water", false)):
 		_muzzle_add_layer(_muzzle_water_layers, dur, 1)
 	if bool(flags.get("thunder", false)):
@@ -3248,8 +3254,48 @@ func tick_combat_time(delta_sec: float) -> bool:
 	return changed
 
 
+func _resolve_burn_dot_tick() -> bool:
+	## 燃烧一跳：先把层数一半（向上取整）扩散给相邻（高格位先），再受等同层数伤害并 -1。
+	var burners: Array = []
+	for e in alive_enemies():
+		if e != null and e.burn_stacks > 0:
+			burners.append(e)
+	if burners.is_empty():
+		return false
+	burners.sort_custom(func(a, b): return a.cell > b.cell)  # 数字高 → 低
+	var snap: Dictionary = {}
+	for e in burners:
+		snap[e] = int(e.burn_stacks)
+	var by_cell := occupied_cells()
+	# 扩散（拷贝，不扣自身）
+	for e in burners:
+		var b: int = int(snap.get(e, 0))
+		var give: int = int(ceili(float(b) / 2.0))
+		if give <= 0:
+			continue
+		for dc in [-1, 1]:
+			var nc: int = e.cell + dc
+			if not by_cell.has(nc):
+				continue
+			var other: EnemyInstance = by_cell[nc] as EnemyInstance
+			if other == null or not other.is_alive():
+				continue
+			other.burn_stacks += give
+			_log("%s 燃烧扩散 +%d → %s（现 %d）" % [e.name_zh, give, other.name_zh, other.burn_stacks])
+	# 伤害并 -1（用扩散后的当前层数）
+	for e in alive_enemies():
+		if e.burn_stacks <= 0:
+			continue
+		var b2: int = e.burn_stacks
+		var dealt: int = e.apply_damage(b2)
+		_notify_enemy_damage(e, dealt, "燃烧")
+		e.burn_stacks = maxi(0, e.burn_stacks - 1)
+		_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
+	return true
+
+
 func tick_dot(delta_sec: float) -> bool:
-	## v0.4.0：燃烧/流血每 DOT_TICK_SEC 跳一次（不再挂落格拍）。
+	## v0.4.0：燃烧/流血每 DOT_TICK_SEC 跳一次（不再挂落格拍）。v0.4.3：燃烧先扩散再跳伤。
 	if delta_sec <= 0.0:
 		return false
 	_dot_timer -= delta_sec
@@ -3260,14 +3306,8 @@ func tick_dot(delta_sec: float) -> bool:
 		_dot_timer = CombatConstants.DOT_TICK_SEC
 	var changed := false
 	hooks.emit_hook(&"on_dot_tick", {"cs": self, "kind": "all"})
-	for e in alive_enemies():
-		if e.burn_stacks > 0:
-			var b: int = e.burn_stacks
-			var dealt: int = e.apply_damage(b)
-			_notify_enemy_damage(e, dealt, "燃烧")
-			e.burn_stacks = maxi(0, e.burn_stacks - 1)
-			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
-			changed = true
+	if _resolve_burn_dot_tick():
+		changed = true
 	_remove_dead()
 	if _field_cleared():
 		_enter_won()
@@ -3394,14 +3434,8 @@ func has_corpse_enemies() -> bool:
 func _run_enemy_turn() -> void:
 	_set_phase(Phase.ENEMY_TURN)
 	_log("--- 怪物回合 ---")
-	# 燃烧跳伤
-	for e in alive_enemies():
-		if e.burn_stacks > 0:
-			var b: int = e.burn_stacks
-			var dealt: int = e.apply_damage(b)
-			_notify_enemy_damage(e, dealt, "燃烧")
-			e.burn_stacks = maxi(0, e.burn_stacks - 1)
-			_log("%s 燃烧结算伤害%d，燃烧剩余%d" % [e.name_zh, dealt, e.burn_stacks])
+	# 燃烧跳伤（与 tick_dot 同一套：先扩散再结算）
+	_resolve_burn_dot_tick()
 	_remove_dead()
 	if _field_cleared():
 		_enter_won()

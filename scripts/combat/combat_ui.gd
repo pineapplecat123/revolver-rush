@@ -1026,7 +1026,7 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 			return {"bg": Color(0.7, 0.85, 0.95), "fg": Color(0.05, 0.1, 0.15)}
 		FireResolver.ID_GAS:
 			return {"bg": Color(0.55, 0.7, 0.25), "fg": Color(0.05, 0.08, 0.02)}
-		FireResolver.ID_FIRE:
+		FireResolver.ID_FIRE, FireResolver.ID_FLAME:
 			return {"bg": Color(1.0, 0.45, 0.15), "fg": Color(0.15, 0.05, 0.0)}
 		FireResolver.ID_WATER:
 			return {"bg": Color(0.35, 0.7, 0.95), "fg": Color(0.02, 0.08, 0.15)}

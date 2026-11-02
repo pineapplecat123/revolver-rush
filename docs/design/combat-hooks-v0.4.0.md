@@ -34,3 +34,7 @@
 
 ## v0.4.2
 - `on_muzzle_apply`：`kind=lifesteal`
+
+## v0.4.3
+- `on_muzzle_apply`：`kind=flame`
+- `on_dot_tick`：燃烧跳前先扩散
