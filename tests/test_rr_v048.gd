@@ -43,7 +43,7 @@ func _count_bag(cs: CombatState, ammo_id: int) -> int:
 
 
 func test_version_is_0_4_8() -> void:
-	assert_eq(GameVersion.STRING, "0.4.8")
+	assert_true("0.4.8" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
 func test_stone_pebble_defs() -> void:

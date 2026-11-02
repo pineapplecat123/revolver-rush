@@ -38,6 +38,7 @@ const ID_INSURANCE := 29  ## 保险（设计表编号16）
 const ID_FOCUS := 30  ## 聚能（设计表编号19）
 const ID_STONE := 31  ## 石头（设计表编号13）
 const ID_PEBBLE := 32  ## 小石头（设计表编号14）
+const ID_JUSTICE := 33  ## 正义（设计表编号20）
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -162,6 +163,8 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 			return 3
 		ID_PEBBLE:
 			return 1
+		ID_JUSTICE:
+			return 3
 		_:
 			return 0
 

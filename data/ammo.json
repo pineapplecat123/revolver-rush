@@ -422,6 +422,22 @@
       "ephemeral": true,
       "in_reward_pool": false,
       "blurb": "相邻小石头点射融合"
+    },
+    {
+      "id": 33,
+      "name": "正义弹药",
+      "rarity": null,
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害3。装填时卸除转轮内已装填的罪孽弹药（退回袋，不可删除规则保留）。每卸除1颗，本战斗永久伤害+2。",
+      "tags": [
+        "卸罪",
+        "成长"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "装入卸已装罪孽，永久+2伤/颗"
     }
   ]
 }

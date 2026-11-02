@@ -82,6 +82,8 @@ var last_reward_base_gold: int = 0
 
 ## 弹药跨回合状态
 var pink_bonus: int = 0
+## 正义：本战斗永久平坦加伤（每卸除1罪孽 +2）。
+var justice_damage_bonus: int = 0
 var last_load_ids: Array[int] = []  ## 上次装填原始序列（变形前），供黑白弹药
 
 ## 逐步射击会话
@@ -398,6 +400,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	lose_reason = LoseReason.NONE
 	gold = 0
 	pink_bonus = 0
+	justice_damage_bonus = 0
 	last_load_ids.clear()
 	_reset_fire_session()
 	_reset_muzzle()
@@ -995,10 +998,11 @@ func _incoming_pride_multiplier() -> float:
 
 
 func _scale_outgoing_damage(raw: int) -> int:
-	## 罪孽输出倍率后四舍五入为整数伤害（与枪口提示一致）。
+	## 罪孽输出倍率后四舍五入为整数伤害（与枪口提示一致）；再加正义永久加伤。
 	if raw <= 0:
 		return 0
 	var scaled: int = int(round(float(raw) * _outgoing_sin_multiplier()))
+	scaled += justice_damage_bonus
 	return maxi(scaled, 0)
 
 
@@ -1099,6 +1103,35 @@ func _spawn_penalty_temp_sin(sin_id: int) -> void:
 	_bag_append(sin_id, CombatConstants.TEMP_SIN_LIFETIME_SEC)
 	penalty_temp_sins_spawned += 1
 	_log("罪孽惩罚：袋内 +1 颗临时%s（%.0f 秒后消失）。" % [_ammo_name(sin_id), CombatConstants.TEMP_SIN_LIFETIME_SEC])
+
+
+
+func _is_sin_ammo_id(ammo_id: int) -> bool:
+	return DataRegistry.is_sin_ammo(ammo_id)
+
+
+func _apply_justice_strip_on_load(resolved: int) -> int:
+	## 装填正义：卸除转轮内已装罪孽（退回袋，保留临时寿命）；每颗本战斗伤害+2。返回卸除数。
+	if resolved != FireResolver.ID_JUSTICE or magazine == null:
+		return 0
+	var stripped := 0
+	for i in magazine.slots.size():
+		var aid: int = int(magazine.slots[i])
+		if aid == Magazine.EMPTY or not _is_sin_ammo_id(aid):
+			continue
+		var tv: float = magazine.slot_temp_life(i)
+		magazine.set_slot(i, Magazine.EMPTY, false)
+		_bag_append(aid, tv)
+		justice_damage_bonus += 2
+		stripped += 1
+	if stripped > 0:
+		_log("正义弹药：卸除已装罪孽 ×%d → 本战斗伤害 +%d（现 +%d）。" % [
+			stripped, stripped * 2, justice_damage_bonus
+		])
+		hooks.emit_hook(&"on_justice_strip", {
+			"cs": self, "stripped": stripped, "bonus_after": justice_damage_bonus
+		})
+	return stripped
 
 
 func _try_spawn_temp_sin_on_load(resolved: int) -> void:
@@ -1548,6 +1581,7 @@ func load_next_chamber() -> Dictionary:
 	assert(magazine.slots[slot] == Magazine.EMPTY)
 	magazine.set_slot(slot, resolved, raw_temp)
 	hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": slot, "temporary": Magazine.temp_value(raw_temp) > 0.0})
+	_apply_justice_strip_on_load(resolved)
 	_check_sin_threshold_after_insert(resolved)
 	_try_spawn_temp_sin_on_load(resolved)
 	if raw_id == FireResolver.ID_BW and resolved != FireResolver.ID_BW:
@@ -2941,6 +2975,7 @@ func _auto_load_and_fire_once() -> bool:
 			magazine.set_slot(port, resolved, raw_temp)
 			last_load_ids = drawn.duplicate()
 			hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": port, "temporary": Magazine.temp_value(raw_temp) > 0.0})
+			_apply_justice_strip_on_load(resolved)
 			_check_sin_threshold_after_insert(resolved)
 			_try_spawn_temp_sin_on_load(resolved)
 			if bag.is_empty():
@@ -4024,6 +4059,8 @@ func dev_force_load(ids: Array[int]) -> void:
 	last_load_ids = ids.duplicate()
 	var resolved := _resolve_black_white_with_prev(ids, prev)
 	magazine.load_sequence(resolved)
+	if FireResolver.ID_JUSTICE in resolved:
+		_apply_justice_strip_on_load(FireResolver.ID_JUSTICE)
 	turn_index += 1
 	_set_phase(Phase.AWAIT_ACTION)
 	_log("[开发] 强制装填 %s" % str(resolved))

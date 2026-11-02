@@ -19,6 +19,7 @@ class_name CombatHooks
 ##   on_insurance_swap    — 保险挡住第3罪孽装填；sin_id
 ##   on_stone_shatter     — 石头命中碎裂产小石头；dealt, pebbles
 ##   on_pebble_fuse       — 小石头相邻融合点射；count, damage
+##   on_justice_strip     — 正义卸除已装罪孽；stripped, bonus_after
 ##
 ## 用法：cs.hooks.subscribe("on_shot", callable) / cs.hooks.emit_hook("on_shot", {...})
 

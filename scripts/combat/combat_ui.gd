@@ -1075,6 +1075,9 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 		FireResolver.ID_PEBBLE:
 			# 小石头：浅岩灰
 			return {"bg": Color(0.7, 0.66, 0.6), "fg": Color(0.2, 0.16, 0.12)}
+		FireResolver.ID_JUSTICE:
+			# 正义：银白金辉
+			return {"bg": Color(0.92, 0.9, 0.75), "fg": Color(0.18, 0.14, 0.05)}
 		CombatConstants.INVALID_AMMO_ID:
 			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 		_:

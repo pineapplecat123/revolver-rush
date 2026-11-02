@@ -2,6 +2,14 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.9",
+      "date": "2026-11-02",
+      "items": [
+        "新弹药「正义弹药」（运行时 id=33）：装填时卸除转轮内已装罪孽（退回袋）；每卸1颗本战斗永久伤害+2",
+        "CombatHooks：on_justice_strip（stripped, bonus_after）"
+      ]
+    },
+    {
       "version": "0.4.8",
       "date": "2026-11-02",
       "items": [
