@@ -4,7 +4,7 @@
     {
       "id": 1,
       "name": "平庸子弹",
-      "rarity": null,
+      "rarity": "common",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "常规平庸弹药，基础伤害3。",
@@ -15,7 +15,7 @@
     {
       "id": 2,
       "name": "黑色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 0,
       "base_damage_mode": "fixed",
       "special": "基础伤害0。本次装填中黑色数量严格最多时，本匣全部伤害×3；与其它颜色并列最多则不触发。",
@@ -26,7 +26,7 @@
     {
       "id": 3,
       "name": "绿色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。仅末尾连续的绿色生效：最后一发×2、倒数第二×3，以此类推。中间被其它颜色打断则只计与末尾相连的那段。若本匣全是绿色，则全部造成0伤害。",
@@ -37,7 +37,7 @@
     {
       "id": 4,
       "name": "黄色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": null,
       "base_damage_mode": "formula",
       "special": "按本匣黄色数量决定每发伤害：1/2/3/4/5/6发→1/2/3/4/5/5。同匣每发黄伤害相同。",
@@ -48,7 +48,7 @@
     {
       "id": 5,
       "name": "紫色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": null,
       "base_damage_mode": "formula",
       "special": "按本匣内相连紫色段长度决定该段每发伤害：1/2/3/4/5/6连→0/3/4/5/5/5。单发紫为0伤。",
@@ -59,7 +59,7 @@
     {
       "id": 6,
       "name": "红色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。按本匣黄色数量加成：黄1/2/3/4/5→+1/+3/+5/+6/+7（无黄不加）。",
@@ -70,7 +70,7 @@
     {
       "id": 7,
       "name": "蓝色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "伤害=1+本匣不同弹药种数。若本匣含蓝色且种数达6，本匣全部伤害再×2。",
@@ -81,7 +81,7 @@
     {
       "id": 8,
       "name": "金币弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": null,
       "base_damage_mode": "formula",
       "special": "基础伤害 X=3+目前金币*20%向下取整。每射击一发金币−1；金币＜1 时不再减少。与商店金币消费共用金币池。",
@@ -96,7 +96,7 @@
     {
       "id": 9,
       "name": "粉色子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3+本局永久加成。一次卸除（UNLOAD）中只要含粉色，粉色伤害永久+1（同次多粉只计一次；所有粉色共享该加成）。",
@@ -107,7 +107,7 @@
     {
       "id": 10,
       "name": "黑白子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": null,
       "base_damage_mode": "formula",
       "special": "装填时变成上次装填中数量最多的那种弹药；并列最多则随机。本局尚无上次装填记录则不变形。",
@@ -118,7 +118,7 @@
     {
       "id": 11,
       "name": "穿透子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。自带穿透：本发生效，并挂到枪口——本回合后续击发都附带穿透，回合结束清枪口。穿透：从最近敌人起依次命中，每穿一个伤害-1，减到0为止。",
@@ -129,7 +129,7 @@
     {
       "id": 12,
       "name": "汽油子弹",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。自带汽油：本发生效，并挂到枪口——本回合后续击发都附带，回合结束清枪口。命中施加等同本次伤害的汽油层；若目标已在燃烧，则改为追加等量伤害。被火命中时，所有格子相连且带汽油的敌人同时引爆：造成等同汽油层的伤害、叠加等层燃烧、清空汽油。",
@@ -140,7 +140,7 @@
     {
       "id": 13,
       "name": "火子弹",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。自带火：本发生效，并挂到枪口——本回合后续击发都附带，回合结束清枪口。命中叠加等同本次伤害的燃烧；若目标处于汽油连片中则先引爆该片。",
@@ -151,7 +151,7 @@
     {
       "id": 14,
       "name": "水子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。自带水：本发生效，并挂到枪口——本回合后续击发都附带，回合结束清枪口。命中施加等同本次伤害的湿，并清除目标燃烧。",
@@ -162,7 +162,7 @@
     {
       "id": 15,
       "name": "雷击子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。自带电：本发生效，并挂到枪口——本回合后续击发都附带，回合结束清枪口。若首个目标有湿，伤害传导到相邻有湿的敌人，可继续传导；每个敌人至多被传导一次。",
@@ -173,7 +173,7 @@
     {
       "id": 16,
       "name": "愤怒子弹",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。每发射1发，枪口+1层【愤怒】（回合结束清除）。枪口每层使造成伤害+100%（×(1+层)）。一次装填愤怒≥3发时，对玩家造成6点伤害。",
@@ -186,7 +186,7 @@
     {
       "id": 17,
       "name": "傲慢子弹",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发，枪口+1层【傲慢】（本场保留，战斗结束清除）。每层使造成伤害与受到攻击伤害均+25%。一次装填傲慢≥3发时，将敌人拉到玩家面前。",
@@ -199,7 +199,7 @@
     {
       "id": 18,
       "name": "贪婪子弹",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发，枪口+1层【贪婪】（回合结束清除）。敌人受伤时每层30%概率掉落等同该次伤害的金币。一次装填贪婪≥3发时，金币-6（可负）。",
@@ -212,7 +212,7 @@
     {
       "id": 19,
       "name": "墓碑弹药",
-      "rarity": null,
+      "rarity": "epic",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发：袋内+1颗临时幽灵（TTL），并立刻把袋内所有幽灵TTL极速连射打出（每发单独结算枪口）。不再填空仓。",
@@ -227,7 +227,7 @@
     {
       "id": 20,
       "name": "幽灵弹药",
-      "rarity": null,
+      "rarity": "common",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。由墓碑弹药生成入袋，带TTL；到期或被墓碑连射打出后消失。不进奖励与商店池。",
@@ -242,7 +242,7 @@
     {
       "id": 21,
       "name": "连发子弹",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。击发后开启1秒连发窗（再次击发连发则刷新，不叠多窗）。窗内每次点射击出1发免费平庸伤害弹（享受当前枪口，不耗仓、不转轮）。",
@@ -257,7 +257,7 @@
     {
       "id": 22,
       "name": "穿甲弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。每发射1发，枪口挂上1层【穿甲】（最多1层，回合结束清除）。穿甲：可击穿怪物，对第一个造成全值伤害，之后每穿一个伤害-1，减到0为止。本发即生效；枪线贯穿怪物。",
@@ -273,7 +273,7 @@
     {
       "id": 23,
       "name": "倾泻",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。击发后自动连续打出转轮内剩余已装填弹药（约0.06秒/发）；期间再点射击可中断倾泻。",
@@ -288,7 +288,7 @@
     {
       "id": 24,
       "name": "回声弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口挂上1层【回声】（最多1层，挂上刷新为4.0秒）。【回声】持续期间：每发弹药结算两次（双发，均享受当前枪口）。本发即生效。",
@@ -304,7 +304,7 @@
     {
       "id": 25,
       "name": "吸血弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口+1层【吸血】（每层独立计时4.0秒）。每层带来20%吸血概率（最多100%）；造成伤害后若触发，将本次伤害的50%（四舍五入）转化为生命恢复。本发即生效。",
@@ -320,7 +320,7 @@
     {
       "id": 26,
       "name": "火焰弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口挂上1层【火焰】（最多1层，挂上刷新为4.0秒）。【火焰】持续期间：射击敌人附加等于本次伤害层数的【燃烧】。本发即生效。",
@@ -336,7 +336,7 @@
     {
       "id": 27,
       "name": "炸药弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。每发射1发，枪口挂上1层【炸药】（最多1层，挂上刷新为4.0秒）。【炸药】持续期间：若射击目标已处于【燃烧】，则对该目标及其左右各 N 个相邻敌人造成 3 倍伤害（N=本次基础伤害-2，至少为1）。本发即生效。",
@@ -352,7 +352,7 @@
     {
       "id": 28,
       "name": "散射弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 5,
       "base_damage_mode": "fixed",
       "special": "基础伤害5。射击后，实际伤害均分给场上所有敌人（四舍五入）。若敌人少于3人，则每人只受到实际伤害的30%（四舍五入）。",
@@ -368,7 +368,7 @@
     {
       "id": 29,
       "name": "保险弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。袋中持有时：即将装入会使转轮内同种罪孽达到3颗的那一发，改为从袋中取出保险装入，罪孽弹退回弹药袋，从而避免三罪孽惩罚。",
@@ -383,7 +383,7 @@
     {
       "id": 30,
       "name": "聚能弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害随装填中聚能数量递增：按击发顺序，第1发聚能伤害3、第2发4、第3发5…（伤害=2+该发在当前匣内聚能中的序号）。",
@@ -398,7 +398,7 @@
     {
       "id": 31,
       "name": "石头弹药",
-      "rarity": null,
+      "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。命中后按本次实际造成伤害数，向袋内加入等量小石头弹药（TTL，战后/到期消失）。",
@@ -413,7 +413,7 @@
     {
       "id": 32,
       "name": "小石头弹药",
-      "rarity": null,
+      "rarity": "common",
       "base_damage": 1,
       "base_damage_mode": "fixed",
       "special": "基础伤害1。由石头命中生成（TTL）。点射时若锤位起相邻≥2颗小石头，则该段融合成1发射击，伤害=段长，并清空该段各仓。",
@@ -429,7 +429,7 @@
     {
       "id": 33,
       "name": "正义弹药",
-      "rarity": null,
+      "rarity": "epic",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "special": "基础伤害3。装填时卸除转轮内已装填的罪孽弹药（退回袋，不可删除规则保留）。每卸除1颗，本战斗永久伤害+2。",
@@ -445,7 +445,7 @@
     {
       "id": 34,
       "name": "色欲弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发，枪口+1层【色欲】（每层独立4.0秒）。枪口每层20%概率使被击中敌人【混乱】1秒（层可叠加；混乱中的怪物会攻击邻近怪物）。转轮内色欲从2→3时：玩家自己混乱1秒，该1秒内所有攻击打到自己身上。",
@@ -458,7 +458,7 @@
     {
       "id": 35,
       "name": "嫉妒弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发，枪口+1层【嫉妒】（每层独立4.0秒）。【嫉妒】持续期间击杀敌人时，每层30%概率将「上一发非罪孽弹药」复制1发TTL入袋。转轮内嫉妒从2→3时：从袋中随机将2发非罪孽永久弹移入弃牌（之后可重洗回来）。",
@@ -471,7 +471,7 @@
     {
       "id": 36,
       "name": "暴食弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发，枪口+1层【暴食】（每层独立4.0秒）。【暴食】持续期间击杀敌人时回复1点生命；层数提高回复速率上限（每层最多1次/秒）。转轮内暴食从2→3时：玩家持续掉血（DoT）。与吸血弹药不同：暴食是击杀回血，不是按伤害吸血。",
@@ -484,7 +484,7 @@
     {
       "id": 37,
       "name": "懒惰弹药",
-      "rarity": null,
+      "rarity": "rare",
       "base_damage": 2,
       "base_damage_mode": "fixed",
       "special": "基础伤害2。每发射1发，枪口+1层【懒惰】（每层独立4.0秒）。【懒惰】持续期间命中敌人施加可叠加【减速】。转轮内懒惰从2→3时：开启4秒射速−50%窗口。",

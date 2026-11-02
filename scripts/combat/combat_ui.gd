@@ -2571,8 +2571,11 @@ func _refresh_rush_shop_panel() -> void:
 		return
 	_shop_title.text = "地图商店"
 	_shop_gold_label.text = "金币 %d" % _shop.gold
-	_shop_hint.text = "购买：单价 %d 金/发。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。逛完后才可下一波。" % [
-		ShopConstants.AMMO_PRICE,
+	_shop_hint.text = "购买：按稀有度定价（普通%d / 精良%d / 稀有%d / 史诗%d）。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。" % [
+		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_COMMON]),
+		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_UNCOMMON]),
+		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_RARE]),
+		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_EPIC]),
 		ShopConstants.FREE_REROLLS,
 		ShopConstants.REROLL_COST,
 		ShopConstants.REMOVE_BASE_COST,
@@ -2593,7 +2596,7 @@ func _refresh_rush_shop_stock() -> void:
 	for c in _shop_stock.get_children():
 		c.queue_free()
 	var title := Label.new()
-	title.text = "库存（随机 · 无稀有度权重）"
+	title.text = "库存（按稀有度权重）"
 	_shop_stock.add_child(title)
 	for i in _shop.stock.size():
 		var ammo_id: int = _shop.stock[i]
@@ -2606,7 +2609,8 @@ func _refresh_rush_shop_stock() -> void:
 			info.text = "%s · 已售出" % str(def.get("name", ammo_id))
 			info.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
 		else:
-			info.text = "%s · %d 金" % [str(def.get("name", ammo_id)), price]
+			var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
+			info.text = "%s · %s · %d 金" % [str(def.get("name", ammo_id)), ShopConstants.rarity_label(rarity), price]
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(info)
 		var btn := Button.new()

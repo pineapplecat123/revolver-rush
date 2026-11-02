@@ -91,6 +91,15 @@ func is_ammo_reward_eligible(ammo_id: int) -> bool:
 	return not bool(def.get("ephemeral", false))
 
 
+func get_ammo_rarity(ammo_id: int) -> String:
+	## common/uncommon/rare/epic；缺省 uncommon（对齐旧统一价）。
+	var def: Dictionary = get_ammo(ammo_id)
+	var r: String = str(def.get("rarity", "")).strip_edges()
+	if r.is_empty() or r == "null":
+		return "uncommon"
+	return r
+
+
 func is_enemy_enabled(enemy_id: int) -> bool:
 	return bool(get_enemy(enemy_id).get("enabled_in_combat", false))
 
