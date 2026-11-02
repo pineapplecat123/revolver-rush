@@ -2,6 +2,15 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.12",
+      "date": "2026-11-02",
+      "items": [
+        "「嫉妒弹药」（id=35）：枪口【嫉妒】每层独立 4s；击杀时每层 30% 将上一发非罪复制为 TTL 入袋",
+        "三罪（2→3）：从袋中随机将最多 2 发非罪孽永久弹移入弃牌（可重洗回来）",
+        "CombatHooks：on_envy_copy / on_envy_discard"
+      ]
+    },
+    {
       "version": "0.4.11",
       "date": "2026-11-02",
       "items": [

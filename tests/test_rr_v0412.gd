@@ -37,6 +37,11 @@ func _shot_one(cs: CombatState) -> void:
 		cs._post_fire_enemy_pending = false
 
 
+func test_version_is_0_4_12() -> void:
+	assert_eq(GameVersion.STRING, "0.4.12")
+	assert_true("0.4.12" in FileAccess.get_file_as_string("res://data/changelog.json"))
+
+
 func test_envy_def() -> void:
 	var def: Dictionary = DataRegistry.get_ammo(ENVY)
 	assert_eq(str(def.get("name", "")), "嫉妒弹药")
