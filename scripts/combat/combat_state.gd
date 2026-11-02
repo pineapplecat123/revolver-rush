@@ -306,6 +306,8 @@ var _combat_bag_baseline: Array[int] = []
 var _pending_gold_autofires: int = 0
 ## v0.4.0 连发窗剩余秒（>0 时点射=免费平庸伤）；刷新不叠加。
 var burst_window_remaining: float = 0.0
+## 本装填周期已击发的聚能发数（聚能伤害递增）。
+var _focus_shots_fired: int = 0
 ## v0.4.0 倾泻：击发倾泻后待自动打出的剩余仓；可被下一次点射中断。
 var _dump_pending: bool = false
 var _dump_interrupted: bool = false
@@ -407,6 +409,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	wave_player_turns = 0
 	rush_shop_done = false
 	burst_window_remaining = 0.0
+	_reset_focus_shot_counter()
 	_dump_pending = false
 	_dump_interrupted = false
 	_dot_timer = CombatConstants.DOT_TICK_SEC
@@ -1469,6 +1472,7 @@ func do_load() -> bool:
 ## 约定：start_index = 正上击发仓；上弹口=左上=(start+LOAD_PORT_OFFSET)%6。
 ## 下回合洗回：先归还膛内未耗弹（ROLL 后），再按标记/袋空把弃牌洗回袋；本回合仍能抽几发装几发。
 func begin_load() -> bool:
+	_reset_focus_shot_counter()
 	## rush!：不倾倒已上膛弹药；空匣开局对齐上弹口，半匣则转到最近空仓对准上弹口。
 	if not can_load():
 		return false
@@ -1903,6 +1907,16 @@ func _purge_ghost_ammo() -> int:
 	return n
 
 
+func _next_focus_damage() -> int:
+	## 聚能：本装填周期内第 n 发聚能伤害 = 2+n（首发3）。装弹/卸弹/强制装填时清零。
+	_focus_shots_fired += 1
+	return 2 + _focus_shots_fired
+
+
+func _reset_focus_shot_counter() -> void:
+	_focus_shots_fired = 0
+
+
 func begin_fire() -> bool:
 	## rush!：每次只打锤位方向最近的 1 发；打完该发后收束，由 UI 进怪回合。
 	## 伤害仍按当前匣内 fire_order 全文计算（旧彩弹组合修正），但队列仅含首发。
@@ -1917,6 +1931,8 @@ func begin_fire() -> bool:
 	if full_order.is_empty():
 		return false
 	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
+	if int(full_order[0]) == FireResolver.ID_FOCUS:
+		full_dmg[0] = _next_focus_damage()
 	_fire_queue = [full_order[0]] as Array[int]
 	_fire_damages = [full_dmg[0]] as Array[int]
 	_fire_index = 0
@@ -2865,6 +2881,8 @@ func _auto_load_and_fire_once() -> bool:
 	# 同步打 1 发（与 begin_fire 单发一致）
 	var full_order: Array[int] = magazine.fire_order()
 	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
+	if not full_order.is_empty() and int(full_order[0]) == FireResolver.ID_FOCUS:
+		full_dmg[0] = _next_focus_damage()
 	_fire_queue = [full_order[0]] as Array[int]
 	_fire_damages = [full_dmg[0]] as Array[int]
 	_fire_index = 0
@@ -3924,6 +3942,7 @@ func dev_force_load(ids: Array[int]) -> void:
 	if phase != Phase.AWAIT_LOAD and phase != Phase.AWAIT_ACTION:
 		_log("[开发] 当前阶段无法强制装填")
 		return
+	_reset_focus_shot_counter()
 	var prev := last_load_ids.duplicate()
 	last_load_ids = ids.duplicate()
 	var resolved := _resolve_black_white_with_prev(ids, prev)

@@ -376,6 +376,21 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "挡下即将触发的三罪孽装填"
+    },
+    {
+      "id": 30,
+      "name": "聚能弹药",
+      "rarity": null,
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "基础伤害随装填中聚能数量递增：按击发顺序，第1发聚能伤害3、第2发4、第3发5…（伤害=2+该发在当前匣内聚能中的序号）。",
+      "tags": [
+        "聚能"
+      ],
+      "enabled_in_combat": true,
+      "ephemeral": false,
+      "in_reward_pool": true,
+      "blurb": "匣内聚能越多，靠后的越痛"
     }
   ]
 }

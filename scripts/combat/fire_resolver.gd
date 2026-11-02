@@ -35,6 +35,7 @@ const ID_FLAME := 26  ## 火焰（设计表编号17）
 const ID_EXPLOSIVE := 27  ## 炸药（设计表编号18）
 const ID_SCATTER := 28  ## 散射（设计表编号15）
 const ID_INSURANCE := 29  ## 保险（设计表编号16）
+const ID_FOCUS := 30  ## 聚能（设计表编号19）
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -153,6 +154,8 @@ static func base_damage_for(ammo_id: int, order: Array[int], index: int, pink_bo
 			return 5
 		ID_INSURANCE:
 			return 1
+		ID_FOCUS:
+			return 3
 		_:
 			return 0
 

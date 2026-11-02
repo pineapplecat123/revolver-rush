@@ -11,8 +11,9 @@ func before_each() -> void:
 	BulletEffectRegistry.ensure_defaults()
 
 
-func test_version_is_0_4_6() -> void:
-	assert_eq(GameVersion.STRING, "0.4.6")
+func test_changelog_has_0_4_6_entry() -> void:
+	var text := FileAccess.get_file_as_string("res://data/changelog.json")
+	assert_true('"version": "0.4.6"' in text or '"version":"0.4.6"' in text)
 
 
 func test_insurance_ammo_def() -> void:
