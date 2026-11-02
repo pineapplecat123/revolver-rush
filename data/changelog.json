@@ -2,6 +2,16 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.13",
+      "date": "2026-11-02",
+      "items": [
+        "「暴食弹药」（id=36）：枪口【暴食】击杀回 1 HP；层数提高速率上限（每层最多 1 次/秒）",
+        "与吸血弹药拆开：暴食是击杀回血，不是按伤害吸血窗",
+        "三罪（2→3）：玩家持续掉血（与 DoT 同频）",
+        "CombatHooks：on_gluttony_heal / on_gluttony_self_dot"
+      ]
+    },
+    {
       "version": "0.4.12",
       "date": "2026-11-02",
       "items": [
