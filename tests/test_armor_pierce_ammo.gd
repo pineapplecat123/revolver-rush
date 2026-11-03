@@ -35,7 +35,7 @@ func test_ammo_def_enabled_and_in_reward_pool() -> void:
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_ammo_reward_eligible(FireResolver.ID_ARMOR_PIERCE))
 	assert_false(DataRegistry.is_ammo_ephemeral(FireResolver.ID_ARMOR_PIERCE))
-	assert_eq(FireResolver.base_damage_for(FireResolver.ID_ARMOR_PIERCE, [FireResolver.ID_ARMOR_PIERCE], 0, 0), 3)
+	assert_eq(FireResolver.base_damage_for(FireResolver.ID_ARMOR_PIERCE, [FireResolver.ID_ARMOR_PIERCE], 0), 3)
 	var flags := FireResolver.inherits_from(FireResolver.ID_ARMOR_PIERCE)
 	assert_true(bool(flags.get("pierce", false)))
 
@@ -135,7 +135,7 @@ func test_armor_pierce_in_reward_choices_pool() -> void:
 	assert_true(FireResolver.ID_ARMOR_PIERCE in pool)
 	assert_true(FireResolver.ID_SUPER_ROUND in pool)
 	assert_false(FireResolver.ID_GHOST in pool)
-	assert_false(FireResolver.ID_PIERCE in pool, "old pierce ammo stays retired")
+	assert_true(DataRegistry.get_ammo(11).is_empty(), "old pierce ammo id 11 removed")
 
 
 func test_muzzle_clears_after_duration() -> void:

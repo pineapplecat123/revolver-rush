@@ -249,6 +249,7 @@ func _ready() -> void:
 	state.phase_changed.connect(func(_p): _refresh())
 	state.state_changed.connect(_refresh)
 	state.enemy_damaged.connect(_on_enemy_damaged)
+	state.explosive_detonated.connect(_on_explosive_detonated)
 	state.player_damaged.connect(_on_player_damaged)
 	state.gold_gained.connect(_on_gold_gained)
 	btn_manual_load.pressed.connect(_on_manual_load)
@@ -1041,34 +1042,10 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 	match ammo_id:
 		FireResolver.ID_WHITE:
 			return {"bg": Color(0.92, 0.92, 0.94), "fg": Color(0.08, 0.08, 0.1)}
-		FireResolver.ID_BLACK:
-			return {"bg": Color(0.18, 0.18, 0.2), "fg": Color(0.95, 0.95, 0.95)}
-		FireResolver.ID_GREEN:
-			return {"bg": Color(0.25, 0.72, 0.35), "fg": Color(0.05, 0.1, 0.05)}
-		FireResolver.ID_YELLOW:
-			return {"bg": Color(0.95, 0.85, 0.2), "fg": Color(0.15, 0.12, 0.02)}
-		FireResolver.ID_PURPLE:
-			return {"bg": Color(0.62, 0.35, 0.85), "fg": Color(0.98, 0.95, 1.0)}
-		FireResolver.ID_RED:
-			return {"bg": Color(0.9, 0.28, 0.28), "fg": Color(1.0, 0.95, 0.95)}
-		FireResolver.ID_BLUE:
-			return {"bg": Color(0.3, 0.55, 0.95), "fg": Color(0.95, 0.97, 1.0)}
 		FireResolver.ID_GOLD:
 			return {"bg": Color(0.95, 0.75, 0.15), "fg": Color(0.2, 0.12, 0.02)}
-		FireResolver.ID_PINK:
-			return {"bg": Color(0.95, 0.55, 0.75), "fg": Color(0.2, 0.05, 0.12)}
-		FireResolver.ID_BW:
-			return {"bg": Color(0.55, 0.55, 0.58), "fg": Color(0.05, 0.05, 0.05)}
-		FireResolver.ID_PIERCE:
-			return {"bg": Color(0.7, 0.85, 0.95), "fg": Color(0.05, 0.1, 0.15)}
-		FireResolver.ID_GAS:
-			return {"bg": Color(0.55, 0.7, 0.25), "fg": Color(0.05, 0.08, 0.02)}
-		FireResolver.ID_FIRE, FireResolver.ID_FLAME:
+		FireResolver.ID_FLAME:
 			return {"bg": Color(1.0, 0.45, 0.15), "fg": Color(0.15, 0.05, 0.0)}
-		FireResolver.ID_WATER:
-			return {"bg": Color(0.35, 0.7, 0.95), "fg": Color(0.02, 0.08, 0.15)}
-		FireResolver.ID_THUNDER:
-			return {"bg": Color(0.85, 0.75, 0.2), "fg": Color(0.12, 0.1, 0.0)}
 		FireResolver.ID_WRATH:
 			return {"bg": Color(0.75, 0.12, 0.12), "fg": Color(1.0, 0.92, 0.9)}
 		FireResolver.ID_PRIDE:
@@ -1177,6 +1154,7 @@ func _process(delta: float) -> void:
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
 	_update_sandbox_stats_hud()
+	_update_enemy_status_rings()
 
 
 func _enemy_glide_px(cell: int) -> float:
@@ -1359,8 +1337,11 @@ func _snap_fire_disk() -> void:
 func _run_fire_tap() -> void:
 	## rush! v0.3.5：点一下 = 本帧同步结算 1 发（+额外轮），弹道/飚血/飘字并发播放；转盘快速补间可被下一次点击打断。
 	## v0.4.16：倾泻主发后由 _run_dump_autofire 按 ~0.06s/发步进剩余仓（可中断）。
+	## v0.4.21：射速帽内的连点直接吞掉，别把正在转的盘子掐掉。倾泻中的点击仍要打断。
 	if state == null or not state.can_fire():
 		_refresh()
+		return
+	if state.player_fire_gate_remaining > 0.0 and not state.is_dump_pending():
 		return
 	_snap_fire_disk()
 	var visual_before: float = _wheel_visual_steps
@@ -1458,13 +1439,6 @@ func _on_fire_disk_tween_done(tw: Tween) -> void:
 	_apply_disk_rotation(fposmod(_fire_disk_target, float(CombatConstants.MAGAZINE_SIZE)))
 	_clear_fire_flash()
 	_refresh_mag_contents()
-
-
-func _spawn_hit_event(ev: Dictionary) -> void:
-	var cell: int = int(ev.get("cell", -1))
-	var amount: int = int(ev.get("amount", 0))
-	_spawn_damage_float(cell, amount, str(ev.get("kind", "")))
-	_spawn_blood_at_cell(cell, amount, _enemy_corpse_at_cell(cell))
 
 
 func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: float = 0.0) -> void:
@@ -2397,6 +2371,84 @@ func _refresh_reward_panel() -> void:
 
 
 
+func _on_explosive_detonated(cell: int, n_side: int) -> void:
+	if _defer_hit_vfx:
+		_pending_hit_vfx.append({"cell": cell, "amount": 0, "kind": "爆炸", "boom": true, "n_side": n_side})
+		return
+	_spawn_explosion_vfx(cell, n_side)
+
+
+func _spawn_explosion_vfx(cell: int, n_side: int) -> void:
+	## 炸药炸开：闪光 + 扩散环 + 几粒火星。挂在格子上，跟单位走。
+	if board_row == null or cell < 0 or cell >= board_row.get_child_count():
+		return
+	var slot: Control = board_row.get_child(cell) as Control
+	if slot == null:
+		return
+	var unit: Control = slot.get_node_or_null("UnitBody") as Control
+	var origin := slot.size * 0.5
+	if unit != null and unit.visible:
+		origin = unit.position + unit.size * 0.5
+	var root := Control.new()
+	root.name = "ExplosionVfx"
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.z_index = 30
+	slot.add_child(root)
+	root.position = origin
+	var flash := ColorRect.new()
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var flash_sz := 28.0 + float(maxi(n_side, 1)) * 8.0
+	flash.size = Vector2(flash_sz, flash_sz)
+	flash.position = -flash.size * 0.5
+	flash.color = Color(1.0, 0.95, 0.75, 0.95)
+	root.add_child(flash)
+	var end_sz := float(CELL_W) * (1.15 + float(maxi(n_side, 1)) * 0.85)
+	var ring := Panel.new()
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.size = Vector2(end_sz, end_sz)
+	ring.pivot_offset = ring.size * 0.5
+	ring.position = -ring.pivot_offset
+	ring.scale = Vector2(0.15, 0.15)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1.0, 0.55, 0.08, 0.18)
+	sb.border_color = Color(1.0, 0.78, 0.25, 1.0)
+	sb.set_border_width_all(4)
+	sb.set_corner_radius_all(999)
+	ring.add_theme_stylebox_override("panel", sb)
+	root.add_child(ring)
+	var sparks: Array = []
+	for i in 8:
+		var p := ColorRect.new()
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		p.size = Vector2(6, 6)
+		p.position = -p.size * 0.5
+		p.color = Color(1.0, 0.45 + float(i % 3) * 0.12, 0.08, 0.95)
+		root.add_child(p)
+		sparks.append(p)
+	var dur := _paced(0.32)
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(flash, "modulate:a", 0.0, dur * 0.4)
+	tw.tween_property(ring, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.tween_property(ring, "modulate:a", 0.0, dur)
+	for i in sparks.size():
+		var ang := TAU * float(i) / float(sparks.size())
+		var dist := 22.0 + float(maxi(n_side, 1)) * 14.0
+		var dest := Vector2(cos(ang), sin(ang)) * dist - (sparks[i] as Control).size * 0.5
+		tw.tween_property(sparks[i], "position", dest, dur * 0.85)
+		tw.tween_property(sparks[i], "modulate:a", 0.0, dur)
+	tw.chain().tween_callback(root.queue_free)
+
+
+func _spawn_hit_event(ev: Dictionary) -> void:
+	if bool(ev.get("boom", false)):
+		_spawn_explosion_vfx(int(ev.get("cell", -1)), int(ev.get("n_side", 1)))
+	var cell: int = int(ev.get("cell", -1))
+	var amount: int = int(ev.get("amount", 0))
+	_spawn_damage_float(cell, amount, str(ev.get("kind", "")))
+	_spawn_blood_at_cell(cell, amount, _enemy_corpse_at_cell(cell))
+
+
 func _on_enemy_damaged(cell: int, amount: int, kind: String = "") -> void:
 	if _defer_hit_vfx:
 		_pending_hit_vfx.append({"cell": cell, "amount": amount, "kind": kind})
@@ -2464,7 +2516,7 @@ func _spawn_damage_float(cell: int, amount: int, kind: String = "") -> void:
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	lab.z_index = Z_DMG_FLOAT
 	if kind == "金币":
-		lab.text = "+%d" % amount
+		lab.text = "+%d 金币" % amount
 	elif kind == "":
 		lab.text = "-%d" % amount
 	else:
@@ -4242,6 +4294,39 @@ func _refresh_xp_bar() -> void:
 	_xp_bar_label.text = "Lv%d  经验 %d / %d" % [state.level, state.xp, need]
 
 
+func _update_enemy_status_rings() -> void:
+	## 每帧把敌方状态画成头顶小圆环。木桩同样走这条。
+	if board_row == null or state == null:
+		return
+	var by_cell := {}
+	for e in state.enemies:
+		if e != null and e.is_alive():
+			by_cell[e.cell] = e
+	var dot_left: float = state.dot_tick_remaining()
+	var ring_h := 42.0
+	for i in mini(CombatConstants.BOARD_SIZE, board_row.get_child_count()):
+		var slot: Control = board_row.get_child(i) as Control
+		if slot == null:
+			continue
+		var rings: EnemyStatusRings = slot.get_node_or_null("StatusRings") as EnemyStatusRings
+		if rings == null:
+			rings = EnemyStatusRings.new()
+			rings.name = "StatusRings"
+			rings.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			rings.z_index = 4
+			slot.add_child(rings)
+		var rest_y: float = _unit_rest_position().y
+		rings.size = Vector2(float(CELL_W), ring_h)
+		rings.position = Vector2(_enemy_glide_px(i), rest_y - ring_h - 2.0)
+		if by_cell.has(i):
+			var entries: Array = (by_cell[i] as EnemyInstance).status_ring_entries(dot_left)
+			rings.visible = not entries.is_empty()
+			rings.set_entries(entries)
+		else:
+			rings.visible = false
+			rings.set_entries([])
+
+
 func _refresh_board() -> void:
 	var by_cell := {}
 	# 含 hp<=0 尸体（pace 开火推迟移除），便于致死先飚血再消失
@@ -4321,6 +4406,7 @@ func _refresh_board() -> void:
 			hp_bar.visible = false
 			info.text = ""
 		unit.add_theme_stylebox_override("panel", style)
+	_update_enemy_status_rings()
 
 
 func _style_hp_bar(bar: ProgressBar, fill: Color) -> void:

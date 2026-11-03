@@ -51,7 +51,7 @@ func test_justice_def() -> void:
 	assert_eq(str(def.get("name", "")), "正义弹药")
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_ammo_reward_eligible(JUSTICE))
-	assert_eq(FireResolver.base_damage_for(JUSTICE, [JUSTICE], 0, 0), 3)
+	assert_eq(FireResolver.base_damage_for(JUSTICE, [JUSTICE], 0), 3)
 
 
 func test_justice_strips_loaded_sins_back_to_bag() -> void:

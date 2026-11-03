@@ -425,61 +425,61 @@
 		},
 		{
 			"copies": 1,
-			"dealt": 58,
-			"dps_proxy": 2.9,
+			"dealt": 31,
+			"dps_proxy": 2.81818181818182,
 			"gold_spent": 0,
 			"heal": 0,
 			"id": 21,
-			"lift": 55,
+			"lift": 28,
 			"name": "连发子弹",
-			"ops": 20,
+			"ops": 11,
 			"rarity": "rare",
-			"shots": 20,
+			"shots": 11,
 			"slots": 1,
 			"white_equiv": 3
 		},
 		{
 			"copies": 2,
-			"dealt": 61,
-			"dps_proxy": 2.9047619047619,
+			"dealt": 34,
+			"dps_proxy": 2.83333333333333,
 			"gold_spent": 0,
 			"heal": 0,
 			"id": 21,
-			"lift": 55,
+			"lift": 28,
 			"name": "连发子弹",
-			"ops": 21,
+			"ops": 12,
 			"rarity": "rare",
-			"shots": 21,
+			"shots": 12,
 			"slots": 2,
 			"white_equiv": 6
 		},
 		{
 			"copies": 3,
-			"dealt": 64,
-			"dps_proxy": 2.90909090909091,
+			"dealt": 37,
+			"dps_proxy": 2.84615384615385,
 			"gold_spent": 0,
 			"heal": 0,
 			"id": 21,
-			"lift": 55,
+			"lift": 28,
 			"name": "连发子弹",
-			"ops": 22,
+			"ops": 13,
 			"rarity": "rare",
-			"shots": 22,
+			"shots": 13,
 			"slots": 3,
 			"white_equiv": 9
 		},
 		{
 			"copies": 6,
-			"dealt": 73,
-			"dps_proxy": 2.92,
+			"dealt": 46,
+			"dps_proxy": 2.875,
 			"gold_spent": 0,
 			"heal": 0,
 			"id": 21,
-			"lift": 55,
+			"lift": 28,
 			"name": "连发子弹",
-			"ops": 25,
+			"ops": 16,
 			"rarity": "rare",
-			"shots": 25,
+			"shots": 16,
 			"slots": 6,
 			"white_equiv": 18
 		},
@@ -1444,69 +1444,16 @@
 			"white_equiv": 18
 		}
 	],
-	"exclusions": [
-		{
-			"id": 2,
-			"name": "黑色子弹"
-		},
-		{
-			"id": 3,
-			"name": "绿色子弹"
-		},
-		{
-			"id": 4,
-			"name": "黄色子弹"
-		},
-		{
-			"id": 5,
-			"name": "紫色子弹"
-		},
-		{
-			"id": 6,
-			"name": "红色子弹"
-		},
-		{
-			"id": 7,
-			"name": "蓝色子弹"
-		},
-		{
-			"id": 9,
-			"name": "粉色子弹"
-		},
-		{
-			"id": 10,
-			"name": "黑白子弹"
-		},
-		{
-			"id": 11,
-			"name": "穿透子弹"
-		},
-		{
-			"id": 12,
-			"name": "汽油子弹"
-		},
-		{
-			"id": 13,
-			"name": "火子弹"
-		},
-		{
-			"id": 14,
-			"name": "水子弹"
-		},
-		{
-			"id": 15,
-			"name": "雷击子弹"
-		}
-	],
+	"exclusions": [],
 	"generated_at": "2026-11-02",
 	"influence_rank_x3": [
 		{
-			"dealt_x3": 64,
-			"dps_proxy": 2.90909090909091,
+			"dealt_x3": 37,
+			"dps_proxy": 2.84615384615385,
 			"id": 21,
-			"lift_x3": 55,
+			"lift_x3": 28,
 			"name": "连发子弹",
-			"ops": 22,
+			"ops": 13,
 			"rarity": "rare"
 		},
 		{
@@ -1720,7 +1667,7 @@
 	"method": [
 		"脚本化 CombatState.start_sandbox + 木桩；无 UI。伤害=木桩总 HP 掉量（多怪取 sum）。",
 		"平庸基线：单发3；满匣6白=18。lift=场景总伤−等价白弹基线。",
-		"倾泻用 fire_tap(true) 同步打完；连发窗在窗口内尽量点射（每点间 tick 0.05s）。",
+		"倾泻用 fire_tap(true) 同步打完；连发窗在窗口内尽量点射（每点间隔 = 射速帽）。",
 		"禁用旧色弹/穿透/汽油等 enabled_in_combat=false 未入测。"
 	],
 	"mixed": [
@@ -1738,13 +1685,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 331,
-			"dps_proxy": 5.91071428571429,
+			"dealt": 262,
+			"dps_proxy": 6.89473684210526,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "厨槽B·窗与怒",
-			"ops": 56,
-			"shots": 56
+			"ops": 38,
+			"shots": 38
 		},
 		{
 			"bag_size": 12,
@@ -1793,13 +1740,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 540,
-			"dps_proxy": 14.5945945945946,
+			"dealt": 504,
+			"dps_proxy": 18.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#2",
-			"ops": 37,
-			"shots": 37
+			"ops": 28,
+			"shots": 28
 		},
 		{
 			"bag_size": 12,
@@ -1837,13 +1784,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 115,
-			"dps_proxy": 3.83333333333333,
+			"dealt": 94,
+			"dps_proxy": 3.91666666666667,
 			"gold_spent": -13,
 			"heal": 0,
 			"name": "随机混装#6",
-			"ops": 30,
-			"shots": 40
+			"ops": 24,
+			"shots": 34
 		},
 		{
 			"bag_size": 12,
@@ -1903,13 +1850,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 189,
-			"dps_proxy": 5.25,
+			"dealt": 139,
+			"dps_proxy": 4.96428571428571,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#12",
-			"ops": 36,
-			"shots": 36
+			"ops": 28,
+			"shots": 28
 		}
 	],
 	"mixed_rank": [
@@ -1949,24 +1896,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 540,
-			"dps_proxy": 14.5945945945946,
+			"dealt": 504,
+			"dps_proxy": 18.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#2",
-			"ops": 37,
-			"shots": 37
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 331,
-			"dps_proxy": 5.91071428571429,
-			"gold_spent": 0,
-			"heal": 0,
-			"name": "厨槽B·窗与怒",
-			"ops": 56,
-			"shots": 56
+			"ops": 28,
+			"shots": 28
 		},
 		{
 			"bag_size": 12,
@@ -1982,13 +1918,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 189,
-			"dps_proxy": 5.25,
-			"gold_spent": 1,
+			"dealt": 262,
+			"dps_proxy": 6.89473684210526,
+			"gold_spent": 0,
 			"heal": 0,
-			"name": "随机混装#12",
-			"ops": 36,
-			"shots": 36
+			"name": "厨槽B·窗与怒",
+			"ops": 38,
+			"shots": 38
 		},
 		{
 			"bag_size": 12,
@@ -2026,13 +1962,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 115,
-			"dps_proxy": 3.83333333333333,
-			"gold_spent": -13,
+			"dealt": 139,
+			"dps_proxy": 4.96428571428571,
+			"gold_spent": 1,
 			"heal": 0,
-			"name": "随机混装#6",
-			"ops": 30,
-			"shots": 40
+			"name": "随机混装#12",
+			"ops": 28,
+			"shots": 28
 		},
 		{
 			"bag_size": 12,
@@ -2043,6 +1979,17 @@
 			"heal": 0,
 			"name": "厨槽A·爆发核",
 			"ops": 18,
+			"shots": 34
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 94,
+			"dps_proxy": 3.91666666666667,
+			"gold_spent": -13,
+			"heal": 0,
+			"name": "随机混装#6",
+			"ops": 24,
 			"shots": 34
 		},
 		{
@@ -2103,20 +2050,6 @@
 	],
 	"pair_rank": [
 		{
-			"dealt": 232,
-			"dps_proxy": 11.6,
-			"gold_spent": 0,
-			"heal": 0,
-			"name": "连发窗×预挂怒3",
-			"note": "怒乘区下免费白弹",
-			"ops": 20,
-			"player_hp": 20,
-			"shots": 20,
-			"slots": [
-				21
-			]
-		},
-		{
 			"dealt": 225,
 			"dps_proxy": 45.0,
 			"gold_spent": 0,
@@ -2132,6 +2065,20 @@
 				1,
 				1,
 				1
+			]
+		},
+		{
+			"dealt": 124,
+			"dps_proxy": 11.2727272727273,
+			"gold_spent": 0,
+			"heal": 0,
+			"name": "连发窗×预挂怒3",
+			"note": "怒乘区下免费白弹",
+			"ops": 11,
+			"player_hp": 20,
+			"shots": 11,
+			"slots": [
+				21
 			]
 		},
 		{
@@ -2187,20 +2134,6 @@
 			]
 		},
 		{
-			"dealt": 58,
-			"dps_proxy": 2.9,
-			"gold_spent": 0,
-			"heal": 0,
-			"name": "连发窗×白载体",
-			"note": "窗内尽量点射",
-			"ops": 20,
-			"player_hp": 20,
-			"shots": 20,
-			"slots": [
-				21
-			]
-		},
-		{
 			"dealt": 53,
 			"dps_proxy": 53.0,
 			"gold_spent": 0,
@@ -2236,6 +2169,20 @@
 				1,
 				1,
 				1
+			]
+		},
+		{
+			"dealt": 31,
+			"dps_proxy": 2.81818181818182,
+			"gold_spent": 0,
+			"heal": 0,
+			"name": "连发窗×白载体",
+			"note": "窗内尽量点射",
+			"ops": 11,
+			"player_hp": 20,
+			"shots": 11,
+			"slots": [
+				21
 			]
 		},
 		{
@@ -2547,14 +2494,14 @@
 		},
 		{
 			"dealt": 4,
-			"dps_proxy": 0.2,
+			"dps_proxy": 0.363636363636364,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "暴食枪口×连发点杀",
 			"note": "击杀回血",
-			"ops": 20,
+			"ops": 11,
 			"player_hp": 20,
-			"shots": 20,
+			"shots": 11,
 			"slots": [
 				21
 			]
@@ -2633,15 +2580,15 @@
 			]
 		},
 		{
-			"dealt": 58,
-			"dps_proxy": 2.9,
+			"dealt": 31,
+			"dps_proxy": 2.81818181818182,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "连发窗×白载体",
 			"note": "窗内尽量点射",
-			"ops": 20,
+			"ops": 11,
 			"player_hp": 20,
-			"shots": 20,
+			"shots": 11,
 			"slots": [
 				21
 			]
@@ -2884,15 +2831,15 @@
 			]
 		},
 		{
-			"dealt": 232,
-			"dps_proxy": 11.6,
+			"dealt": 124,
+			"dps_proxy": 11.2727272727273,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "连发窗×预挂怒3",
 			"note": "怒乘区下免费白弹",
-			"ops": 20,
+			"ops": 11,
 			"player_hp": 20,
-			"shots": 20,
+			"shots": 11,
 			"slots": [
 				21
 			]
@@ -2951,14 +2898,14 @@
 		},
 		{
 			"dealt": 4,
-			"dps_proxy": 0.2,
+			"dps_proxy": 0.363636363636364,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "暴食枪口×连发点杀",
 			"note": "击杀回血",
-			"ops": 20,
+			"ops": 11,
 			"player_hp": 20,
-			"shots": 20,
+			"shots": 11,
 			"slots": [
 				21
 			]
@@ -3153,18 +3100,18 @@
 		},
 		{
 			"copies": 1,
-			"dealt": 58,
-			"dps_proxy": 2.9,
+			"dealt": 31,
+			"dps_proxy": 2.81818181818182,
 			"gold_spent": 0,
 			"heal": 0,
 			"id": 21,
-			"lift_vs_white": 55,
+			"lift_vs_white": 28,
 			"name": "连发子弹",
 			"note": "单槽射击",
-			"ops": 20,
+			"ops": 11,
 			"rarity": "rare",
 			"scenario": "solo_1",
-			"shots": 20
+			"shots": 11
 		},
 		{
 			"copies": 1,
@@ -3407,5 +3354,5 @@
 			"shots": 1
 		}
 	],
-	"version": "0.4.20"
+	"version": "0.4.21"
 }

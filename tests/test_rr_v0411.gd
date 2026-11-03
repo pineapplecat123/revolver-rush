@@ -46,7 +46,7 @@ func test_lust_def_and_opening_sin() -> void:
 	assert_eq(str(def.get("name", "")), "色欲弹药")
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_sin_ammo(LUST))
-	assert_eq(FireResolver.base_damage_for(LUST, [LUST], 0, 0), 2)
+	assert_eq(FireResolver.base_damage_for(LUST, [LUST], 0), 2)
 	assert_true(bool(FireResolver.inherits_from(LUST).get("lust", false)))
 	var cs := _rush(41110)
 	assert_eq(cs.selected_sin_ammo_id, LUST)

@@ -29,6 +29,8 @@ func _rush(seed_v: int = 4001, sin_id: int = W) -> CombatState:
 
 
 func _shot(cs: CombatState) -> Array:
+	## 逻辑连射：清掉射速帽再打，测的是弹药不是手速。
+	cs.player_fire_gate_remaining = 0.0
 	return cs.fire_tap()
 
 

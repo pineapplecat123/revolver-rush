@@ -110,6 +110,7 @@ func test_fourth_sin_does_not_retrigger_and_refill_to_three_retriggers() -> void
 	cs.commit_load_session_if_active()
 	# 打掉 2 颗愤怒 → 剩 2；再装 1 颗 → 回到 3 → 再罚
 	cs.fire_tap()
+	cs.player_fire_gate_remaining = 0.0
 	cs.fire_tap()
 	assert_eq(cs.sin_count_in_cylinder(W), 2)
 	var hp1: int = cs.player_hp
@@ -225,6 +226,8 @@ func test_rapid_taps_fire_exactly_n_shots_no_desync() -> void:
 	var d0: int = cs.discard.size()
 	var hp0: int = cs.enemies[0].hp
 	for n in 6:
+		if n > 0:
+			cs.player_fire_gate_remaining = 0.0
 		var start: int = cs.magazine.start_index
 		var shots: Array = cs.fire_tap()
 		assert_eq(shots.size(), 1, "第 %d 次点击恰好 1 发" % (n + 1))
@@ -245,6 +248,7 @@ func test_rapid_taps_skip_empty_chambers() -> void:
 	cs.magazine.start_index = 0
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	var a: Array = cs.fire_tap()
+	cs.player_fire_gate_remaining = 0.0
 	var b: Array = cs.fire_tap()
 	assert_eq(a.size(), 1)
 	assert_eq(b.size(), 1)
@@ -278,12 +282,13 @@ func test_rapid_tap_muzzle_mounts() -> void:
 	cs.fire_tap()
 	assert_eq(cs._muzzle_wrath, 1, "愤怒挂枪口")
 	var hp0: int = cs.enemies[0].hp
+	cs.player_fire_gate_remaining = 0.0
 	cs.fire_tap()
 	assert_true(cs.enemies[0].hp < hp0)
 
 
 func test_ui_n_taps_same_frame_n_shots() -> void:
-	## UI：同一帧点 N 次射击 = N 发，不被上一发动画/转盘锁住。
+	## 同一帧连点不能突破射速帽：只打出 1 发。间隔过后再点才继续。
 	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
 	await wait_process_frames(2)
 	var cs: CombatState = ui.state
@@ -311,13 +316,13 @@ func test_ui_n_taps_same_frame_n_shots() -> void:
 	var d0: int = cs.discard.size()
 	for _i in 4:
 		ui._on_fire()
-	assert_eq(cs.magazine.loaded_count(), 2, "4 次点击 = 4 发")
-	assert_eq(cs.discard.size(), d0 + 4)
+	assert_eq(cs.magazine.loaded_count(), 5, "同一帧 4 次点击只打出 1 发")
+	assert_eq(cs.discard.size(), d0 + 1)
 	assert_false(ui.btn_fire.disabled, "射击键不因动画禁用")
-	ui._on_fire()
-	ui._on_fire()
-	ui._on_fire()
-	assert_eq(cs.magazine.loaded_count(), 0, "第 7 次空匣不重发")
+	for _j in 5:
+		cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
+		ui._on_fire()
+	assert_eq(cs.magazine.loaded_count(), 0, "间隔过后能把匣打空")
 	await wait_seconds(0.6)
 	assert_eq(ui._in_flight_shots, 0, "所有弹道落地")
 	assert_false(ui._wheel_animating)

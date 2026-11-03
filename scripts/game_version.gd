@@ -1,4 +1,4 @@
 extends RefCounted
 class_name GameVersion
 
-const STRING := "0.4.20"
+const STRING := "0.4.21"

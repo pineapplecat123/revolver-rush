@@ -134,3 +134,14 @@ const SLOTH_SLOW_LAYER_SEC := 3.0
 const SLOTH_FIRE_PENALTY_SEC := 4.0
 const SLOTH_FIRE_LOCK_SEC := 0.5
 
+## v0.4.21 玩家点射射速帽。手动连点与连发窗免费点射共用，不能快过这个数。
+## 10 次/秒 = 间隔 0.1 秒。倾泻步进仍走 DUMP_SHOT_INTERVAL_SEC（0.06s），不吃这条。
+const MAX_FIRE_RATE_HZ := 10.0
+const MIN_FIRE_INTERVAL_SEC := 0.1
+
+## v0.4.21 击杀掉金币。普通怪 25% 掉 2；Boss（超级僵尸）必掉 8。木桩不掉。
+const KILL_GOLD_DROP_CHANCE := 0.25
+const KILL_GOLD_DROP_AMOUNT := 2
+const KILL_GOLD_BOSS_DROP_CHANCE := 1.0
+const KILL_GOLD_BOSS_DROP_AMOUNT := 8
+

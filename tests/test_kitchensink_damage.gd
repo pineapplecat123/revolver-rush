@@ -22,7 +22,7 @@ func before_each() -> void:
 func test_kitchensink_damage_study() -> void:
 	_method_notes.append("脚本化 CombatState.start_sandbox + 木桩；无 UI。伤害=木桩总 HP 掉量（多怪取 sum）。")
 	_method_notes.append("平庸基线：单发3；满匣6白=18。lift=场景总伤−等价白弹基线。")
-	_method_notes.append("倾泻用 fire_tap(true) 同步打完；连发窗在窗口内尽量点射（每点间 tick 0.05s）。")
+	_method_notes.append("倾泻用 fire_tap(true) 同步打完；连发窗在窗口内尽量点射（每点间隔 = 射速帽）。")
 	_method_notes.append("禁用旧色弹/穿透/汽油等 enabled_in_combat=false 未入测。")
 	_collect_exclusions()
 	_run_solo_ladder()
@@ -89,13 +89,14 @@ func _fire_empty_cylinder(cs: CombatState, max_ops: int = 40) -> Dictionary:
 		guard -= 1
 		ops += 1
 		var before_loaded := cs.magazine.loaded_count()
+		cs.player_fire_gate_remaining = 0.0
 		var results: Array = cs.fire_tap(true)
 		shots += maxi(results.size(), 1)
 		# 连发窗：窗口内继续点免费平庸
 		var burst_guard := 24
 		while cs.burst_window_remaining > 0.0 and burst_guard > 0:
 			burst_guard -= 1
-			cs.tick_combat_time(0.05)
+			cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
 			if cs.burst_window_remaining <= 0.0:
 				break
 			ops += 1

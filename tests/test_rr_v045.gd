@@ -38,7 +38,7 @@ func test_scatter_ammo_def() -> void:
 	assert_eq(int(def.get("base_damage", 0)), 5)
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_ammo_reward_eligible(SCATTER))
-	assert_eq(FireResolver.base_damage_for(SCATTER, [SCATTER], 0, 0), 5)
+	assert_eq(FireResolver.base_damage_for(SCATTER, [SCATTER], 0), 5)
 
 
 func test_scatter_splits_among_three_plus() -> void:
