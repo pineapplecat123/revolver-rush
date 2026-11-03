@@ -30,6 +30,8 @@ var _bg_color := Color(0.08, 0.07, 0.06, 0.92)
 var _rim_color := Color(0.92, 0.72, 0.35, 0.85)
 ## v0.3.8 临时罪孽寿命：满寿命（画倒计时环用）；消失时的「啵」特效
 var temp_full_life: float = 18.0
+## v0.4.20：按弹药 id 覆盖寿命环满格（幽灵/小石头 18s，临时罪孽 10s）
+var temp_full_life_by_id: Dictionary = {}
 var _pops: Array = []  # {pos, r, t, color}
 const POP_SEC := 0.45
 
@@ -38,6 +40,15 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	clip_contents = true
 	custom_minimum_size = Vector2(200, 200)
+
+
+func ball_local_positions(ammo_id: int) -> Array:
+	## v0.4.20：某种弹当前在袋里的球心（本地坐标），给「幽灵飞向手枪」动画取起点。
+	var out: Array = []
+	for b in _balls:
+		if int(b.get("id", -1)) == ammo_id:
+			out.append(b["pos"])
+	return out
 
 
 func ball_count() -> int:
@@ -333,7 +344,8 @@ func _draw() -> void:
 		# v0.3.8 临时罪孽寿命环：从 12 点顺时针缩短；≤25% 变红
 		if is_temp_ball:
 			var life: float = float(b.get("life", temp_full_life))
-			var frac: float = clampf(life / maxf(temp_full_life, 0.01), 0.0, 1.0)
+			var full: float = float(temp_full_life_by_id.get(int(b.get("id", -1)), temp_full_life))
+			var frac: float = clampf(life / maxf(full, 0.01), 0.0, 1.0)
 			var ring_col: Color = Color(1.0, 0.3, 0.25, 0.95) if frac <= 0.25 else Color(1.0, 0.95, 0.8, 0.9)
 			draw_arc(pos, r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, true)
 		var glyph := "?"

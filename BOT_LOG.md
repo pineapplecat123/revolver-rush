@@ -558,3 +558,12 @@
 - 真实场景探针（tools/probe_reward_freeze.gd）：打死最后一只怪升级 → 同帧刷出 2 只新怪（补刷先于发经验）；面板打开期间转盘/子弹 Tween 继续走。
 - 修：三选一期间整场冻结（根节点 DISABLED + 可暂停等待 `_pwait`）；补刷推迟到清尸体发经验后、选完恢复时；升级立即弹面板。GUT `tests/test_rr_v039.gd`。
 
+
+## 2026-11-03 — v0.4.20 沙盒大按钮 + DPS 统计 + 幽灵 TTL + 墓碑新规则 + 临时罪孽 20%/10s
+- 沙盒面板：5 大页签（常规/枪口/弹药/敌人/状态），按钮/「- 数值 +」步进器 60px 高、字号 24；面板贴下半屏、不盖遮罩；SpinBox 全部替换。
+- 进沙盒默认 3 木桩（格 3/5/7）；木桩头显示自身累计伤害。
+- 伤害统计：`_notify_enemy_damage` 统一记录（直击/穿透/散射/爆炸/汽油/DoT/混乱/幽灵/倾泻）；近 5 秒 DPS、近 5 秒单次最大、总伤害、历史峰值、清零。HUD 浮在战场 XP 条下，不进布局容器。
+- 幽灵永久 bug：袋重置 `_extract_ghosts_from_bag_and_discard` 只数个数再 `_bag_append(GHOST,false)` → 永久；现保留剩余 TTL、丢过期，`_bag_append/_discard_append/装仓` 统一把幽灵 0 TTL 归一成 GHOST_TTL。
+- 墓碑：袋无幽灵→+2 临时幽灵（本发不带）；有→全部随墓碑射出、不新生成；UI 幽灵先飞到转轮再出膛（0.16s）。
+- 数值：LOAD_TEMP_SIN_CHANCE 0.33→0.20；TEMP_SIN_LIFETIME_SEC 18→10；GHOST/PEBBLE/ENVY_COPY TTL 拆成独立常量仍 18。
+- GUT 393/393。截图 docs/shots/rr_sandbox_*.png。

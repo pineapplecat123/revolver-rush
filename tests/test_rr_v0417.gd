@@ -29,11 +29,14 @@ func test_start_sandbox_pauses_spawn_and_shop() -> void:
 	assert_true(cs.sandbox_mode)
 	assert_true(cs.spawn_paused)
 	assert_true(cs.map_shop_disabled)
-	assert_eq(cs.enemies.size(), 0)
+	# v0.4.20：沙盒开局只有默认 3 个木桩，没有普通怪
+	assert_eq(cs.enemies.size(), CombatConstants.SANDBOX_DEFAULT_DUMMY_CELLS.size())
+	for e in cs.enemies:
+		assert_true(e.is_dummy)
 	assert_true(cs.bag.size() > 0)
 	# 时间推进不应刷怪 / 出商店
 	cs.tick_combat_time(50.0)
-	assert_eq(cs.enemies.size(), 0)
+	assert_eq(cs.enemies.size(), CombatConstants.SANDBOX_DEFAULT_DUMMY_CELLS.size())
 	assert_eq(cs.shop_cell, -1)
 	assert_false(cs.shop_touch_pending)
 
@@ -71,7 +74,7 @@ func test_sandbox_bag_inject_with_temp_ttl() -> void:
 
 func test_sandbox_dummy_is_immobile_and_does_not_attack() -> void:
 	var cs := CombatState.new(41704)
-	cs.start_sandbox(41704)
+	cs.start_sandbox(41704, FireResolver.ID_WRATH, false)  # v0.4.20：不摆默认木桩，空场测手动生成
 	var dummy: EnemyInstance = cs.sandbox_spawn_dummy(500, 3)
 	assert_not_null(dummy)
 	assert_true(dummy.is_dummy)

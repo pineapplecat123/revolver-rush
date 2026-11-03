@@ -11,6 +11,10 @@ const ZOMBIE_ENEMY_ID := 4
 const SUPER_ZOMBIE_ENEMY_ID := 5
 const DUMMY_ENEMY_ID := 900  ## 沙盒木桩
 const SANDBOX_DUMMY_DEFAULT_HP := 999
+## v0.4.20 沙盒：进沙盒默认摆 3 个木桩（隔一格站开，方便测散射/爆炸/连锁）。
+const SANDBOX_DEFAULT_DUMMY_CELLS: Array[int] = [3, 5, 7]
+## v0.4.20 沙盒伤害统计：DPS 与「最近单次最大」都看最近这么多战斗秒。
+const SANDBOX_DPS_WINDOW_SEC := 5.0
 ## 灰盒开局：平庸弹 + 所选罪孽弹。
 const STARTER_WHITE_COUNT := 10
 const STARTER_SIN_COUNT := 5
@@ -63,8 +67,8 @@ const MUZZLE_DURATION_PRIDE_SEC := 12.0
 
 
 ## ——— v0.3.8 无波次 / 经验值 / 临时罪孽寿命 ———
-## 临时罪孽（装入时 33% +1 同种）寿命：18 秒（战斗秒 × 速度，暂停时停）。
-const TEMP_SIN_LIFETIME_SEC := 18.0
+## 临时罪孽（装入时 20% +1 同种）寿命：10 秒（战斗秒 × 速度，暂停时停）。v0.4.20：18→10。
+const TEMP_SIN_LIFETIME_SEC := 10.0
 ## 经验：击杀得 XP = 敌人 max_hp（Boss/超级僵尸 ×2）。
 const XP_BOSS_MULT := 2
 ## 升级阈值：need(L) = XP_BASE + XP_LINEAR*(L-1) + XP_QUAD*(L-1)^2  → L1 30, L2 55, L3 90, L4 135, L5 190 …
@@ -89,17 +93,21 @@ const SPAWN_LANE_CELLS := 3
 const BURST_WINDOW_SEC := 1.0
 ## 倾泻：自动打剩余已装填仓，约 0.06s/发（v0.4.16 UI `_run_dump_autofire` 步进；测试/逻辑可同步打完）。
 const DUMP_SHOT_INTERVAL_SEC := 0.06
-## 装入罪孽时 33% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。
-const LOAD_TEMP_SIN_CHANCE := 0.33
+## 装入罪孽时 20% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。v0.4.20：0.33→0.20。
+const LOAD_TEMP_SIN_CHANCE := 0.20
 ## DoT（燃烧/流血）独立 0.5s 跳一次，不再挂在落格拍。
 const DOT_TICK_SEC := 0.5
 ## 地图商店：首次出现与再次刷新间隔（战斗秒）。
 const MAP_SHOP_FIRST_SEC := 45.0
 const MAP_SHOP_RESPAWN_SEC := 90.0
 ## 幽灵 TTL：与临时罪孽同寿命。
-const GHOST_TTL_SEC := TEMP_SIN_LIFETIME_SEC
+## v0.4.20 墓碑：打出时袋里没幽灵 → 生成这么多颗临时幽灵
+const TOMBSTONE_GHOST_SPAWN := 2
+const GHOST_TTL_SEC := 18.0  ## v0.4.20：与临时罪孽寿命拆开，保持 18 秒
 ## 小石头 TTL：与幽灵同寿命。
-const PEBBLE_TTL_SEC := TEMP_SIN_LIFETIME_SEC
+const PEBBLE_TTL_SEC := 18.0  ## v0.4.20：与临时罪孽寿命拆开，保持 18 秒
+## 嫉妒击杀复制非罪弹入袋的 TTL（v0.4.20 从临时罪孽寿命拆出，保持 18 秒）
+const ENVY_COPY_TTL_SEC := 18.0
 
 ## 吸血枪口：每层概率与回血比例。
 const LIFESTEAL_CHANCE_PER_STACK := 0.20

@@ -26,6 +26,8 @@ const POST_FIRE_STATUS_DELAY := 0.45
 ## v0.3.5 连点射击：转盘快速补间（可被下一次点击打断），额外轮弹道错开。
 const FIRE_ROT_SEC := 0.06
 const EXTRA_SHOT_STAGGER_SEC := 0.05
+## v0.4.20 墓碑：袋里幽灵先飞到转轮（手枪）再一起射出，这段聚拢时长（短，不卡操作）
+const GHOST_GATHER_SEC := 0.16
 const STEP_ROT_DURATION := 0.18 / WHEEL_SPEED_MULT
 const ROLL_ANIM_BASE := 0.45 / WHEEL_SPEED_MULT
 const ROLL_ANIM_PER_STEP := 0.06 / WHEEL_SPEED_MULT
@@ -148,6 +150,20 @@ const MUZZLE_SLOT_W := 300.0
 var _muzzle_slot: Control = null  ## 固定占位，防枪口状态撑开 MagCol
 var _combat_speed: float = COMBAT_SPEED_DEFAULT
 var _speed_row: HBoxContainer = null
+## v0.4.20 沙盒：大号触控面板（页签）+ 伤害统计 HUD
+const SANDBOX_TAB_NAMES: Array[String] = ["常规", "枪口", "弹药", "敌人", "状态"]
+const SB_TOUCH_H := 60.0  ## 可点控件最小高（逻辑像素，视口 720 宽）
+const SB_STEP_BTN_W := 56.0
+const SB_STEP_VAL_W := 64.0
+const SB_FONT := 24
+const SB_FONT_SMALL := 21
+const SB_GAP := 8
+const SB_STATS_H := 82.0
+var _sandbox_tab: int = 0
+var _ghost_gather_from: Array = []  ## v0.4.20 开火前袋内幽灵屏幕位置
+var _sb_stats_panel: PanelContainer = null
+var _sb_stats_main: Label = null
+var _sb_stats_sub: Label = null
 var _speed_slider: HSlider = null
 var _speed_value_label: Label = null
 var _muzzle_panel: PanelContainer = null  ## 透明命中层（悬停/长按）
@@ -280,13 +296,18 @@ func _ready() -> void:
 	if want_sandbox:
 		btn_next_wave.text = "重新开始沙盒"
 		btn_dev.text = "沙盒"
-		var title_n := get_node_or_null("%DevTitle") as Label
+		var title_n := get_node_or_null("DevPanel/DevMargin/DevVBox/DevHeader/DevTitle") as Label
 		if title_n != null:
 			title_n.text = "沙盒工具"
 		state.start_sandbox(0, FireResolver.ID_WRATH)
+		btn_dev.custom_minimum_size = Vector2(maxf(btn_dev.custom_minimum_size.x, 120.0), SB_TOUCH_H)
+		btn_dev.add_theme_font_size_override("font_size", SB_FONT)
+		_fit_sandbox_panel()
+		_ensure_sandbox_stats_hud()
 		_rebuild_dev_tool_body()
 		_refresh()
 		_toggle_dev()  # 开局直接打开沙盒面板
+		call_deferred("_fit_sandbox_panel")  # 首帧布局后按 TopPanel 实际高度再贴一次
 	else:
 		btn_next_wave.text = "重新开始 rush!"
 		# rush!：先选罪孽，再开第 1 波
@@ -1155,6 +1176,7 @@ func _process(delta: float) -> void:
 		_update_enemy_glide_visuals()
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
+	_update_sandbox_stats_hud()
 
 
 func _enemy_glide_px(cell: int) -> float:
@@ -1345,6 +1367,7 @@ func _run_fire_tap() -> void:
 	var start_before: int = state.magazine.start_index
 	_pending_hit_vfx.clear()
 	_defer_hit_vfx = true
+	_ghost_gather_from = _capture_bag_ghost_globals()
 	var shots: Array = state.fire_tap(false)
 	_defer_hit_vfx = false
 	var hit_events: Array = _pending_hit_vfx.duplicate()
@@ -1384,8 +1407,18 @@ func _present_tap_shots(shots: Array, hit_events: Array, visual_before: float, s
 	_refresh_mag_contents()
 	_refresh()
 	_in_flight_shots += shots.size()
+	# v0.4.20 墓碑：本批有幽灵射出 → 先播「袋里幽灵飞到转轮」，整批弹道统一晚 GHOST_GATHER_SEC 出膛
+	var ghost_n: int = 0
+	for rec in shots:
+		if int(rec.get("ammo_id", -1)) == FireResolver.ID_GHOST and bool(rec.get("virtual", false)):
+			ghost_n += 1
+	var batch_delay: float = 0.0
+	if ghost_n > 0:
+		_play_ghost_gather(ghost_n)
+		batch_delay = _paced(GHOST_GATHER_SEC)
+	_ghost_gather_from = []
 	for i in shots.size():
-		_play_tap_shot(shots[i], hit_events if i == 0 else [], i)
+		_play_tap_shot(shots[i], hit_events if i == 0 else [], i, batch_delay)
 
 
 func _run_dump_autofire() -> void:
@@ -1403,6 +1436,7 @@ func _run_dump_autofire() -> void:
 		var start_before: int = state.magazine.start_index if state.magazine != null else 0
 		_pending_hit_vfx.clear()
 		_defer_hit_vfx = true
+		_ghost_gather_from = _capture_bag_ghost_globals()
 		var more: Array = state.take_dump_shot()
 		_defer_hit_vfx = false
 		var hit_events: Array = _pending_hit_vfx.duplicate()
@@ -1433,10 +1467,11 @@ func _spawn_hit_event(ev: Dictionary) -> void:
 	_spawn_blood_at_cell(cell, amount, _enemy_corpse_at_cell(cell))
 
 
-func _play_tap_shot(rec: Dictionary, events: Array, order: int) -> void:
+func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: float = 0.0) -> void:
 	## 单发弹道（不 await 逻辑）：飞到命中格时播放该格延后的飘字/飚血，落地后清尸体。
-	if order > 0:
-		await _pwait(_paced(EXTRA_SHOT_STAGGER_SEC) * float(order))
+	var wait_s: float = batch_delay + (_paced(EXTRA_SHOT_STAGGER_SEC) * float(order) if order > 0 else 0.0)
+	if wait_s > 0.0:
+		await _pwait(wait_s)
 	var hit_cells: Array = rec.get("hit_cells", [])
 	var hit_amts: Array = rec.get("hit_amounts", [])
 	var from_g: Vector2 = _cell_unit_global_center(CombatConstants.PLAYER_CELL)
@@ -1474,6 +1509,53 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int) -> void:
 	for ev in remaining:
 		_spawn_hit_event(ev)
 	_on_tap_shot_landed()
+
+
+func _capture_bag_ghost_globals() -> Array:
+	## 开火前记下袋里幽灵球的屏幕位置（结算后它们已离袋）。
+	var out: Array = []
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		return out
+	var xf: Transform2D = _bag_physics.get_global_transform()
+	for p in _bag_physics.ball_local_positions(FireResolver.ID_GHOST):
+		out.append(xf * (p as Vector2))
+	return out
+
+
+func _play_ghost_gather(n: int) -> void:
+	## v0.4.20：幽灵从袋里飞到转轮中心（手枪），到了就淡出；纯表现，不挡输入、不动转轮。
+	var to_g: Vector2 = Vector2.ZERO
+	if mag_wheel != null and is_instance_valid(mag_wheel):
+		to_g = mag_wheel.get_global_rect().get_center()
+	if to_g == Vector2.ZERO:
+		return
+	var froms: Array = _ghost_gather_from.duplicate()
+	var fallback: Vector2 = to_g + Vector2(260, 0)
+	if _bag_physics != null and is_instance_valid(_bag_physics):
+		fallback = _bag_physics.get_global_rect().get_center()
+	var cols: Dictionary = _ammo_colors(FireResolver.ID_GHOST)
+	var dur: float = _paced(GHOST_GATHER_SEC)
+	for i in n:
+		var from_g: Vector2 = froms[i] if i < froms.size() else fallback + Vector2(randf_range(-30, 30), randf_range(-30, 30))
+		var dot := Panel.new()
+		dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		dot.z_index = Z_SHOT_VFX + 1
+		dot.size = Vector2(26, 26)
+		dot.pivot_offset = dot.size * 0.5
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = cols.get("bg", Color(0.72, 0.88, 0.95, 0.85))
+		sb.set_corner_radius_all(13)
+		sb.set_border_width_all(2)
+		sb.border_color = Color(1, 1, 1, 0.9)
+		dot.add_theme_stylebox_override("panel", sb)
+		add_child(dot)
+		dot.global_position = from_g - dot.size * 0.5
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(dot, "global_position", to_g - dot.size * 0.5, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tw.tween_property(dot, "scale", Vector2(0.55, 0.55), dur)
+		tw.chain().tween_property(dot, "modulate:a", 0.0, 0.06)
+		tw.finished.connect(dot.queue_free)
 
 
 func _on_tap_shot_landed() -> void:
@@ -2213,6 +2295,8 @@ func _toggle_dev() -> void:
 	if (not _dev_open) and (_reward_open or _shop_open):
 		return
 	_dev_open = not _dev_open
+	if _dev_open and state != null and state.sandbox_mode:
+		_fit_sandbox_panel()
 	dev_panel.visible = _dev_open
 	if _dev_open:
 		_hide_ammo_detail()
@@ -2222,7 +2306,9 @@ func _toggle_dev() -> void:
 
 func _update_dimmer() -> void:
 	# 悬停/长按弹药详情不盖遮罩；开发面板 / 奖励 / 商店 / 罪孽选择用遮罩
-	dimmer.visible = _dev_open or _reward_open or _shop_open or _sin_pick_open
+	# v0.4.20：沙盒面板是下半屏抽屉，不盖遮罩，好边看战场/DPS 边调
+	var dev_dim: bool = _dev_open and not (state != null and state.sandbox_mode)
+	dimmer.visible = dev_dim or _reward_open or _shop_open or _sin_pick_open
 
 
 func _pwait(sec: float) -> void:
@@ -2931,6 +3017,10 @@ func _update_temp_sin_timers() -> void:
 		return
 	if _bag_physics != null:
 		_bag_physics.temp_full_life = CombatConstants.TEMP_SIN_LIFETIME_SEC
+		_bag_physics.temp_full_life_by_id = {
+			FireResolver.ID_GHOST: CombatConstants.GHOST_TTL_SEC,
+			FireResolver.ID_PEBBLE: CombatConstants.PEBBLE_TTL_SEC,
+		}
 		var by_id: Dictionary = {}
 		var lifes: Array = state.temp_lifetimes_in_bag()
 		for i in state.bag.size():
@@ -3409,6 +3499,9 @@ func _rebuild_dev_tool_body() -> void:
 	if state != null and state.sandbox_mode:
 		_rebuild_sandbox_tool_body()
 		return
+	var tabs_n: Control = get_node_or_null("DevPanel/DevMargin/DevVBox/SandboxTabs") as Control
+	if tabs_n != null:
+		tabs_n.visible = false
 	var inner: VBoxContainer = get_node_or_null("%DevInner") as VBoxContainer
 	if inner == null and dev_panel != null:
 		inner = dev_panel.get_node_or_null("DevMargin/DevVBox/DevScroll/DevInner") as VBoxContainer
@@ -3486,185 +3579,280 @@ func _rebuild_dev_tool_body() -> void:
 
 
 func _rebuild_sandbox_tool_body() -> void:
-	## 沙盒面板：常规 | 枪口 | 弹药袋 | 敌人/状态
+	## v0.4.20 沙盒面板（手机好点）：顶部 5 个大页签，下面单列大按钮/大步进器，可上下滑。
 	var inner: VBoxContainer = get_node_or_null("%DevInner") as VBoxContainer
 	if inner == null and dev_panel != null:
 		inner = dev_panel.get_node_or_null("DevMargin/DevVBox/DevScroll/DevInner") as VBoxContainer
 	if inner == null:
 		push_error("DevInner missing; skip rebuild_sandbox_tool_body")
 		return
+	_ensure_sandbox_tabs()
 	for c in inner.get_children():
 		inner.remove_child(c)
 		c.free()
-	var cols := HBoxContainer.new()
-	cols.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	cols.add_theme_constant_override("separation", 8)
-	inner.add_child(cols)
-	var col_general := _dev_make_column("常规")
-	var col_muzzle := _dev_make_column("枪口")
-	var col_ammo := _dev_make_column("弹药袋")
-	var col_enemy := _dev_make_column("敌人/状态")
-	for col in [col_general, col_muzzle, col_ammo, col_enemy]:
-		cols.add_child(col["root"])
-		var sc: ScrollContainer = col["root"].get_child(1) as ScrollContainer
-		if sc != null:
-			sc.custom_minimum_size = Vector2(150, 760)
+	inner.add_theme_constant_override("separation", SB_GAP)
+	match _sandbox_tab:
+		0:
+			_sb_build_general(inner)
+		1:
+			_sb_build_muzzle(inner)
+		2:
+			_sb_build_ammo(inner)
+		3:
+			_sb_build_enemy(inner)
+		_:
+			_sb_build_status(inner)
+	var scroll := inner.get_parent() as ScrollContainer
+	if scroll != null:
+		scroll.scroll_vertical = 0
 
-	_dev_add_btn(col_general["box"], "重置沙盒", func():
+
+func _ensure_sandbox_tabs() -> void:
+	if dev_panel == null:
+		return
+	var vbox: VBoxContainer = dev_panel.get_node_or_null("DevMargin/DevVBox") as VBoxContainer
+	if vbox == null:
+		return
+	var tabs: HBoxContainer = vbox.get_node_or_null("SandboxTabs") as HBoxContainer
+	if tabs == null:
+		tabs = HBoxContainer.new()
+		tabs.name = "SandboxTabs"
+		tabs.add_theme_constant_override("separation", 6)
+		vbox.add_child(tabs)
+		var scroll: Node = vbox.get_node_or_null("DevScroll")
+		if scroll != null:
+			vbox.move_child(tabs, scroll.get_index())
+		for i in SANDBOX_TAB_NAMES.size():
+			var b := Button.new()
+			b.name = "Tab%d" % i
+			b.text = SANDBOX_TAB_NAMES[i]
+			b.toggle_mode = true
+			b.focus_mode = Control.FOCUS_NONE
+			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			b.custom_minimum_size = Vector2(0, SB_TOUCH_H)
+			b.add_theme_font_size_override("font_size", SB_FONT)
+			b.pressed.connect(func(idx := i): _sandbox_select_tab(idx))
+			tabs.add_child(b)
+	tabs.visible = true
+	for i in tabs.get_child_count():
+		var tb := tabs.get_child(i) as Button
+		if tb != null:
+			tb.set_pressed_no_signal(i == _sandbox_tab)
+			tb.modulate = Color(1, 1, 1, 1) if i == _sandbox_tab else Color(0.72, 0.74, 0.8, 1)
+	# 头部：标题 + 大「收起」
+	var title := dev_panel.get_node_or_null("DevMargin/DevVBox/DevHeader/DevTitle") as Label
+	if title != null:
+		title.text = "沙盒工具"
+		title.add_theme_font_size_override("font_size", SB_FONT)
+	var close := get_node_or_null("%DevClose") as Button
+	if close != null:
+		close.text = "收起"
+		close.custom_minimum_size = Vector2(150, SB_TOUCH_H)
+		close.add_theme_font_size_override("font_size", SB_FONT)
+	var scroll2 := vbox.get_node_or_null("DevScroll") as ScrollContainer
+	if scroll2 != null:
+		scroll2.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+
+
+func _sandbox_select_tab(idx: int) -> void:
+	_sandbox_tab = clampi(idx, 0, SANDBOX_TAB_NAMES.size() - 1)
+	_rebuild_dev_tool_body()
+
+
+func _fit_sandbox_panel() -> void:
+	## 沙盒：面板贴在下半屏（转轮/按钮区上方盖住），上面战场 + 伤害统计一直看得到；不盖遮罩。
+	if dev_panel == null:
+		return
+	var top_y: float = _sandbox_panel_top()
+	dev_panel.custom_minimum_size = Vector2(0, 0)
+	dev_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dev_panel.offset_left = 8.0
+	dev_panel.offset_right = -8.0
+	dev_panel.offset_top = top_y
+	dev_panel.offset_bottom = -8.0
+
+
+func _sandbox_panel_top() -> float:
+	var vp := get_viewport_rect().size if is_inside_tree() else Vector2(720, 1280)
+	var top_panel := get_node_or_null("Margin/RootVBox/TopPanel") as Control
+	if top_panel != null and top_panel.size.y > vp.y * 0.2:
+		return top_panel.get_global_rect().end.y + 4.0
+	return vp.y * 0.345
+
+
+# —— 大号控件 ——
+
+func _sb_btn(parent: Control, label: String, cb: Callable, min_w: float = 0.0) -> Button:
+	var b := Button.new()
+	b.text = label
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(min_w, SB_TOUCH_H)
+	b.add_theme_font_size_override("font_size", SB_FONT)
+	if min_w <= 0.0:
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.pressed.connect(cb)
+	parent.add_child(b)
+	return b
+
+
+func _sb_grid(parent: Control, cols: int = 2) -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = cols
+	g.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	g.add_theme_constant_override("h_separation", SB_GAP)
+	g.add_theme_constant_override("v_separation", SB_GAP)
+	parent.add_child(g)
+	return g
+
+
+func _sb_section(parent: Control, text: String) -> void:
+	var l := Label.new()
+	l.text = text
+	l.add_theme_font_size_override("font_size", SB_FONT)
+	l.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45))
+	parent.add_child(l)
+
+
+func _sb_label(parent: Control, text: String, min_w: float = 0.0, expand: bool = false) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.custom_minimum_size = Vector2(min_w, 0)
+	l.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	l.add_theme_font_size_override("font_size", SB_FONT_SMALL)
+	l.clip_text = true
+	if expand:
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(l)
+	return l
+
+
+func _sb_row(parent: Control) -> HBoxContainer:
+	var r := HBoxContainer.new()
+	r.add_theme_constant_override("separation", SB_GAP)
+	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	parent.add_child(r)
+	return r
+
+
+func _sb_stepper(parent: Control, minv: float, maxv: float, step: float, value: float, decimals: int = 0) -> HBoxContainer:
+	## 大号「- 数值 +」，替代 SpinBox 的小箭头。读值：stepper.get_meta("val")。
+	var box := HBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	box.set_meta("val", clampf(value, minv, maxv))
+	var lab := Label.new()
+	lab.custom_minimum_size = Vector2(SB_STEP_VAL_W, SB_TOUCH_H)
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.add_theme_font_size_override("font_size", SB_FONT)
+	var show := func():
+		var v: float = float(box.get_meta("val"))
+		lab.text = ("%d" % int(round(v))) if decimals <= 0 else ("%.1f" % v)
+	var bump := func(d: float):
+		box.set_meta("val", clampf(snappedf(float(box.get_meta("val")) + d, step), minv, maxv))
+		show.call()
+	var minus := Button.new()
+	minus.text = "-"
+	minus.focus_mode = Control.FOCUS_NONE
+	minus.custom_minimum_size = Vector2(SB_STEP_BTN_W, SB_TOUCH_H)
+	minus.add_theme_font_size_override("font_size", SB_FONT + 4)
+	minus.pressed.connect(func(): bump.call(-step))
+	var plus := Button.new()
+	plus.text = "+"
+	plus.focus_mode = Control.FOCUS_NONE
+	plus.custom_minimum_size = Vector2(SB_STEP_BTN_W, SB_TOUCH_H)
+	plus.add_theme_font_size_override("font_size", SB_FONT + 4)
+	plus.pressed.connect(func(): bump.call(step))
+	box.add_child(minus)
+	box.add_child(lab)
+	box.add_child(plus)
+	show.call()
+	parent.add_child(box)
+	return box
+
+
+# —— 各页 ——
+
+func _sb_build_general(inner: VBoxContainer) -> void:
+	var g := _sb_grid(inner, 2)
+	_sb_btn(g, "重置沙盒", func():
 		state.sandbox_reset()
 		_rebuild_dev_tool_body()
 		_refresh()
 	)
-	_dev_add_btn(col_general["box"], "清场敌人", func(): state.sandbox_clear_enemies(); _refresh())
-	_dev_add_btn(col_general["box"], "空仓补平庸", func(): state.sandbox_refill_empty_chambers(); _refresh())
-	_dev_add_btn(col_general["box"], "金币 +10", func(): state.dev_add_gold(10); _refresh())
-	_dev_add_btn(col_general["box"], "玩家 HP +5", func(): state.dev_set_player_hp(state.player_hp + 5); _refresh())
-	_dev_add_btn(col_general["box"], "玩家 HP -5", func(): state.dev_set_player_hp(state.player_hp - 5); _refresh())
-	_dev_add_btn(col_general["box"], "强制装 6 平庸", func():
-		var ids: Array[int] = [
-			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
-			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
-			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID
-		]
+	_sb_btn(g, "伤害清零", func(): state.damage_stats_reset(); _refresh())
+	_sb_btn(g, "清场敌人", func(): state.sandbox_clear_enemies(); _refresh())
+	_sb_btn(g, "摆 3 个木桩", func(): state.sandbox_spawn_default_dummies(); _refresh())
+	_sb_btn(g, "空仓补平庸", func(): state.sandbox_refill_empty_chambers(); _refresh())
+	_sb_btn(g, "强制装 6 平庸", func():
+		var ids: Array[int] = []
+		for _i in 6:
+			ids.append(CombatConstants.WHITE_AMMO_ID)
 		state.dev_force_load(ids)
 		_refresh()
 	)
-	var spawn_lab := Label.new()
-	spawn_lab.text = "刷怪：%s" % ("暂停" if state.spawn_paused else "开启")
-	spawn_lab.add_theme_font_size_override("font_size", 14)
-	col_general["box"].add_child(spawn_lab)
-	_dev_add_btn(col_general["box"], "切换刷怪暂停", func():
+	_sb_btn(g, "金币 +10", func(): state.dev_add_gold(10); _refresh())
+	_sb_btn(g, "玩家 HP +5", func(): state.dev_set_player_hp(state.player_hp + 5); _refresh())
+	_sb_btn(g, "玩家 HP -5", func(): state.dev_set_player_hp(state.player_hp - 5); _refresh())
+	_sb_btn(g, "刷怪：%s" % ("暂停" if state.spawn_paused else "开启"), func():
 		state.sandbox_set_spawn_paused(not state.spawn_paused)
 		_rebuild_dev_tool_body()
 		_refresh()
 	)
 
-	_dev_add_btn(col_muzzle["box"], "清空全部枪口", func(): state.sandbox_clear_muzzle(); _refresh())
+
+func _sb_build_muzzle(inner: VBoxContainer) -> void:
+	_sb_btn(inner, "清空全部枪口", func(): state.sandbox_clear_muzzle(); _refresh())
+	_sb_label(inner, "每行：层数 · 每层秒数 · 点「设」生效")
 	for kind in CombatState.sandbox_muzzle_kinds():
 		var k: String = str(kind)
-		var row := VBoxContainer.new()
-		row.add_theme_constant_override("separation", 2)
-		col_muzzle["box"].add_child(row)
-		var title := Label.new()
-		title.text = CombatState.sandbox_muzzle_label(k)
-		title.add_theme_font_size_override("font_size", 14)
-		row.add_child(title)
-		var controls := HBoxContainer.new()
-		controls.add_theme_constant_override("separation", 2)
-		row.add_child(controls)
-		var sp_stacks := SpinBox.new()
-		sp_stacks.min_value = 0
-		sp_stacks.max_value = 20
-		sp_stacks.value = 1
-		sp_stacks.custom_minimum_size = Vector2(64, 28)
-		sp_stacks.tooltip_text = "层数"
-		controls.add_child(sp_stacks)
-		var sp_dur := SpinBox.new()
-		sp_dur.min_value = 0.0
-		sp_dur.max_value = 120.0
-		sp_dur.step = 0.5
-		sp_dur.value = 4.0
-		sp_dur.custom_minimum_size = Vector2(72, 28)
-		sp_dur.tooltip_text = "每层秒"
-		controls.add_child(sp_dur)
-		var b_apply := Button.new()
-		b_apply.text = "设"
-		b_apply.custom_minimum_size = Vector2(36, 28)
-		b_apply.pressed.connect(func(kk := k, ss := sp_stacks, dd := sp_dur):
-			state.sandbox_set_muzzle(kk, int(ss.value), float(dd.value))
+		var row := _sb_row(inner)
+		_sb_label(row, CombatState.sandbox_muzzle_label(k), 72.0, true)
+		var st := _sb_stepper(row, 0, 20, 1, 1, 0)
+		var du := _sb_stepper(row, 0.0, 120.0, 0.5, 4.0, 1)
+		_sb_btn(row, "设", func(kk := k, ss := st, dd := du):
+			state.sandbox_set_muzzle(kk, int(ss.get_meta("val")), float(dd.get_meta("val")))
 			_refresh()
-		)
-		controls.add_child(b_apply)
+		, 76.0)
 
-	_dev_add_btn(col_ammo["box"], "清空弹药袋", func(): state.dev_clear_bag(); _refresh())
-	var ttl_row := HBoxContainer.new()
-	ttl_row.add_theme_constant_override("separation", 4)
-	col_ammo["box"].add_child(ttl_row)
-	var ttl_lab := Label.new()
-	ttl_lab.text = "临时秒"
-	ttl_lab.add_theme_font_size_override("font_size", 12)
-	ttl_row.add_child(ttl_lab)
-	var sp_ttl := SpinBox.new()
-	sp_ttl.min_value = 0.0
-	sp_ttl.max_value = 120.0
-	sp_ttl.step = 1.0
-	sp_ttl.value = CombatConstants.TEMP_SIN_LIFETIME_SEC
-	sp_ttl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	ttl_row.add_child(sp_ttl)
-	var bag_idx_row := HBoxContainer.new()
-	bag_idx_row.add_theme_constant_override("separation", 4)
-	col_ammo["box"].add_child(bag_idx_row)
-	var idx_lab := Label.new()
-	idx_lab.text = "改TTL下标"
-	idx_lab.add_theme_font_size_override("font_size", 12)
-	bag_idx_row.add_child(idx_lab)
-	var sp_idx := SpinBox.new()
-	sp_idx.min_value = 0
-	sp_idx.max_value = 99
-	sp_idx.value = 0
-	bag_idx_row.add_child(sp_idx)
-	var b_set_ttl := Button.new()
-	b_set_ttl.text = "写入"
-	b_set_ttl.pressed.connect(func():
-		state.sandbox_set_bag_temp(int(sp_idx.value), float(sp_ttl.value))
+
+func _sb_build_ammo(inner: VBoxContainer) -> void:
+	_sb_btn(inner, "清空弹药袋", func(): state.dev_clear_bag(); _refresh())
+	var ttl_row := _sb_row(inner)
+	_sb_label(ttl_row, "临时秒", 0.0, true)
+	var ttl := _sb_stepper(ttl_row, 0.0, 120.0, 1.0, CombatConstants.TEMP_SIN_LIFETIME_SEC, 0)
+	var idx_row := _sb_row(inner)
+	_sb_label(idx_row, "改TTL下标", 0.0, true)
+	var idx := _sb_stepper(idx_row, 0, 99, 1, 0, 0)
+	_sb_btn(idx_row, "写入", func():
+		state.sandbox_set_bag_temp(int(idx.get_meta("val")), float(ttl.get_meta("val")))
 		_refresh()
-	)
-	bag_idx_row.add_child(b_set_ttl)
+	, 96.0)
 	var ammo_items: Array = DataRegistry.all_ammo().duplicate()
 	ammo_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
 	for item in ammo_items:
 		if not bool(item.get("enabled_in_combat", false)):
 			continue
 		var aid: int = int(item.get("id", 0))
-		var aname: String = str(item.get("name", aid))
-		var row2 := HBoxContainer.new()
-		row2.add_theme_constant_override("separation", 2)
-		col_ammo["box"].add_child(row2)
-		var lab := Label.new()
-		lab.text = aname
-		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		lab.clip_text = true
-		lab.add_theme_font_size_override("font_size", 12)
-		row2.add_child(lab)
-		var b_add := Button.new()
-		b_add.text = "+"
-		b_add.custom_minimum_size = Vector2(28, 26)
-		b_add.tooltip_text = "永久 +1"
-		b_add.pressed.connect(func(id := aid): state.sandbox_add_ammo(id, 1, 0.0); _refresh())
-		row2.add_child(b_add)
-		var b_tmp := Button.new()
-		b_tmp.text = "临"
-		b_tmp.custom_minimum_size = Vector2(28, 26)
-		b_tmp.tooltip_text = "临时 +1（用上方秒数）"
-		b_tmp.pressed.connect(func(id := aid, ttl := sp_ttl): state.sandbox_add_ammo(id, 1, float(ttl.value)); _refresh())
-		row2.add_child(b_tmp)
-		var b_sub := Button.new()
-		b_sub.text = "-"
-		b_sub.custom_minimum_size = Vector2(28, 26)
-		b_sub.pressed.connect(func(id := aid): state.dev_remove_ammo(id, 1); _refresh())
-		row2.add_child(b_sub)
+		var row := _sb_row(inner)
+		_sb_label(row, str(item.get("name", aid)), 0.0, true)
+		_sb_btn(row, "+1", func(id := aid): state.sandbox_add_ammo(id, 1, 0.0); _refresh(), 96.0)
+		_sb_btn(row, "临时", func(id := aid, tt := ttl): state.sandbox_add_ammo(id, 1, float(tt.get_meta("val"))); _refresh(), 96.0)
+		_sb_btn(row, "-1", func(id := aid): state.dev_remove_ammo(id, 1); _refresh(), 96.0)
 
-	_dev_add_btn(col_enemy["box"], "生成木桩", func(): state.sandbox_spawn_dummy(); _refresh())
-	var dummy_hp_row := HBoxContainer.new()
-	dummy_hp_row.add_theme_constant_override("separation", 4)
-	col_enemy["box"].add_child(dummy_hp_row)
-	var dlab := Label.new()
-	dlab.text = "木桩HP"
-	dlab.add_theme_font_size_override("font_size", 12)
-	dummy_hp_row.add_child(dlab)
-	var sp_dummy_hp := SpinBox.new()
-	sp_dummy_hp.min_value = 1
-	sp_dummy_hp.max_value = 9999
-	sp_dummy_hp.value = CombatConstants.SANDBOX_DUMMY_DEFAULT_HP
-	dummy_hp_row.add_child(sp_dummy_hp)
-	var b_dummy_hp := Button.new()
-	b_dummy_hp.text = "生成"
-	b_dummy_hp.pressed.connect(func(): state.sandbox_spawn_dummy(int(sp_dummy_hp.value)); _refresh())
-	dummy_hp_row.add_child(b_dummy_hp)
-	_dev_add_btn(col_enemy["box"], "一键杀敌", func(): state.dev_kill_all_enemies(); _refresh())
-	_dev_add_btn(col_enemy["box"], "瞬移邻近", func(): state.dev_teleport_front_enemy(1); _refresh())
-	_dev_add_btn(col_enemy["box"], "瞬移远端", func(): state.dev_teleport_front_enemy(CombatConstants.BOARD_SIZE - 1); _refresh())
+
+func _sb_build_enemy(inner: VBoxContainer) -> void:
+	var g := _sb_grid(inner, 2)
+	_sb_btn(g, "摆 3 个木桩", func(): state.sandbox_spawn_default_dummies(); _refresh())
+	_sb_btn(g, "生成木桩", func(): state.sandbox_spawn_dummy(); _refresh())
+	var hp_row := _sb_row(inner)
+	_sb_label(hp_row, "木桩HP", 0.0, true)
+	var hp := _sb_stepper(hp_row, 100, 9900, 100, CombatConstants.SANDBOX_DUMMY_DEFAULT_HP, 0)
+	_sb_btn(hp_row, "生成", func(): state.sandbox_spawn_dummy(int(hp.get_meta("val"))); _refresh(), 96.0)
+	var g2 := _sb_grid(inner, 2)
+	_sb_btn(g2, "清场敌人", func(): state.sandbox_clear_enemies(); _refresh())
+	_sb_btn(g2, "一键杀敌", func(): state.dev_kill_all_enemies(); _refresh())
+	_sb_btn(g2, "瞬移邻近", func(): state.dev_teleport_front_enemy(1); _refresh())
+	_sb_btn(g2, "瞬移远端", func(): state.dev_teleport_front_enemy(CombatConstants.BOARD_SIZE - 1); _refresh())
 	var enemy_items: Array = DataRegistry.all_enemies().duplicate()
 	enemy_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
 	for item in enemy_items:
@@ -3673,116 +3861,136 @@ func _rebuild_sandbox_tool_body() -> void:
 		var eid: int = int(item.get("id", 0))
 		if eid == CombatConstants.DUMMY_ENEMY_ID:
 			continue
-		var ename: String = str(item.get("name", eid))
-		_dev_add_btn(col_enemy["box"], "添加%s" % ename, func(id := eid): state.sandbox_spawn_enemy(id); _refresh())
+		_sb_btn(g2, "添加%s" % str(item.get("name", eid)), func(id := eid): state.sandbox_spawn_enemy(id); _refresh())
 
-	var st := Label.new()
-	st.text = "前敌状态"
-	st.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45))
-	col_enemy["box"].add_child(st)
+
+func _sb_build_status(inner: VBoxContainer) -> void:
+	_sb_section(inner, "前敌状态")
 	for pair in [["燃", "burn", 3], ["油", "gas", 2], ["湿", "wet", 2], ["血", "bleed", 2]]:
 		var key: String = str(pair[1])
-		var row3 := HBoxContainer.new()
-		row3.add_theme_constant_override("separation", 2)
-		col_enemy["box"].add_child(row3)
-		var lb := Label.new()
-		lb.text = str(pair[0])
-		lb.custom_minimum_size = Vector2(28, 0)
-		row3.add_child(lb)
-		var sp := SpinBox.new()
-		sp.min_value = 0
-		sp.max_value = 99
-		sp.value = int(pair[2])
-		sp.custom_minimum_size = Vector2(64, 28)
-		row3.add_child(sp)
-		var bb := Button.new()
-		bb.text = "设"
-		bb.custom_minimum_size = Vector2(36, 28)
-		bb.pressed.connect(func(kk := key, ss := sp):
+		var row := _sb_row(inner)
+		_sb_label(row, str(pair[0]), 0.0, true)
+		var sp := _sb_stepper(row, 0, 99, 1, int(pair[2]), 0)
+		_sb_btn(row, "设", func(kk := key, ss := sp):
 			var o := {}
-			o[kk] = int(ss.value)
+			o[kk] = int(ss.get_meta("val"))
 			state.sandbox_set_enemy_status(o)
 			_refresh()
-		)
-		row3.add_child(bb)
-	var confuse_row := HBoxContainer.new()
-	confuse_row.add_theme_constant_override("separation", 2)
-	col_enemy["box"].add_child(confuse_row)
-	var clab := Label.new()
-	clab.text = "乱秒"
-	confuse_row.add_child(clab)
-	var sp_conf := SpinBox.new()
-	sp_conf.min_value = 0
-	sp_conf.max_value = 30
-	sp_conf.step = 0.5
-	sp_conf.value = 3.0
-	confuse_row.add_child(sp_conf)
-	var b_conf := Button.new()
-	b_conf.text = "设"
-	b_conf.pressed.connect(func():
-		state.sandbox_set_enemy_status({"confuse": float(sp_conf.value)})
+		, 96.0)
+	var crow := _sb_row(inner)
+	_sb_label(crow, "乱秒", 0.0, true)
+	var conf := _sb_stepper(crow, 0.0, 30.0, 0.5, 3.0, 1)
+	_sb_btn(crow, "设", func():
+		state.sandbox_set_enemy_status({"confuse": float(conf.get_meta("val"))})
 		_refresh()
-	)
-	confuse_row.add_child(b_conf)
-	var slow_row := HBoxContainer.new()
-	slow_row.add_theme_constant_override("separation", 2)
-	col_enemy["box"].add_child(slow_row)
-	var slab := Label.new()
-	slab.text = "缓层"
-	slow_row.add_child(slab)
-	var sp_slow_n := SpinBox.new()
-	sp_slow_n.min_value = 0
-	sp_slow_n.max_value = 10
-	sp_slow_n.value = 2
-	slow_row.add_child(sp_slow_n)
-	var sp_slow_t := SpinBox.new()
-	sp_slow_t.min_value = 0.5
-	sp_slow_t.max_value = 30
-	sp_slow_t.step = 0.5
-	sp_slow_t.value = CombatConstants.SLOTH_SLOW_LAYER_SEC
-	sp_slow_t.tooltip_text = "每层秒"
-	slow_row.add_child(sp_slow_t)
-	var b_slow := Button.new()
-	b_slow.text = "设"
-	b_slow.pressed.connect(func():
-		state.sandbox_set_enemy_status({
-			"slow_stacks": int(sp_slow_n.value),
-			"slow_sec": float(sp_slow_t.value),
-		})
+	, 96.0)
+	var srow := _sb_row(inner)
+	_sb_label(srow, "缓层", 0.0, true)
+	var sn := _sb_stepper(srow, 0, 10, 1, 2, 0)
+	var stt := _sb_stepper(srow, 0.5, 30.0, 0.5, CombatConstants.SLOTH_SLOW_LAYER_SEC, 1)
+	_sb_btn(srow, "设", func():
+		state.sandbox_set_enemy_status({"slow_stacks": int(sn.get_meta("val")), "slow_sec": float(stt.get_meta("val"))})
 		_refresh()
-	)
-	slow_row.add_child(b_slow)
-
-	var pt := Label.new()
-	pt.text = "玩家计时"
-	pt.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45))
-	col_enemy["box"].add_child(pt)
+	, 76.0)
+	_sb_section(inner, "玩家计时（秒）")
 	for pair2 in [["连发窗", "burst"], ["自混乱", "confuse"], ["懒惰惩罚", "sloth_penalty"], ["射击锁", "fire_lock"], ["暴食自伤", "gluttony_dot"]]:
 		var pk: String = str(pair2[1])
-		var prow := HBoxContainer.new()
-		prow.add_theme_constant_override("separation", 2)
-		col_enemy["box"].add_child(prow)
-		var pl := Label.new()
-		pl.text = str(pair2[0])
-		pl.custom_minimum_size = Vector2(56, 0)
-		pl.add_theme_font_size_override("font_size", 11)
-		pl.clip_text = true
-		prow.add_child(pl)
-		var psp := SpinBox.new()
-		psp.min_value = 0
-		psp.max_value = 60
-		psp.step = 0.5
-		psp.value = 4.0
-		psp.custom_minimum_size = Vector2(64, 28)
-		prow.add_child(psp)
-		var pb := Button.new()
-		pb.text = "设"
-		pb.custom_minimum_size = Vector2(36, 28)
-		pb.pressed.connect(func(kk := pk, ss := psp):
-			state.sandbox_set_player_timer(kk, float(ss.value))
+		var prow := _sb_row(inner)
+		_sb_label(prow, str(pair2[0]), 0.0, true)
+		var psp := _sb_stepper(prow, 0.0, 60.0, 0.5, 4.0, 1)
+		_sb_btn(prow, "设", func(kk := pk, ss := psp):
+			state.sandbox_set_player_timer(kk, float(ss.get_meta("val")))
 			_refresh()
-		)
-		prow.add_child(pb)
+		, 96.0)
+
+
+# —— v0.4.20 伤害统计 HUD（战场下方，不进布局容器，不推开任何东西）——
+
+func _ensure_sandbox_stats_hud() -> void:
+	if _sb_stats_panel != null:
+		return
+	_sb_stats_panel = PanelContainer.new()
+	_sb_stats_panel.name = "SandboxStatsHud"
+	_sb_stats_panel.z_index = 60
+	_sb_stats_panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.06, 0.07, 0.1, 0.9)
+	sb.set_border_width_all(2)
+	sb.border_color = Color(0.92, 0.72, 0.35, 0.9)
+	sb.set_corner_radius_all(10)
+	sb.content_margin_left = 12
+	sb.content_margin_right = 8
+	sb.content_margin_top = 4
+	sb.content_margin_bottom = 4
+	_sb_stats_panel.add_theme_stylebox_override("panel", sb)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	_sb_stats_panel.add_child(row)
+	var col := VBoxContainer.new()
+	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	col.add_theme_constant_override("separation", 0)
+	row.add_child(col)
+	_sb_stats_main = Label.new()
+	_sb_stats_main.add_theme_font_size_override("font_size", 24)
+	_sb_stats_main.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
+	col.add_child(_sb_stats_main)
+	_sb_stats_sub = Label.new()
+	_sb_stats_sub.add_theme_font_size_override("font_size", 18)
+	_sb_stats_sub.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	col.add_child(_sb_stats_sub)
+	var clear := Button.new()
+	clear.name = "StatsClear"
+	clear.text = "清零"
+	clear.focus_mode = Control.FOCUS_NONE
+	clear.custom_minimum_size = Vector2(120, SB_TOUCH_H)
+	clear.add_theme_font_size_override("font_size", SB_FONT)
+	clear.pressed.connect(func():
+		if state != null:
+			state.damage_stats_reset()
+			_refresh()
+	)
+	row.add_child(clear)
+	add_child(_sb_stats_panel)
+	_place_sandbox_stats_hud()
+
+
+func _place_sandbox_stats_hud() -> void:
+	if _sb_stats_panel == null:
+		return
+	var top_panel := get_node_or_null("Margin/RootVBox/TopPanel") as Control
+	var xp := get_node_or_null("Margin/RootVBox/TopPanel/TopSection/XpBar") as Control
+	var r := Rect2(8, 8, 704, 417)
+	if top_panel != null and top_panel.size.y > 200.0:
+		r = top_panel.get_global_rect()
+	var y0: float = r.end.y - SB_STATS_H - 6.0
+	if xp != null and xp.size.y > 0.0:
+		y0 = maxf(y0, xp.get_global_rect().end.y + 2.0)
+	_sb_stats_panel.position = Vector2(r.position.x + 8.0, y0)
+	_sb_stats_panel.size = Vector2(r.size.x - 16.0, minf(SB_STATS_H, r.end.y - y0 - 4.0))
+
+
+func sandbox_stats_text() -> Dictionary:
+	## UI/测试：两行文案。
+	var w: int = int(CombatConstants.SANDBOX_DPS_WINDOW_SEC)
+	return {
+		"main": "DPS(近%d秒) %.1f   单次最大 %d" % [w, state.damage_stats_dps(), state.damage_stats_recent_max_hit()],
+		"sub": "总伤害 %d · 历史单次最大 %d · 结算 %d 次" % [state.dmg_stats_total, state.dmg_stats_peak_hit, state.dmg_stats_hits],
+	}
+
+
+func _update_sandbox_stats_hud() -> void:
+	if state == null or not state.sandbox_mode:
+		if _sb_stats_panel != null:
+			_sb_stats_panel.visible = false
+		return
+	_ensure_sandbox_stats_hud()
+	_place_sandbox_stats_hud()
+	if _dev_open and dev_panel != null and absf(dev_panel.offset_top - _sandbox_panel_top()) > 1.0:
+		_fit_sandbox_panel()
+	_sb_stats_panel.visible = state.phase != CombatState.Phase.LOST
+	var t := sandbox_stats_text()
+	_sb_stats_main.text = str(t["main"])
+	_sb_stats_sub.text = str(t["sub"])
 
 
 func _dev_make_column(title: String) -> Dictionary:
@@ -3916,6 +4124,7 @@ func _play_wave_banner(wave_n: int) -> void:
 
 
 func _refresh() -> void:
+	_update_sandbox_stats_hud()
 	phase_label.text = "阶段：%s" % state.phase_name()
 	phase_label.add_theme_color_override("font_color", COL_PHASE)
 	hp_label.text = "HP %d / %d" % [state.player_hp, state.player_max_hp]
@@ -4084,6 +4293,8 @@ func _refresh_board() -> void:
 				style.set_border_width_all(2)
 			var st := e.status_text()
 			var tag_s := ",".join(e.tags) if e.tags.size() > 0 else ""
+			if e.is_dummy and state.sandbox_mode:
+				tag_s = "累计%d" % e.dmg_taken_total  # v0.4.20：木桩头上显示自己挨的总伤害
 			info.text = "%s\n%d%s%s" % [
 				e.name_zh, e.hp,
 				("\n" + tag_s) if tag_s != "" else "",

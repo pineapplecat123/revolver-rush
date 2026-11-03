@@ -59,8 +59,8 @@ func test_tombstone_spawns_ghost_and_fills_empty_chambers() -> void:
 		if int(id) == FireResolver.ID_GHOST:
 			ghosts_left += 1
 	assert_eq(ghosts_left, 0)
-	# 墓碑2 + 幽灵2(预置)+1(新) = 8
-	assert_eq(999 - int(cs.enemies[0].hp), 8)
+	# v0.4.20：墓碑2 + 预置幽灵 2×2 = 6（袋里有幽灵时不再新生成）
+	assert_eq(999 - int(cs.enemies[0].hp), 6)
 
 
 func test_tombstone_generates_ghost_even_when_mag_full_of_ammo() -> void:
@@ -81,18 +81,18 @@ func test_tombstone_generates_ghost_even_when_mag_full_of_ammo() -> void:
 		CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
 	_shot_one(cs)
-	# 新幽灵被立刻射掉，袋内不应残留
+	# v0.4.20：袋里没幽灵 → 生成 2 颗临时幽灵留在袋里，本发不带幽灵
 	var left_g2 := 0
 	for id in cs.bag:
 		if int(id) == FireResolver.ID_GHOST:
 			left_g2 += 1
-	assert_eq(left_g2, 0)
+	assert_eq(left_g2, CombatConstants.TOMBSTONE_GHOST_SPAWN)
 	var ghosts_in_mag := 0
 	for id in cs.magazine.slots:
 		if int(id) == FireResolver.ID_GHOST:
 			ghosts_in_mag += 1
 	assert_eq(ghosts_in_mag, 0, "v0.4.0 no chamber fill")
-	assert_eq(500 - int(cs.enemies[0].hp), 4, "tombstone 2 + new ghost 2")
+	assert_eq(500 - int(cs.enemies[0].hp), 2, "tombstone only; new ghosts wait in bag")
 
 
 func test_ghost_never_in_reward_choices() -> void:
@@ -150,7 +150,8 @@ func test_mid_combat_bag_reset_keeps_tombstone_and_ghost() -> void:
 	cs.bag_temp.clear()
 	assert_true(cs._auto_reset_bag_if_empty_at_turn_start())
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.count_temporary_in_bag(), 0, "v0.3.8：重置不再加临时罪孽")
+	# v0.4.20：幽灵永远带 TTL，所以袋里的临时弹 = 2 颗幽灵；重置本身不再加临时罪孽
+	assert_eq(cs.count_temporary_in_bag(), 2, "only the 2 ghosts are temporary (v0.3.8: reset adds no temp sins)")
 	var tombs := 0
 	var ghosts := 0
 	for id in cs.bag:

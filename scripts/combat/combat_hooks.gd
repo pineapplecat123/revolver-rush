@@ -14,7 +14,7 @@ class_name CombatHooks
 ##   on_shop_enter        — 地图商店触碰打开；shop_cell
 ##   on_dump_start/end    — 倾泻开始/结束（interrupted=是否被点射打断）
 ##   on_burst_window      — 连发窗开启或刷新；remaining
-##   on_temp_sin_spawn    — 临时罪孽入袋；sin_id, source ("load33"|"penalty_legacy")
+##   on_temp_sin_spawn    — 临时罪孽入袋；sin_id, source ("load33"=装入几率触发，v0.4.20 起 20%，id 沿用|"penalty_legacy")
 ##   on_dot_tick          — DoT 跳（燃烧/流血）；kind
 ##   on_insurance_swap    — 保险挡住第3罪孽装填；sin_id
 ##   on_stone_shatter     — 石头命中碎裂产小石头；dealt, pebbles

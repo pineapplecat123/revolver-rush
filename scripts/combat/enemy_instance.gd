@@ -23,6 +23,8 @@ var slow_skip: int = 0
 var attack_range: int = 1
 ## 沙盒木桩：不移动、不攻击。
 var is_dummy: bool = false
+## v0.4.20 沙盒统计：本个体累计挨了多少伤害（清零时归 0）。
+var dmg_taken_total: int = 0
 
 
 func _init(def: Dictionary = {}, spawn_cell: int = CombatConstants.BOARD_SIZE - 1) -> void:

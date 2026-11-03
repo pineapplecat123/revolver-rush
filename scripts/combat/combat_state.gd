@@ -66,6 +66,12 @@ var xp: int = 0
 var level: int = 1
 var pending_levelups: int = 0
 var elapsed_sec: float = 0.0
+## v0.4.20 伤害统计（沙盒 DPS 面板）：每次对敌伤害结算记一条 {t, amount}；时间轴=战斗秒 elapsed_sec。
+var dmg_stats_events: Array = []
+var dmg_stats_total: int = 0
+var dmg_stats_peak_hit: int = 0
+var dmg_stats_hits: int = 0
+var dmg_stats_start_t: float = 0.0
 var _spawn_timer: float = 0.0
 var _boss_spawned: int = 0
 var penalty_temp_sins_spawned: int = 0
@@ -516,6 +522,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	level = 1
 	pending_levelups = 0
 	elapsed_sec = 0.0
+	damage_stats_reset()
 	_boss_spawned = 0
 	penalty_temp_sins_spawned = 0
 	expired_temp_events.clear()
@@ -533,7 +540,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 
 
 ## 沙盒：同 rush 开局构筑，但清场、暂停刷怪与地图商店，保留装弹/射击。
-func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -> void:
+func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH, default_dummies: bool = true) -> void:
 	start_rush(seed_value, sin_ammo_id)
 	sandbox_mode = true
 	spawn_paused = true
@@ -543,8 +550,22 @@ func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH
 	shop_touch_pending = false
 	_shop_move_prog = 0.0
 	_spawn_timer = 99999.0
+	if default_dummies:
+		sandbox_spawn_default_dummies()
+	damage_stats_reset()
 	_log("沙盒模式：刷怪与地图商店已暂停；用沙盒面板自定义枪口/袋/怪。")
 	_emit()
+
+
+func sandbox_spawn_default_dummies() -> int:
+	## v0.4.20：默认 3 个木桩（SANDBOX_DEFAULT_DUMMY_CELLS），格被占则跳过。返回实际摆了几个。
+	var n := 0
+	for c in CombatConstants.SANDBOX_DEFAULT_DUMMY_CELLS:
+		if occupied_cells().has(int(c)):
+			continue
+		if sandbox_spawn_dummy(-1, int(c)) != null:
+			n += 1
+	return n
 
 
 func _consolidate_ammo_into_bag() -> void:
@@ -852,26 +873,34 @@ func _apply_sin_choice(sin_ammo_id: int, refill_bag: bool = true) -> void:
 		_emit()
 
 
+static func _normalize_temp_for(ammo_id: int, temporary) -> float:
+	## v0.4.20：幽灵永远是临时弹——任何路径传入「永久/0」都改成整段 GHOST_TTL，不会变永久。
+	var tv: float = Magazine.temp_value(temporary)
+	if ammo_id == FireResolver.ID_GHOST and tv <= 0.0:
+		tv = CombatConstants.GHOST_TTL_SEC
+	return tv
+
+
 func _bag_append(ammo_id: int, temporary = false) -> void:
 	bag.append(ammo_id)
-	var tv: float = Magazine.temp_value(temporary)
+	var tv: float = _normalize_temp_for(ammo_id, temporary)
 	bag_temp.append(tv)
 	hooks.emit_hook(&"on_bag_enter", {"cs": self, "ammo_id": ammo_id, "temp_life": tv, "temporary": tv > 0.0})
 
 
 func _discard_append(ammo_id: int, temporary = false) -> void:
 	discard.append(ammo_id)
-	discard_temp.append(Magazine.temp_value(temporary))
+	discard_temp.append(_normalize_temp_for(ammo_id, temporary))
 
 
 func _sync_temp_arrays() -> void:
 	## 兜底：保证 temp 数组与 bag/discard 等长（旧路径漏标时当永久弹）。
 	while bag_temp.size() < bag.size():
-		bag_temp.append(false)
+		bag_temp.append(_normalize_temp_for(int(bag[bag_temp.size()]), false))
 	while bag_temp.size() > bag.size():
 		bag_temp.pop_back()
 	while discard_temp.size() < discard.size():
-		discard_temp.append(false)
+		discard_temp.append(_normalize_temp_for(int(discard[discard_temp.size()]), false))
 	while discard_temp.size() > discard.size():
 		discard_temp.pop_back()
 
@@ -912,27 +941,32 @@ func _strip_temporary_ammo_from_bag() -> void:
 		i -= 1
 
 
-func _extract_ghosts_from_bag_and_discard() -> int:
-	## 从袋/弃牌取出幽灵（不碰弹夹），供战斗内重置后放回袋。返回数量。
-	var n := 0
+func _extract_ghosts_from_bag_and_discard() -> Array:
+	## 从袋/弃牌取出幽灵（不碰弹夹），供战斗内重置后放回袋。
+	## v0.4.20：返回各自剩余 TTL（秒）；已到期（≤0）的直接丢掉，不再「只数个数→放回成永久弹」。
+	var lives: Array = []
 	_sync_temp_arrays()
 	var i := bag.size() - 1
 	while i >= 0:
 		if int(bag[i]) == FireResolver.ID_GHOST:
+			var tv: float = Magazine.temp_value(bag_temp[i]) if i < bag_temp.size() else 0.0
 			bag.remove_at(i)
 			if i < bag_temp.size():
 				bag_temp.remove_at(i)
-			n += 1
+			if tv > 0.0:
+				lives.append(tv)
 		i -= 1
 	i = discard.size() - 1
 	while i >= 0:
 		if int(discard[i]) == FireResolver.ID_GHOST:
+			var dv: float = Magazine.temp_value(discard_temp[i]) if i < discard_temp.size() else 0.0
 			discard.remove_at(i)
 			if i < discard_temp.size():
 				discard_temp.remove_at(i)
-			n += 1
+			if dv > 0.0:
+				lives.append(dv)
 		i -= 1
-	return n
+	return lives
 
 
 func _shuffle_bag() -> void:
@@ -1021,7 +1055,7 @@ func _reset_bag_in_combat() -> bool:
 	if pool.is_empty() and _count_ghosts_bag_and_discard() == 0 and count_temporary_in_discard() == 0:
 		return false
 	bag_reset_count += 1
-	var ghost_n: int = _extract_ghosts_from_bag_and_discard()
+	var ghost_lives: Array = _extract_ghosts_from_bag_and_discard()
 	# v0.3.8：弃牌里仍在寿命内的临时罪孽带回新袋（各自计时继续）
 	var live_temps: Array = []
 	_sync_temp_arrays()
@@ -1037,8 +1071,8 @@ func _reset_bag_in_combat() -> bool:
 		_bag_append(int(entry["id"]), entry["temp"])
 	for entry in live_temps:
 		_bag_append(int(entry["id"]), entry["temp"])
-	for _i in ghost_n:
-		_bag_append(FireResolver.ID_GHOST, false)
+	for gl in ghost_lives:
+		_bag_append(FireResolver.ID_GHOST, float(gl))  # 各自剩余 TTL 继续倒计时
 	_shuffle_bag()
 	return true
 
@@ -1279,7 +1313,7 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 			sloth_n, sloth_fire_penalty_remaining
 		])
 		hooks.emit_hook(&"on_sloth_fire_penalty", {"cs": self, "remaining": sloth_fire_penalty_remaining})
-	# v0.4.0：三罪孽惩罚不再加临时罪孽；临时罪只走「装入时 33%」。
+	# v0.4.0：三罪孽惩罚不再加临时罪孽；临时罪只走「装入时 20%」。
 
 
 func _spawn_penalty_temp_sin(sin_id: int) -> void:
@@ -1326,14 +1360,14 @@ func _apply_justice_strip_on_load(resolved: int) -> int:
 
 
 func _try_spawn_temp_sin_on_load(resolved: int) -> void:
-	## v0.4.0：装入罪孽时 33% 袋内 +1 同种临时罪孽（三罪孽惩罚不再加）。
+	## v0.4.0：装入罪孽时 LOAD_TEMP_SIN_CHANCE（v0.4.20 起 20%）袋内 +1 同种临时罪孽（三罪孽惩罚不再加）。
 	if not _is_opening_sin_id(resolved):
 		return
 	if rng.randf() >= CombatConstants.LOAD_TEMP_SIN_CHANCE:
 		return
 	_bag_append(resolved, CombatConstants.TEMP_SIN_LIFETIME_SEC)
 	load_temp_sins_spawned += 1
-	_log("装入%s：33%% 触发 → 袋内 +1 临时（%.0fs）。" % [_ammo_name(resolved), CombatConstants.TEMP_SIN_LIFETIME_SEC])
+	_log("装入%s：%d%% 触发 → 袋内 +1 临时（%.0fs）。" % [_ammo_name(resolved), int(round(CombatConstants.LOAD_TEMP_SIN_CHANCE * 100.0)), CombatConstants.TEMP_SIN_LIFETIME_SEC])
 	hooks.emit_hook(&"on_temp_sin_spawn", {"cs": self, "sin_id": resolved, "source": "load33"})
 
 
@@ -1485,7 +1519,7 @@ func _try_envy_copy_on_kill() -> void:
 	if rng.randf() >= chance:
 		return
 	var aid: int = last_non_sin_ammo_id
-	_bag_append(aid, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	_bag_append(aid, CombatConstants.ENVY_COPY_TTL_SEC)
 	_log("  → 嫉妒：复制上一发非罪[%s] TTL 入袋。" % _ammo_name(aid))
 	hooks.emit_hook(&"on_envy_copy", {"cs": self, "ammo_id": aid})
 
@@ -1615,7 +1649,70 @@ func _emit() -> void:
 func _notify_enemy_damage(e: EnemyInstance, amount: int, kind: String = "") -> void:
 	if e == null or amount <= 0:
 		return
+	_record_damage_stat(e, amount)
 	enemy_damaged.emit(e.cell, amount, kind)
+
+
+# ——— v0.4.20 伤害统计（所有对敌伤害都经 _notify_enemy_damage：直击/穿透/散射/爆炸/汽油/燃烧/流血/混乱/幽灵/倾泻…）———
+
+func _record_damage_stat(e: EnemyInstance, amount: int) -> void:
+	if amount <= 0:
+		return
+	if e != null:
+		e.dmg_taken_total += amount
+	dmg_stats_total += amount
+	dmg_stats_hits += 1
+	dmg_stats_peak_hit = maxi(dmg_stats_peak_hit, amount)
+	dmg_stats_events.append({"t": elapsed_sec, "amount": amount})
+	_prune_damage_stats(elapsed_sec)
+
+
+func _prune_damage_stats(now: float) -> void:
+	var cut: float = now - CombatConstants.SANDBOX_DPS_WINDOW_SEC
+	var k := 0
+	while k < dmg_stats_events.size() and float(dmg_stats_events[k]["t"]) <= cut:
+		k += 1
+	if k > 0:
+		dmg_stats_events = dmg_stats_events.slice(k)
+
+
+func damage_stats_window_sum(now: float = -1.0) -> int:
+	var t_now: float = elapsed_sec if now < 0.0 else now
+	var cut: float = t_now - CombatConstants.SANDBOX_DPS_WINDOW_SEC
+	var s := 0
+	for ev in dmg_stats_events:
+		if float(ev["t"]) > cut:
+			s += int(ev["amount"])
+	return s
+
+
+func damage_stats_dps(now: float = -1.0) -> float:
+	## 最近窗口内伤害 ÷ 时间。刚清零不足一个窗口时按实际经过时间算（至少 1 秒，免得开头一发就虚高）。
+	var t_now: float = elapsed_sec if now < 0.0 else now
+	var span: float = clampf(t_now - dmg_stats_start_t, 1.0, CombatConstants.SANDBOX_DPS_WINDOW_SEC)
+	return float(damage_stats_window_sum(t_now)) / span
+
+
+func damage_stats_recent_max_hit(now: float = -1.0) -> int:
+	## 最近窗口内单次结算的最大伤害。
+	var t_now: float = elapsed_sec if now < 0.0 else now
+	var cut: float = t_now - CombatConstants.SANDBOX_DPS_WINDOW_SEC
+	var m := 0
+	for ev in dmg_stats_events:
+		if float(ev["t"]) > cut:
+			m = maxi(m, int(ev["amount"]))
+	return m
+
+
+func damage_stats_reset() -> void:
+	dmg_stats_events.clear()
+	dmg_stats_total = 0
+	dmg_stats_peak_hit = 0
+	dmg_stats_hits = 0
+	dmg_stats_start_t = elapsed_sec
+	for e in enemies:
+		if e != null:
+			e.dmg_taken_total = 0
 
 
 func _apply_player_damage(amount: int, kind: String = "") -> int:
@@ -1904,7 +2001,7 @@ func load_next_chamber() -> Dictionary:
 	_load_resolved_ids.append(resolved)
 	var slot: int = magazine.chamber_at_load_port()
 	assert(magazine.slots[slot] == Magazine.EMPTY)
-	magazine.set_slot(slot, resolved, raw_temp)
+	magazine.set_slot(slot, resolved, _normalize_temp_for(resolved, raw_temp))
 	hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": slot, "temporary": Magazine.temp_value(raw_temp) > 0.0})
 	_apply_justice_strip_on_load(resolved)
 	_check_sin_threshold_after_insert(resolved)
@@ -2126,17 +2223,31 @@ func _fill_empty_chambers_with_ghosts() -> int:
 	for i in magazine.slots.size():
 		if magazine.slots[i] != Magazine.EMPTY:
 			continue
-		if not _take_one_ammo_from_bag(FireResolver.ID_GHOST):
+		var ge: Dictionary = _take_one_ammo_from_bag_entry(FireResolver.ID_GHOST)
+		if not bool(ge.get("ok", false)):
 			break
-		magazine.set_slot(i, FireResolver.ID_GHOST, false)
+		magazine.set_slot(i, FireResolver.ID_GHOST, _normalize_temp_for(FireResolver.ID_GHOST, ge.get("temp", 0.0)))
 		filled += 1
 	return filled
 
 
+func count_ghosts_in_bag() -> int:
+	var n := 0
+	for x in bag:
+		if int(x) == FireResolver.ID_GHOST:
+			n += 1
+	return n
+
+
 func _apply_tombstone_on_fire() -> Array:
-	## v0.4.0 墓碑：袋 +1 临时幽灵 TTL，并立刻把袋内所有幽灵 TTL 极速连射打出（每发单独结算枪口）。不再填空仓。
-	_bag_append(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC)
-	_log("墓碑弹药：袋内 +1 临时幽灵（TTL %.0fs）。" % CombatConstants.GHOST_TTL_SEC)
+	## v0.4.20 墓碑（老大重定）：
+	## - 袋里没有幽灵 → 袋内生成 TOMBSTONE_GHOST_SPAWN(2) 颗临时幽灵（TTL GHOST_TTL_SEC），本发不带幽灵；
+	## - 袋里有幽灵 → 袋内所有幽灵跟着墓碑一起射出（每颗独立结算枪口），不再生成新幽灵。
+	if count_ghosts_in_bag() <= 0:
+		for _i in CombatConstants.TOMBSTONE_GHOST_SPAWN:
+			_bag_append(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC)
+		_log("墓碑弹药：袋里没幽灵 → 生成 %d 颗临时幽灵（TTL %.0fs）。" % [CombatConstants.TOMBSTONE_GHOST_SPAWN, CombatConstants.GHOST_TTL_SEC])
+		return []
 	return _rapid_fire_all_bag_ghosts()
 
 
@@ -3332,7 +3443,7 @@ func _auto_load_and_fire_once() -> bool:
 			var swap: Dictionary = _try_insurance_swap_third_sin(resolved, raw_temp)
 			resolved = int(swap.get("ammo_id", resolved))
 			raw_temp = swap.get("temp", raw_temp)
-			magazine.set_slot(port, resolved, raw_temp)
+			magazine.set_slot(port, resolved, _normalize_temp_for(resolved, raw_temp))
 			last_load_ids = drawn.duplicate()
 			hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": port, "temporary": Magazine.temp_value(raw_temp) > 0.0})
 			_apply_justice_strip_on_load(resolved)
@@ -4652,7 +4763,7 @@ func sandbox_set_bag_temp(index: int, temp_life: float) -> bool:
 	if index < 0 or index >= bag.size():
 		_log("[沙盒] 袋下标无效 %d" % index)
 		return false
-	bag_temp[index] = maxf(0.0, temp_life)
+	bag_temp[index] = _normalize_temp_for(int(bag[index]), maxf(0.0, temp_life))
 	_log("[沙盒] 袋[%d] %s TTL → %.1fs" % [index, _ammo_name(int(bag[index])), float(bag_temp[index])])
 	_emit()
 	return true

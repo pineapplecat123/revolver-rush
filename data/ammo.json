@@ -215,14 +215,14 @@
       "rarity": "epic",
       "base_damage": 2,
       "base_damage_mode": "fixed",
-      "special": "基础伤害2。每发射1发：袋内+1颗临时幽灵（TTL），并立刻把袋内所有幽灵TTL极速连射打出（每发单独结算枪口）。不再填空仓。",
+      "special": "基础伤害2。打出时先看袋里有没有幽灵：没有→袋内生成2颗临时幽灵（TTL 18秒），本发不带幽灵；有→袋里所有幽灵飞到枪口，跟墓碑一起射出（每颗单独结算枪口），这次不再生成新幽灵。",
       "tags": [
         "召唤"
       ],
       "enabled_in_combat": true,
       "ephemeral": false,
       "in_reward_pool": true,
-      "blurb": "产临时幽灵并连射袋内幽灵"
+      "blurb": "没幽灵就生2颗；有就带着全部一起射"
     },
     {
       "id": 20,
@@ -230,7 +230,7 @@
       "rarity": "common",
       "base_damage": 2,
       "base_damage_mode": "fixed",
-      "special": "基础伤害2。由墓碑弹药生成入袋，带TTL；到期或被墓碑连射打出后消失。不进奖励与商店池。",
+      "special": "基础伤害2。由墓碑弹药生成入袋，始终带TTL（18秒，袋重置也保留剩余时间）；到期或跟墓碑一起射出后消失。不进奖励与商店池。",
       "tags": [
         "衍生物"
       ],

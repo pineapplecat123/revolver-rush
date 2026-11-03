@@ -169,8 +169,8 @@ func test_tombstone_adds_temp_ghost_and_rapid_fires_bag() -> void:
 	] as Array[int])
 	var hp0: int = cs.enemies[0].hp
 	var shots: Array = _shot(cs)
-	# 墓碑本发 + 袋内原2幽灵 + 新生成1幽灵 = 至少 1+3 发记录（墓碑+3幽灵）
-	assert_gte(shots.size(), 4)
+	# v0.4.20：袋里有幽灵 → 墓碑 + 袋内 2 幽灵一起射，不再新生成 = 至少 3 发记录
+	assert_gte(shots.size(), 3)
 	var ghosts_left := 0
 	for id in cs.bag:
 		if int(id) == FireResolver.ID_GHOST:
@@ -178,8 +178,8 @@ func test_tombstone_adds_temp_ghost_and_rapid_fires_bag() -> void:
 	assert_eq(ghosts_left, 0, "all bag ghosts fired")
 	# 不再填空仓
 	assert_eq(cs.magazine.loaded_count(), 0)
-	# 伤害：墓碑2 + 幽灵2*3 = 8
-	assert_eq(hp0 - cs.enemies[0].hp, 8)
+	# 伤害：墓碑2 + 幽灵2*2 = 6
+	assert_eq(hp0 - cs.enemies[0].hp, 6)
 
 
 func test_dot_ticks_every_half_second_not_on_step() -> void:
