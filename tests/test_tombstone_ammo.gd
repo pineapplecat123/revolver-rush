@@ -113,8 +113,8 @@ func test_ghost_never_in_reward_choices() -> void:
 
 
 func test_ghost_damage_is_two() -> void:
-	assert_eq(FireResolver.base_damage_for(FireResolver.ID_TOMBSTONE, [FireResolver.ID_TOMBSTONE], 0, 0), 2)
-	assert_eq(FireResolver.base_damage_for(FireResolver.ID_GHOST, [FireResolver.ID_GHOST], 0, 0), 2)
+	assert_eq(FireResolver.base_damage_for(FireResolver.ID_TOMBSTONE, [FireResolver.ID_TOMBSTONE], 0), 2)
+	assert_eq(FireResolver.base_damage_for(FireResolver.ID_GHOST, [FireResolver.ID_GHOST], 0), 2)
 
 func test_bag_can_hold_multiple_tombstones() -> void:
 	## 设计未限制墓碑唯一；袋可持有多发。奖励/商店入袋可叠加（地图/无限均保留构筑；练习胜利仍回 10+5）。

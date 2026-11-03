@@ -56,8 +56,8 @@ func test_stone_pebble_defs() -> void:
 	assert_true(DataRegistry.is_ammo_reward_eligible(STONE))
 	assert_false(DataRegistry.is_ammo_reward_eligible(PEBBLE))
 	assert_true(DataRegistry.is_ammo_ephemeral(PEBBLE))
-	assert_eq(FireResolver.base_damage_for(STONE, [STONE], 0, 0), 3)
-	assert_eq(FireResolver.base_damage_for(PEBBLE, [PEBBLE], 0, 0), 1)
+	assert_eq(FireResolver.base_damage_for(STONE, [STONE], 0), 3)
+	assert_eq(FireResolver.base_damage_for(PEBBLE, [PEBBLE], 0), 1)
 
 
 func test_stone_hit_spawns_pebbles_equal_to_dealt() -> void:

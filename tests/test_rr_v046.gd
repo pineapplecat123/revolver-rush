@@ -21,7 +21,7 @@ func test_insurance_ammo_def() -> void:
 	assert_eq(str(def.get("name", "")), "保险弹药")
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_ammo_reward_eligible(INS))
-	assert_eq(FireResolver.base_damage_for(INS, [INS], 0, 0), 1)
+	assert_eq(FireResolver.base_damage_for(INS, [INS], 0), 1)
 
 
 func test_insurance_swap_helper_blocks_third() -> void:

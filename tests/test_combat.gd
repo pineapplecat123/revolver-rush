@@ -225,71 +225,6 @@ func test_white_bullet_damage_value() -> void:
 	assert_eq(BulletEffectRegistry.compute_damage(CombatConstants.WHITE_AMMO_ID), 3)
 
 
-func test_yellow_damage_by_count() -> void:
-	var order: Array[int] = [4, 4, 4]
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	assert_eq(dmgs, [3, 3, 3])
-
-
-func test_black_strict_majority_triples() -> void:
-	var order: Array[int] = [2, 2, 2, 1]
-	assert_true(FireResolver.black_triggers(order))
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	assert_eq(dmgs[3], 9)  # white 3*3
-	# 并列最多不触发
-	var tied: Array[int] = [2, 2, 1, 1]
-	assert_false(FireResolver.black_triggers(tied))
-
-
-func test_purple_run_damage() -> void:
-	var order: Array[int] = [5, 5, 1]
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	assert_eq(dmgs[0], 3)
-	assert_eq(dmgs[1], 3)
-	assert_eq(dmgs[2], 3)
-
-
-func test_green_trailing_multiplier() -> void:
-	var order: Array[int] = [1, 3, 3]
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	# last green 2*2=4, second-last green 2*3=6
-	assert_eq(dmgs[2], 4)
-	assert_eq(dmgs[1], 6)
-	var allg: Array[int] = [3, 3, 3]
-	var z: Array[int] = FireResolver.compute_shot_damages(allg, 0)
-	assert_eq(z, [0, 0, 0])
-
-
-func test_pink_bonus_on_unload() -> void:
-	var cs := CombatState.new(8)
-	cs.start_rush(8)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 100
-	cs.dev_force_load([9, 9, 1, 1, 1, 1] as Array[int])
-	assert_eq(cs.pink_bonus, 0)
-	assert_true(cs.do_unload())
-	assert_eq(cs.pink_bonus, 1)
-
-
-func test_force_load_yellow_and_fire() -> void:
-	var cs := CombatState.new(8)
-	cs.start_rush(8)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 100
-	cs.enemies[0].max_hp = 100
-	cs.dev_force_load([4, 4, 4, 4, 4, 4] as Array[int])
-	assert_true(cs.do_fire())
-	# rush!：黄梯 5+5+4+3+2+1=20；不在 do_fire 末尾结算流血（自动推进才结算）
-	assert_eq(cs.enemies[0].hp, 80)
-	assert_eq(cs.enemies[0].bleed_stacks, 6)
-	cs._dot_timer = 0.01
-	assert_true(cs.tick_dot(0.02))
-	assert_eq(cs.enemies[0].hp, 74)
-	assert_eq(cs.enemies[0].bleed_stacks, 5)
-
-
 func test_skeleton_does_not_bleed() -> void:
 	var def: Dictionary = DataRegistry.get_enemy(104)
 	var e := EnemyInstance.new(def, 5)
@@ -619,9 +554,9 @@ func test_reward_blurb_short() -> void:
 	var blurb := DataRegistry.format_ammo_reward_blurb(1)
 	assert_true(blurb.contains("伤") or blurb.contains("3") or blurb.contains("常规"))
 	assert_lte(blurb.length(), 40)
-	var black := DataRegistry.format_ammo_reward_blurb(2)
-	assert_true(black.length() > 0)
-	assert_lte(black.length(), 48)
+	var flame := DataRegistry.format_ammo_reward_blurb(FireResolver.ID_FLAME)
+	assert_true(flame.length() > 0)
+	assert_lte(flame.length(), 48)
 
 func test_load_writes_only_load_port_each_step() -> void:
 	## 每步只写入当前上弹口；未 apply_load_rotate 前重复写入同一仓。
@@ -647,12 +582,12 @@ func test_fire_consumes_fire_port_chamber() -> void:
 	var cs := CombatState.new(13)
 	cs.start_rush(13)
 	cs.dev_force_load([
-		FireResolver.ID_YELLOW, FireResolver.ID_RED, FireResolver.ID_BLUE,
-		FireResolver.ID_GREEN, FireResolver.ID_PURPLE, FireResolver.ID_WHITE,
+		FireResolver.ID_GOLD, FireResolver.ID_ECHO, FireResolver.ID_DUMP,
+		FireResolver.ID_TOMBSTONE, FireResolver.ID_BURST, FireResolver.ID_WHITE,
 	])
 	cs.magazine.set_start(4)
 	assert_eq(cs.magazine.chamber_at_fire_port(), 4)
-	assert_eq(cs.magazine.slots[4], FireResolver.ID_PURPLE)
+	assert_eq(cs.magazine.slots[4], FireResolver.ID_BURST)
 	_shot_one(cs)
 	if cs.has_paced_shot_pending():
 		cs.finalize_paced_shot()
@@ -828,7 +763,7 @@ func test_muzzle_fire_persists_for_rest_of_turn() -> void:
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
-		FireResolver.ID_FIRE,
+		FireResolver.ID_FLAME,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
@@ -857,7 +792,7 @@ func test_muzzle_expires_after_duration() -> void:
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
-		FireResolver.ID_FIRE, CombatConstants.WHITE_AMMO_ID,
+		FireResolver.ID_FLAME, CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
 	] as Array[int])
@@ -888,7 +823,7 @@ func test_muzzle_pierce_applies_to_later_whites() -> void:
 	cs.dev_spawn_enemy(1, 2)
 	assert_eq(cs.alive_enemies().size(), 2)
 	cs.dev_force_load([
-		FireResolver.ID_PIERCE,
+		FireResolver.ID_ARMOR_PIERCE,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
@@ -1107,7 +1042,7 @@ func test_pierce_shot_records_all_hit_cells() -> void:
 	cs.enemies[1].hp = 50
 	cs.enemies[1].max_hp = 50
 	cs.dev_force_load([
-		FireResolver.ID_PIERCE,
+		FireResolver.ID_ARMOR_PIERCE,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
@@ -1117,7 +1052,7 @@ func test_pierce_shot_records_all_hit_cells() -> void:
 	cs.magazine.set_start(0)
 	_shot_one(cs)
 	assert_true(cs.last_shot_was_pierce)
-	assert_eq(cs.last_shot_ammo_id, FireResolver.ID_PIERCE)
+	assert_eq(cs.last_shot_ammo_id, FireResolver.ID_ARMOR_PIERCE)
 	assert_gte(cs.last_shot_hit_cells.size(), 2)
 	assert_eq(cs.last_shot_hit_cells[0], 2)
 	assert_eq(cs.last_shot_hit_cells[1], 4)

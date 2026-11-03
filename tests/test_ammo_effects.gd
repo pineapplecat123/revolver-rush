@@ -1,31 +1,10 @@
 extends GutTest
-## 弹药效果审计：金币公式伤、中途清场停射、练习战重置弹袋、各色关键路径。
+## 弹药效果审计：金币公式伤、中途清场停射、练习战重置弹袋。
 
 
 func before_each() -> void:
 	DataRegistry.reload()
 	BulletEffectRegistry.ensure_defaults()
-
-
-
-func _shot_one(cs: CombatState, resolve_enemy: bool = false) -> void:
-	## rush!：打 1 发并 finalize；默认不进怪回合（保留枪口，方便测跨发枪口）。
-	assert_true(cs.begin_fire())
-	cs.fire_next_shot()
-	if cs.has_paced_shot_pending():
-		cs.finalize_paced_shot()
-	if cs.post_fire_enemy_pending():
-		if resolve_enemy:
-			cs.resolve_post_fire_enemy_turn()
-		else:
-			cs._post_fire_enemy_pending = false
-
-
-func _log_has(cs: CombatState, needle: String) -> bool:
-	for line in cs.last_log:
-		if needle in str(line):
-			return true
-	return false
 
 
 func test_gold_triggers_extra_auto_load_and_fire() -> void:
@@ -58,6 +37,7 @@ func test_gold_triggers_extra_auto_load_and_fire() -> void:
 	assert_eq(cs.pending_gold_autofires(), 0)
 
 
+
 func test_gold_whites_fire_before_extras_then_clear() -> void:
 	## v0.4.10：金币弹不再挂待追加；点射后 pending 为 0。
 	var cs := CombatState.new(820)
@@ -84,8 +64,9 @@ func test_gold_whites_fire_before_extras_then_clear() -> void:
 	assert_true(_log_has(cs, "金币弹药") or _log_has(cs, "金币"))
 
 
+
 func test_gold_extra_round_keeps_muzzle() -> void:
-	## v0.4.10：火弹挂枪口后，金币弹仍享受火枪口（本发元素附带）。
+	## v0.4.10：火焰弹挂枪口后，金币弹仍享受火枪口（本发元素附带）。
 	var cs := CombatState.new(809)
 	cs.start_rush(809)
 	while cs.enemies.size() > 1:
@@ -99,7 +80,7 @@ func test_gold_extra_round_keeps_muzzle() -> void:
 	for _i in 6:
 		cs.bag.append(CombatConstants.WHITE_AMMO_ID)
 	cs.dev_force_load([
-		FireResolver.ID_FIRE,
+		FireResolver.ID_FLAME,
 		FireResolver.ID_GOLD,
 		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
@@ -119,6 +100,7 @@ func test_gold_extra_round_keeps_muzzle() -> void:
 	assert_gt(cs.enemies[0].burn_stacks, burn0)
 
 
+
 func test_stone_enemy_disabled_in_combat_pool() -> void:
 	## 石头人/骷髅禁用：不进刷怪池；设计数据仍在（legacy id）。
 	var def: Dictionary = DataRegistry.get_enemy(105)
@@ -136,322 +118,6 @@ func test_stone_enemy_disabled_in_combat_pool() -> void:
 			assert_ne(e.def_id, 105, "stone must not spawn when disabled")
 			assert_ne(e.def_id, 104, "skeleton must not spawn when disabled")
 
-
-func test_red_bonus_from_yellow_count() -> void:
-	var order: Array[int] = [6, 4, 4]  # red + 2 yellow → red 3+3=6
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	assert_eq(dmgs[0], 6)
-	assert_eq(dmgs[1], 2)
-	assert_eq(dmgs[2], 2)
-
-
-func test_blue_damage_and_six_types_double() -> void:
-	var few: Array[int] = [7, 1, 1]
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(few, 0)
-	assert_eq(dmgs[0], 3)
-	var six: Array[int] = [7, 1, 2, 3, 4, 5]
-	assert_true(FireResolver.blue_doubles_all(six))
-	var d2: Array[int] = FireResolver.compute_shot_damages(six, 0)
-	assert_eq(d2[0], (1 + 6) * 2)
-
-
-func test_bw_transforms_on_load_from_prev() -> void:
-	var cs := CombatState.new(813)
-	cs.start_rush(813)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 999
-	cs.last_load_ids = [1, 1, 1, 1, 4, 4] as Array[int]
-	cs.dev_force_load([10, 10, 1, 1, 1, 1] as Array[int])
-	var order: Array[int] = cs.magazine.fire_order()
-	assert_eq(order[0], CombatConstants.WHITE_AMMO_ID)
-	assert_eq(order[1], CombatConstants.WHITE_AMMO_ID)
-
-
-func test_bw_no_prev_stays() -> void:
-	var cs := CombatState.new(814)
-	cs.start_rush(814)
-	cs.last_load_ids.clear()
-	cs.dev_force_load([10, 1, 1, 1, 1, 1] as Array[int])
-	assert_eq(cs.magazine.fire_order()[0], FireResolver.ID_BW)
-
-
-func test_water_applies_wet_and_clears_burn() -> void:
-	var cs := CombatState.new(815)
-	cs.start_rush(815)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 999
-	cs.enemies[0].max_hp = 999
-	cs.enemies[0].burn_stacks = 5
-	cs.dev_force_load([
-		FireResolver.ID_WATER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	_shot_one(cs)
-	assert_eq(cs.enemies[0].burn_stacks, 0)
-	assert_gt(cs.enemies[0].wet_stacks, 0)
-
-
-func test_thunder_chains_across_wet() -> void:
-	var cs := CombatState.new(816)
-	cs.start_rush(816)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	for e in cs.enemies:
-		e.hp = 50
-		e.max_hp = 50
-		e.wet_stacks = 2
-	cs.dev_force_load([
-		FireResolver.ID_THUNDER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var back: EnemyInstance = cs.enemies_sorted_by_cell()[1]
-	var hp_back0: int = back.hp
-	_shot_one(cs)
-	assert_lt(back.hp, hp_back0, "thunder should chain to adjacent wet")
-
-
-func test_gas_then_fire_ignites() -> void:
-	var cs := CombatState.new(817)
-	cs.start_rush(817)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 999
-	cs.enemies[0].max_hp = 999
-	cs.dev_force_load([
-		FireResolver.ID_GAS,
-		FireResolver.ID_FIRE,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	_shot_one(cs)
-	assert_gt(cs.enemies[0].gas_stacks, 0)
-	var hp1: int = cs.enemies[0].hp
-	_shot_one(cs)
-	assert_eq(cs.enemies[0].gas_stacks, 0)
-	assert_lt(cs.enemies[0].hp, hp1)
-	assert_gt(cs.enemies[0].burn_stacks, 0)
-
-
-func test_muzzle_gas_on_later_white() -> void:
-	var cs := CombatState.new(818)
-	cs.start_rush(818)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 999
-	cs.enemies[0].max_hp = 999
-	cs.dev_force_load([
-		FireResolver.ID_GAS,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	_shot_one(cs)
-	var g1: int = cs.enemies[0].gas_stacks
-	_shot_one(cs)
-	assert_gt(cs.enemies[0].gas_stacks, g1)
-
-
-func test_pink_unload_bonus_shared_on_later_pinks() -> void:
-	## 一次卸除含多粉只 +1；加成作用于之后所有粉伤害。
-	var cs := CombatState.new(830)
-	cs.start_rush(830)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 999
-	cs.enemies[0].max_hp = 999
-	cs.dev_force_load([9, 9, 9, 1, 1, 1] as Array[int])
-	assert_true(cs.do_unload())
-	assert_eq(cs.pink_bonus, 1, "multi-pink unload counts once")
-	# 清空弃牌便于观察；再装粉射击
-	cs.discard.clear()
-	cs.dev_skip_enemy_turn()
-	cs.dev_force_load([9, 9, 1, 1, 1, 1] as Array[int])
-	cs.magazine.set_start(0)
-	var hp0: int = cs.enemies[0].hp
-	_shot_one(cs)  # pink → 3+1=4
-	assert_eq(hp0 - cs.enemies[0].hp, 4)
-	hp0 = cs.enemies[0].hp
-	_shot_one(cs)  # second pink also 4
-	assert_eq(hp0 - cs.enemies[0].hp, 4)
-
-
-func test_yellow_ladder_and_red_with_zero_yellow() -> void:
-	assert_eq(FireResolver.compute_shot_damages([4] as Array[int], 0), [1])
-	assert_eq(FireResolver.compute_shot_damages([4, 4] as Array[int], 0), [2, 2])
-	assert_eq(FireResolver.compute_shot_damages([4, 4, 4, 4, 4] as Array[int], 0), [5, 5, 5, 5, 5])
-	assert_eq(FireResolver.compute_shot_damages([4, 4, 4, 4, 4, 4] as Array[int], 0), [5, 5, 5, 5, 5, 5])
-	# 红无黄：基础 3
-	assert_eq(FireResolver.compute_shot_damages([6, 1, 1] as Array[int], 0)[0], 3)
-	# 红+5黄：3+7=10
-	var r5: Array[int] = [6, 4, 4, 4, 4, 4]
-	assert_eq(FireResolver.compute_shot_damages(r5, 0)[0], 10)
-
-
-func test_purple_single_zero_and_long_run() -> void:
-	assert_eq(FireResolver.compute_shot_damages([5, 1] as Array[int], 0)[0], 0)
-	var run4: Array[int] = [5, 5, 5, 5]
-	var d: Array[int] = FireResolver.compute_shot_damages(run4, 0)
-	assert_eq(d, [5, 5, 5, 5])
-
-
-func test_green_interrupted_only_trailing_counts() -> void:
-	## 中间被打断：只计末尾连绿；打断前的绿按基础×1。
-	var order: Array[int] = [3, 1, 3, 3]
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	assert_eq(dmgs[0], 2)  # 非末尾段
-	assert_eq(dmgs[1], 3)
-	assert_eq(dmgs[2], 6)  # 倒数第二绿 2*3
-	assert_eq(dmgs[3], 4)  # 末绿 2*2
-
-
-func test_black_triples_whole_mag_when_strict_majority() -> void:
-	var order: Array[int] = [2, 2, 2, 6, 1]  # 3黑 > 其它
-	var dmgs: Array[int] = FireResolver.compute_shot_damages(order, 0)
-	assert_eq(dmgs[0], 0)
-	assert_eq(dmgs[3], 9)  # red 3*3
-	assert_eq(dmgs[4], 9)  # white 3*3
-
-
-func test_muzzle_water_on_later_white() -> void:
-	var cs := CombatState.new(831)
-	cs.start_rush(831)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
-	cs.enemies[0].hp = 999
-	cs.enemies[0].max_hp = 999
-	cs.enemies[0].burn_stacks = 4
-	cs.dev_force_load([
-		FireResolver.ID_WATER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	_shot_one(cs)  # water
-	assert_eq(cs.enemies[0].burn_stacks, 0)
-	var wet1: int = cs.enemies[0].wet_stacks
-	assert_gt(wet1, 0)
-	cs.enemies[0].burn_stacks = 3  # 人为再烧，验证后续白仍带水清燃
-	_shot_one(cs)
-	assert_eq(cs.enemies[0].burn_stacks, 0)
-	assert_gte(cs.enemies[0].wet_stacks, wet1)
-
-
-func test_muzzle_thunder_on_later_white() -> void:
-	var cs := CombatState.new(832)
-	cs.start_rush(832)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	for e in cs.enemies:
-		e.hp = 80
-		e.max_hp = 80
-		e.wet_stacks = 3
-	cs.dev_force_load([
-		FireResolver.ID_THUNDER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var back: EnemyInstance = cs.enemies_sorted_by_cell()[1]
-	_shot_one(cs)  # thunder chains
-	var hp1: int = back.hp
-	_shot_one(cs)  # white + muzzle thunder should chain again
-	assert_lt(back.hp, hp1, "muzzle thunder should chain on later white")
-
-
-func test_gas_cluster_ignites_adjacent_on_fire() -> void:
-	## 两只相邻怪都有汽油，火命中前排应连片引爆后排。
-	var cs := CombatState.new(833)
-	cs.start_rush(833)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	var front: EnemyInstance = cs.enemies_sorted_by_cell()[0]
-	var back: EnemyInstance = cs.enemies_sorted_by_cell()[1]
-	front.hp = 100
-	front.max_hp = 100
-	back.hp = 100
-	back.max_hp = 100
-	front.gas_stacks = 5
-	back.gas_stacks = 4
-	cs.dev_force_load([
-		FireResolver.ID_FIRE,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var hp_back0: int = back.hp
-	_shot_one(cs)
-	assert_eq(front.gas_stacks, 0)
-	assert_eq(back.gas_stacks, 0, "adjacent gas should ignite with cluster")
-	assert_lt(back.hp, hp_back0)
-	assert_gt(back.burn_stacks, 0)
-
-
-func test_pierce_damage_falloff_across_enemies() -> void:
-	var cs := CombatState.new(834)
-	cs.start_rush(834)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	cs.dev_spawn_enemy(1, 3)
-	for e in cs.enemies:
-		e.hp = 50
-		e.max_hp = 50
-	cs.dev_force_load([
-		FireResolver.ID_PIERCE,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var sorted: Array = cs.enemies_sorted_by_cell()
-	var hp0: Array[int] = [sorted[0].hp, sorted[1].hp, sorted[2].hp]
-	_shot_one(cs)
-	# pierce base 3 → 3/2/1
-	assert_eq(hp0[0] - sorted[0].hp, 3)
-	assert_eq(hp0[1] - sorted[1].hp, 2)
-	assert_eq(hp0[2] - sorted[2].hp, 1)
-
-
-func test_bw_transforms_to_tied_most_common() -> void:
-	## 并列最多时变形为候选之一（白或黄）。
-	var cs := CombatState.new(835)
-	cs.start_rush(835)
-	cs.last_load_ids = [1, 1, 4, 4, 2, 3] as Array[int]
-	cs.dev_force_load([10, 1, 1, 1, 1, 1] as Array[int])
-	var got: int = cs.magazine.fire_order()[0]
-	assert_true(got == CombatConstants.WHITE_AMMO_ID or got == FireResolver.ID_YELLOW)
 
 
 func test_gold_extra_when_bag_empty_after_full_load() -> void:
@@ -481,6 +147,7 @@ func test_gold_extra_when_bag_empty_after_full_load() -> void:
 	assert_eq(cs.gold, 19)
 
 
+
 func test_gold_extras_after_remaining_whites() -> void:
 	## v0.4.10：金币弹有伤；金币＜1 时不扣金。
 	var cs := CombatState.new(831)
@@ -508,93 +175,6 @@ func test_gold_extras_after_remaining_whites() -> void:
 	assert_eq(cs.pending_gold_autofires(), 0)
 
 
-func test_wet_then_thunder_chains() -> void:
-	## 先水后雷：两只相邻已湿敌人，雷击应从首目标导电到后排。
-	var cs := CombatState.new(850)
-	cs.start_rush(850)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	for e in cs.enemies:
-		e.hp = 80
-		e.max_hp = 80
-	cs.dev_force_load([
-		FireResolver.ID_WATER,
-		FireResolver.ID_WATER,
-		FireResolver.ID_THUNDER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	_shot_one(cs)  # water front
-	_shot_one(cs)  # water again
-	cs.enemies_sorted_by_cell()[1].wet_stacks = maxi(cs.enemies_sorted_by_cell()[1].wet_stacks, 2)
-	assert_gt(cs.enemies_sorted_by_cell()[0].wet_stacks, 0)
-	var back: EnemyInstance = cs.enemies_sorted_by_cell()[1]
-	var hp_back0: int = back.hp
-	_shot_one(cs)  # thunder
-	assert_lt(back.hp, hp_back0, "wet front should conduct thunder to wet back")
-
-
-func test_same_shot_water_and_thunder_conducts() -> void:
-	## 同发含水+雷（枪口水+雷弹）：命中后湿须已挂上才能启动导电。
-	var cs := CombatState.new(841)
-	cs.start_rush(841)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	for e in cs.enemies:
-		e.hp = 80
-		e.max_hp = 80
-		e.wet_stacks = 0
-	# 后排预湿；前排靠本发水分获得湿再导电
-	cs.enemies_sorted_by_cell()[1].wet_stacks = 3
-	cs.dev_force_load([
-		FireResolver.ID_WATER,
-		FireResolver.ID_THUNDER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	_shot_one(cs)  # water mounts muzzle
-	var back: EnemyInstance = cs.enemies_sorted_by_cell()[1]
-	var hp0: int = back.hp
-	_shot_one(cs)  # thunder + muzzle water
-	assert_gt(cs.enemies_sorted_by_cell()[0].wet_stacks, 0)
-	assert_lt(back.hp, hp0, "same-shot water+thunder must conduct via newly applied wet")
-
-
-func test_pierce_thunder_chains_from_wet() -> void:
-	## 穿透+雷：首个湿目标应启动导电。
-	var cs := CombatState.new(842)
-	cs.start_rush(842)
-	cs.enemies.clear()
-	cs.dev_spawn_enemy(1, 1)
-	cs.dev_spawn_enemy(1, 2)
-	cs.dev_spawn_enemy(1, 3)
-	for e in cs.enemies:
-		e.hp = 80
-		e.max_hp = 80
-		e.wet_stacks = 2
-	cs._muzzle_pierce = true
-	cs.dev_force_load([
-		FireResolver.ID_THUNDER,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var sorted: Array = cs.enemies_sorted_by_cell()
-	var mid_hp0: int = sorted[1].hp
-	_shot_one(cs)
-	# 穿透伤 + 导电伤，中排应比仅穿透更低；至少被传导打到
-	assert_lt(sorted[1].hp, mid_hp0)
-
 
 func test_super_zombie_summons_behind() -> void:
 	## 表改：面前召唤（朝向玩家的更低格）。
@@ -619,6 +199,7 @@ func test_super_zombie_summons_behind() -> void:
 	assert_eq(zombies, 1, "super zombie should summon one zombie in front")
 	assert_ne(boss, null)
 	assert_eq(zcell, boss.cell - 1)
+
 
 
 func test_begin_gold_extra_load_is_stepwise_not_instant() -> void:

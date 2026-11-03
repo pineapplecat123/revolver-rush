@@ -41,8 +41,12 @@ func test_shop_pool_rarity_table_snapshot() -> void:
 		36: "rare",
 		37: "rare",
 	}
+	var sins := [16, 17, 18, 34, 35, 36, 37]
 	for aid in expect.keys():
-		assert_true(DataRegistry.is_ammo_reward_eligible(int(aid)), "eligible %s" % aid)
+		if int(aid) in sins:
+			assert_false(DataRegistry.is_ammo_reward_eligible(int(aid)), "sin stays out of shop %s" % aid)
+		else:
+			assert_true(DataRegistry.is_ammo_reward_eligible(int(aid)), "eligible %s" % aid)
 		assert_eq(DataRegistry.get_ammo_rarity(int(aid)), expect[aid], "rarity id=%s" % aid)
 
 

@@ -80,9 +80,12 @@ func is_sin_ammo(ammo_id: int) -> bool:
 
 
 func is_ammo_reward_eligible(ammo_id: int) -> bool:
-	## 奖励/商店池：启用且非 ephemeral；可用 in_reward_pool 显式覆盖。
+	## 奖励/商店池：启用、非 ephemeral、不是罪孽。罪孽只能开局选。
+	## in_reward_pool 可显式覆盖非罪孽弹；罪孽标签一律排除。
 	var def: Dictionary = get_ammo(ammo_id)
 	if def.is_empty():
+		return false
+	if is_sin_ammo(ammo_id):
 		return false
 	if not bool(def.get("enabled_in_combat", false)):
 		return false

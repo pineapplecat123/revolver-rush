@@ -187,6 +187,7 @@ func _run_mech_burst_window() -> void:
 	var after_main: int = hp0 - cs.enemies[0].hp
 	var win: float = cs.burst_window_remaining
 	hp0 = cs.enemies[0].hp
+	cs.player_fire_gate_remaining = 0.0
 	cs.fire_tap(true)  # free white in window
 	var free_dealt: int = hp0 - cs.enemies[0].hp
 	var ok: bool = after_main == 1 and win > 0.0 and free_dealt == 3 and cs.magazine.loaded_count() == 0
@@ -777,6 +778,7 @@ func _run_emergent_combos() -> void:
 	var guard := 8
 	while cs4.enemies.size() > 0 and cs4.burst_window_remaining > 0.0 and guard > 0:
 		guard -= 1
+		cs4.player_fire_gate_remaining = 0.0
 		cs4.fire_tap(true)
 	_combo_rows.append({
 		"name": "连发窗 × 暴食击杀回血",
@@ -865,7 +867,7 @@ func _run_balance_sims() -> void:
 	while cs2.burst_window_remaining > 0.0 and guard > 0:
 		guard -= 1
 		# simulate time drain between clicks
-		cs2.tick_combat_time(0.05)
+		cs2.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
 		if cs2.burst_window_remaining <= 0.0:
 			break
 		cs2.fire_tap(true)

@@ -54,7 +54,7 @@ func test_echo_ammo_def_and_flags() -> void:
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_ammo_reward_eligible(ECHO))
 	assert_false(DataRegistry.is_ammo_ephemeral(ECHO))
-	assert_eq(FireResolver.base_damage_for(ECHO, [ECHO], 0, 0), 1)
+	assert_eq(FireResolver.base_damage_for(ECHO, [ECHO], 0), 1)
 	var flags := FireResolver.inherits_from(ECHO)
 	assert_true(bool(flags.get("echo", false)))
 	assert_false(bool(flags.get("pierce", false)))

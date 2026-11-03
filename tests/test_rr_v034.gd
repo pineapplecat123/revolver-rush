@@ -69,7 +69,7 @@ func test_muzzle_element_lasts_duration_across_shots() -> void:
 	cs.enemies[0].hp = 999
 	cs.enemies[0].max_hp = 999
 	cs.dev_force_load([
-		FireResolver.ID_FIRE,
+		FireResolver.ID_FLAME,
 		CombatConstants.WHITE_AMMO_ID,
 		CombatConstants.WHITE_AMMO_ID,
 		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,

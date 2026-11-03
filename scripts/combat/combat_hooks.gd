@@ -10,7 +10,8 @@ class_name CombatHooks
 ##   on_bag_leave         — 弹药离开袋（抽装/取出/到期/倾泻幽灵）；ammo_id, reason
 ##   on_three_sin         — 三罪孽惩罚触发；sin_id, count
 ##   on_muzzle_apply      — 枪口层挂上；kind (wrath/pride/greed/pierce/…), stacks_after
-##   on_kill              — 敌人死亡移除时；enemy_id, cell, def_id
+##   on_kill              — 敌人死亡移除时；enemy_id, cell, def_id, gold（本次掉的金币，没有就是 0）
+##   on_kill_gold         — 击杀实际掉了金币；amount, cell, def_id（与 on_kill 同一下，方便别的效果接）
 ##   on_shop_enter        — 地图商店触碰打开；shop_cell
 ##   on_dump_start/end    — 倾泻开始/结束（interrupted=是否被点射打断）
 ##   on_burst_window      — 连发窗开启或刷新；remaining

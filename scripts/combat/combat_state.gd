@@ -27,6 +27,7 @@ signal log_line(text: String)
 signal state_changed
 ## UI：敌人实际扣血时抛出（cell + 伤害 + 状态标签；直伤 kind 为空），用于飘字
 signal enemy_damaged(cell: int, amount: int, kind: String)
+signal explosive_detonated(cell: int, n_side: int)
 ## 玩家实际扣血（怪物普攻、愤怒自伤等）；UI 抖玩家格 + 飘字。
 signal player_damaged(amount: int, kind: String)
 signal player_healed(amount: int, kind: String)
@@ -94,10 +95,11 @@ var encounter_kind: int = EncounterKind.NORMAL
 var last_reward_base_gold: int = 0
 
 ## 弹药跨回合状态
-var pink_bonus: int = 0
+var player_fire_gate_remaining: float = 0.0
+## <0 用常量表击杀掉金概率；测试可写成 0 或 1。
+var kill_gold_chance_override: float = -1.0
 ## 正义：本战斗永久平坦加伤（每卸除1罪孽 +2）。
 var justice_damage_bonus: int = 0
-var last_load_ids: Array[int] = []  ## 上次装填原始序列（变形前），供黑白弹药
 
 ## 逐步射击会话
 var _fire_queue: Array[int] = []
@@ -477,9 +479,9 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	last_log.clear()
 	lose_reason = LoseReason.NONE
 	gold = 0
-	pink_bonus = 0
 	justice_damage_bonus = 0
-	last_load_ids.clear()
+	player_fire_gate_remaining = 0.0
+	kill_gold_chance_override = -1.0
 	_reset_fire_session()
 	_reset_muzzle()
 	_pending_gold_autofires = 0
@@ -498,6 +500,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	gluttony_self_dot_remaining = 0.0
 	sloth_fire_penalty_remaining = 0.0
 	fire_lock_remaining = 0.0
+	player_fire_gate_remaining = 0.0
 	_reset_focus_shot_counter()
 	_pebble_fuse_count = 0
 	_dump_pending = false
@@ -1007,9 +1010,6 @@ func _bag_reset_pool(next_reset_count: int) -> Array:
 			var k: int = _pool_find(pool, mid, mt)
 			if k < 0:
 				k = _pool_find(pool, mid, not mt)
-			if k < 0:
-				# 黑白弹入膛已变形：扣一颗黑白
-				k = _pool_find(pool, FireResolver.ID_BW, false)
 			if k >= 0:
 				pool.remove_at(k)
 	return pool
@@ -1589,6 +1589,28 @@ func _nearest_other_enemy(origin: EnemyInstance) -> EnemyInstance:
 	return best
 
 
+func dot_tick_remaining() -> float:
+	return maxf(_dot_timer, 0.0)
+
+
+func _try_kill_gold_drop(e: EnemyInstance) -> int:
+	## 击杀掉金币进现有钱包。木桩不掉。Boss 用更高的必掉额度。
+	if e == null or e.is_dummy:
+		return 0
+	var boss := int(e.def_id) == CombatConstants.SUPER_ZOMBIE_ENEMY_ID
+	var chance := CombatConstants.KILL_GOLD_BOSS_DROP_CHANCE if boss else CombatConstants.KILL_GOLD_DROP_CHANCE
+	var amount := CombatConstants.KILL_GOLD_BOSS_DROP_AMOUNT if boss else CombatConstants.KILL_GOLD_DROP_AMOUNT
+	if (not boss) and kill_gold_chance_override >= 0.0:
+		chance = kill_gold_chance_override
+	if amount <= 0 or rng.randf() >= chance:
+		return 0
+	gold += amount
+	_log("击杀掉金币 +%d（现 %d）。" % [amount, gold])
+	if e.cell >= 0:
+		gold_gained.emit(e.cell, amount)
+	return amount
+
+
 func _try_greed_gold_drop(dealt: int, cell: int = -1) -> void:
 	if dealt <= 0 or _muzzle_greed <= 0:
 		return
@@ -1993,8 +2015,7 @@ func load_next_chamber() -> Dictionary:
 	var raw_id: int = drawn[0]
 	var raw_temp = _last_drawn_temps[0] if not _last_drawn_temps.is_empty() else 0.0
 	_load_raw_ids.append(raw_id)
-	var resolved_arr: Array[int] = _resolve_black_white_with_prev([raw_id], last_load_ids)
-	var resolved: int = resolved_arr[0]
+	var resolved: int = raw_id
 	var swap: Dictionary = _try_insurance_swap_third_sin(resolved, raw_temp)
 	resolved = int(swap.get("ammo_id", resolved))
 	raw_temp = swap.get("temp", raw_temp)
@@ -2006,8 +2027,6 @@ func load_next_chamber() -> Dictionary:
 	_apply_justice_strip_on_load(resolved)
 	_check_sin_threshold_after_insert(resolved)
 	_try_spawn_temp_sin_on_load(resolved)
-	if raw_id == FireResolver.ID_BW and resolved != FireResolver.ID_BW:
-		_log("黑白子弹变形为 %s。" % _ammo_name(resolved))
 	_log("装填上弹口→仓 %d：%s。" % [slot + 1, _ammo_name(resolved)])
 	_load_next_slot += 1
 	# 本会话袋抽空：本轮装几发是几发；会话结束/下次 can_manual_load 立刻补袋（不等怪走）。
@@ -2076,7 +2095,6 @@ func _complete_load_session_after_shot(resolved: int, slot: int) -> Dictionary:
 
 
 func _complete_load_session() -> Dictionary:
-	last_load_ids = _load_raw_ids.duplicate()
 	var n: int = _load_resolved_ids.size()
 	var needs_spin: bool = n >= CombatConstants.MAGAZINE_SIZE and not magazine.is_empty()
 	_log("装填完成：共 %d 发%s。" % [
@@ -2121,24 +2139,6 @@ func _finish_load_session_empty() -> bool:
 	_complete_load_session()
 	return true
 
-
-
-func _resolve_black_white_with_prev(drawn: Array[int], prev_load: Array[int]) -> Array[int]:
-	var out: Array[int] = []
-	for id in drawn:
-		if id != FireResolver.ID_BW:
-			out.append(id)
-			continue
-		if prev_load.is_empty():
-			out.append(id)  # 不生效
-			_log("黑白子弹：无上次装填，不变形。")
-		else:
-			var choice: int = FireResolver.most_common_ids(prev_load, rng)
-			if choice < 0 or choice == FireResolver.ID_BW:
-				out.append(id)
-			else:
-				out.append(choice)
-	return out
 
 
 func _lose_ammo_exhausted() -> void:
@@ -2300,7 +2300,7 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 	var fire := _muzzle_fire or bool(flags["fire"])
 	var water := _muzzle_water or bool(flags["water"])
 	var thunder := _muzzle_thunder or bool(flags["thunder"])
-	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0, pink_bonus)
+	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0)
 	base_dmg = _scale_outgoing_damage(base_dmg)
 	last_shot_ammo_id = ammo_id
 	last_shot_hit_cell = -1
@@ -2484,15 +2484,11 @@ func begin_fire() -> bool:
 	var full_order: Array[int] = magazine.fire_order()
 	if full_order.is_empty():
 		return false
-	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
+	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order)
 	_prepare_point_fire_damages(full_order, full_dmg)
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
 	_log("射击 1 发[%s]（匣内剩余将保留，可继续装/射）。" % _ammo_name(full_order[0]))
-	if FireResolver.black_triggers(full_order):
-		_log("黑色弹药触发：本匣全伤害 ×3。")
-	if FireResolver.blue_doubles_all(full_order):
-		_log("蓝色弹药触发：6 种不同 → 本匣全伤害 ×2。")
 	_emit()
 	return true
 
@@ -2969,6 +2965,7 @@ func _hit_enemy_with_elements(
 	_try_sloth_slow_on_hit(e)
 	if use_explosive and was_burning:
 		var n_side: int = maxi(1, dmg - 2)
+		explosive_detonated.emit(e.cell, n_side)
 		dealt += _explosive_splash(e, dmg * 3, ammo_id, gas, fire, water, thunder, n_side)
 	_log("击发[%s] → %s 格%d 伤害%d（HP %d/%d）%s" % [
 		_ammo_name(ammo_id), e.name_zh, e.cell, dealt, e.hp, e.max_hp,
@@ -3055,7 +3052,7 @@ func _thunder_chain(origin: EnemyInstance, dmg: int, gas: bool, fire: bool, wate
 			visited[other] = true
 			_log("  → 导电传导 → %s 格%d" % [other.name_zh, other.cell])
 			total += _hit_enemy_with_elements(
-				other, dmg, FireResolver.ID_THUNDER, gas, fire, water, false, "导电"
+				other, dmg, 0, gas, fire, water, false, "导电"
 			)
 			queue.append(other)
 	return total
@@ -3438,13 +3435,11 @@ func _auto_load_and_fire_once() -> bool:
 				_log("额外装填回合：无弹药可装。")
 				return false
 			var raw_temp = _last_drawn_temps[0] if not _last_drawn_temps.is_empty() else 0.0
-			var resolved_arr: Array[int] = _resolve_black_white_with_prev(drawn, last_load_ids)
-			var resolved: int = resolved_arr[0]
+			var resolved: int = drawn[0]
 			var swap: Dictionary = _try_insurance_swap_third_sin(resolved, raw_temp)
 			resolved = int(swap.get("ammo_id", resolved))
 			raw_temp = swap.get("temp", raw_temp)
 			magazine.set_slot(port, resolved, _normalize_temp_for(resolved, raw_temp))
-			last_load_ids = drawn.duplicate()
 			hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": port, "temporary": Magazine.temp_value(raw_temp) > 0.0})
 			_apply_justice_strip_on_load(resolved)
 			_check_sin_threshold_after_insert(resolved)
@@ -3457,7 +3452,7 @@ func _auto_load_and_fire_once() -> bool:
 		return false
 	# 同步打 1 发（与 begin_fire 单发一致）
 	var full_order: Array[int] = magazine.fire_order()
-	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order, pink_bonus)
+	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order)
 	_prepare_point_fire_damages(full_order, full_dmg)
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
@@ -3559,6 +3554,8 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 	if _dump_pending:
 		interrupt_dump()
 		return shots
+	if player_fire_gate_remaining > 0.0:
+		return shots
 	hooks.emit_hook(&"on_fire", {"cs": self, "burst_window": burst_window_remaining > 0.0})
 	if sloth_fire_penalty_remaining > 0.0:
 		fire_lock_remaining = maxf(fire_lock_remaining, CombatConstants.SLOTH_FIRE_LOCK_SEC)
@@ -3573,6 +3570,7 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 			finalize_post_fire()
 		elif _post_fire_enemy_pending:
 			resolve_post_fire_enemy_turn()
+		_arm_player_fire_gate(shots)
 		return shots
 	if not can_fire():
 		return shots
@@ -3603,6 +3601,7 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 		else:
 			# UI 按 DUMP_SHOT_INTERVAL_SEC 步进；金色/收束延到倾泻结束。
 			_dump_followup_pending = true
+			_arm_player_fire_gate(shots)
 			return shots
 	var guard: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
 	while _pending_gold_autofires > 0 and guard > 0 and phase != Phase.WON and phase != Phase.LOST:
@@ -3626,7 +3625,15 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 		finalize_post_fire()
 	elif _post_fire_enemy_pending:
 		resolve_post_fire_enemy_turn()
+	_arm_player_fire_gate(shots)
 	return shots
+
+
+func _arm_player_fire_gate(shots: Array) -> void:
+	## 打出至少一发才进入射速间隔。倾泻的后续步进不走这里。
+	if shots.is_empty():
+		return
+	player_fire_gate_remaining = CombatConstants.MIN_FIRE_INTERVAL_SEC
 
 
 func take_dump_shot() -> Array:
@@ -3830,17 +3837,11 @@ func do_unload() -> bool:
 		return false
 	commit_load_session_if_active()
 	var removed_entries: Array = magazine.unload_all_entries()
-	var had_pink := false
 	for entry in removed_entries:
 		var id: int = int(entry.get("id", Magazine.EMPTY))
 		var is_temp = entry.get("temp", 0.0)
 		_discard_append(id, is_temp)
-		if id == FireResolver.ID_PINK:
-			had_pink = true
 	var removed_size: int = removed_entries.size()
-	if had_pink:
-		pink_bonus += 1
-		_log("粉色弹药卸除：本局粉色伤害永久 +1（现 +%d）。" % pink_bonus)
 	_log("卸除 %d 发进入弃牌堆。" % removed_size)
 	if _check_end_after_player():
 		_emit()
@@ -3873,9 +3874,18 @@ func _remove_dead() -> void:
 			kept.append(e)
 		else:
 			_log("%s 被击败。" % e.name_zh)
-			hooks.emit_hook(&"on_kill", {"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell, "def_id": e.def_id})
 			_try_envy_copy_on_kill()
 			_try_gluttony_heal_on_kill()
+			var dropped: int = _try_kill_gold_drop(e)
+			hooks.emit_hook(&"on_kill", {
+				"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell,
+				"def_id": e.def_id, "gold": dropped,
+			})
+			if dropped > 0:
+				hooks.emit_hook(&"on_kill_gold", {
+					"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell,
+					"def_id": e.def_id, "amount": dropped,
+				})
 			gain_xp(xp_for_enemy(e))
 	enemies = kept
 
@@ -4037,6 +4047,8 @@ func tick_combat_time(delta_sec: float) -> bool:
 	if fire_lock_remaining > 0.0:
 		fire_lock_remaining = maxf(0.0, fire_lock_remaining - delta_sec)
 		changed = true
+	if player_fire_gate_remaining > 0.0:
+		player_fire_gate_remaining = maxf(0.0, player_fire_gate_remaining - delta_sec)
 	# 枪口层时长：与战斗秒同一入口，避免沙盒/脚本只推 tick_combat_time 时永不掉层。
 	# UI 勿再另调 tick_muzzle_durations，否则会双倍衰减。
 	changed = tick_muzzle_durations(delta_sec) or changed
@@ -4598,15 +4610,12 @@ func dev_force_load(ids: Array[int]) -> void:
 		_log("[开发] 当前阶段无法强制装填")
 		return
 	_reset_focus_shot_counter()
-	var prev := last_load_ids.duplicate()
-	last_load_ids = ids.duplicate()
-	var resolved := _resolve_black_white_with_prev(ids, prev)
-	magazine.load_sequence(resolved)
-	if FireResolver.ID_JUSTICE in resolved:
+	magazine.load_sequence(ids)
+	if FireResolver.ID_JUSTICE in ids:
 		_apply_justice_strip_on_load(FireResolver.ID_JUSTICE)
 	turn_index += 1
 	_set_phase(Phase.AWAIT_ACTION)
-	_log("[开发] 强制装填 %s" % str(resolved))
+	_log("[开发] 强制装填 %s" % str(ids))
 	_emit()
 
 
@@ -4830,10 +4839,14 @@ func sandbox_set_enemy_status(opts: Dictionary) -> bool:
 		e.wet_stacks = maxi(0, int(opts.get("wet", 0)))
 	if opts.has("bleed"):
 		e.bleed_stacks = maxi(0, int(opts.get("bleed", 0)))
+	if opts.has("burn"):
+		e.burn_peak = e.burn_stacks
+	if opts.has("bleed"):
+		e.bleed_peak = e.bleed_stacks
 	if opts.has("confuse"):
-		e.confuse_remaining = maxf(0.0, float(opts.get("confuse", 0.0)))
+		e.set_confuse_remaining(float(opts.get("confuse", 0.0)))
 	if opts.has("slow_stacks"):
-		e.slow_layers.clear()
+		e.clear_slow_layers()
 		var n: int = maxi(0, int(opts.get("slow_stacks", 0)))
 		var sec: float = float(opts.get("slow_sec", CombatConstants.SLOTH_SLOW_LAYER_SEC))
 		for _i in n:

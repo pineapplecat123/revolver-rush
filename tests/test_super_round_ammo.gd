@@ -35,7 +35,7 @@ func test_ammo_def_enabled_and_in_reward_pool() -> void:
 	assert_true(bool(def.get("enabled_in_combat", false)))
 	assert_true(DataRegistry.is_ammo_reward_eligible(FireResolver.ID_SUPER_ROUND))
 	assert_false(DataRegistry.is_ammo_ephemeral(FireResolver.ID_SUPER_ROUND))
-	assert_eq(FireResolver.base_damage_for(FireResolver.ID_SUPER_ROUND, [FireResolver.ID_SUPER_ROUND], 0, 0), 1)
+	assert_eq(FireResolver.base_damage_for(FireResolver.ID_SUPER_ROUND, [FireResolver.ID_SUPER_ROUND], 0), 1)
 
 
 func test_super_round_grants_extra_load_and_autofire_after_magazine() -> void:

@@ -71,7 +71,12 @@ func test_sin_total_matches_design_after_every_reset() -> void:
 			assert_eq(_total_temp(cs), temps, "临时罪孽只来自装入33%")
 			assert_eq(cs.penalty_temp_sins_spawned, 0)
 		while cs.can_fire():
-			cs.fire_tap()
+			var fired: Array = cs.fire_tap()
+			if fired.is_empty():
+				if cs.player_fire_gate_remaining > 0.0:
+					cs.player_fire_gate_remaining = 0.0
+					continue
+				break
 		if seen >= 5:
 			break
 	assert_gte(seen, 3, "模拟期间至少重置 3 次")
