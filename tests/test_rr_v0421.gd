@@ -27,7 +27,6 @@ func _ring(entries: Array, id: String) -> Dictionary:
 
 
 func test_version_and_fire_cap_constants() -> void:
-	assert_eq(GameVersion.STRING, "0.4.21")
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.21"' in text)
 	assert_almost_eq(CombatConstants.MAX_FIRE_RATE_HZ, 10.0, 0.001)
@@ -181,7 +180,8 @@ func test_explosive_detonation_signal_and_vfx() -> void:
 	ui._spawn_explosion_vfx(5, 1)
 	var vfx := ui.find_child("ExplosionVfx", true, false)
 	assert_not_null(vfx)
-	assert_gt(vfx.get_child_count(), 2)
+	assert_gt(vfx.z_index, ui.Z_DMG_FLOAT)
+	assert_gt(int(vfx.get("particle_count")), 30)
 
 
 func test_removed_ammo_ids_are_gone() -> void:

@@ -7,6 +7,7 @@ extends Control
 const ShopState = preload("res://scripts/shop/shop_state.gd")
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 const BagPhysicsBox = preload("res://scripts/combat/bag_physics_box.gd")
+const ExplosionBurst = preload("res://scripts/combat/explosion_vfx.gd")
 
 ## 竖屏 720 宽：10 格 × 68 = 680
 const CELL_W := 68
@@ -87,6 +88,8 @@ const Z_BLOOD_TRAIL := 40
 const Z_BLOOD_DROP := 41
 const Z_SHOT_VFX := 42
 const Z_DMG_FLOAT := 43
+## 炸药爆炸盖过飘字，但仍低于奖励/商店遮罩。
+const Z_EXPLOSION := 55
 const Z_MODAL_DIMMER := 80
 const Z_MODAL_PANEL := 90
 const Z_WAVE_BANNER := 100
@@ -143,6 +146,16 @@ var _fire_disk_target: float = 0.0
 var _dump_ui_running: bool = false
 var _dump_ui_gen: int = 0
 var _in_flight_shots: int = 0
+## 炸药画面抖动/放大。只改 Margin 的偏移和缩放，不暂停战斗时间。
+var _boom_shake_left: float = 0.0
+var _boom_punch_left: float = 0.0
+var _boom_punch_amp: float = 0.0
+var _boom_cam_held: bool = false
+var _boom_base_l: float = 0.0
+var _boom_base_r: float = 0.0
+var _boom_base_t: float = 0.0
+var _boom_base_b: float = 0.0
+var _boom_base_scale: Vector2 = Vector2.ONE
 var _fire_ring: Panel = null
 var _load_marker: Label = null
 var _muzzle_label: Label = null  ## 「枪口：」框外标签
@@ -1135,6 +1148,7 @@ func _enemy_glide_cells_per_sec() -> float:
 
 
 func _process(delta: float) -> void:
+	_tick_explosion_camera(delta)
 	if state == null or not _enemy_auto_allowed():
 		return
 	# 战斗秒（含枪口层衰减）：与怪滑行同一套暂停条件；按战斗速度缩放逻辑秒。
@@ -2379,65 +2393,71 @@ func _on_explosive_detonated(cell: int, n_side: int) -> void:
 
 
 func _spawn_explosion_vfx(cell: int, n_side: int) -> void:
-	## 炸药炸开：闪光 + 扩散环 + 几粒火星。挂在格子上，跟单位走。
+	## 炸药炸开：全屏叠一层自己画的爆炸，盖过飘字。不改伤害、不暂停计时。
 	if board_row == null or cell < 0 or cell >= board_row.get_child_count():
 		return
-	var slot: Control = board_row.get_child(cell) as Control
-	if slot == null:
+	var at_g: Vector2 = _cell_unit_global_center(cell)
+	if at_g == Vector2.ZERO:
+		var slot: Control = board_row.get_child(cell) as Control
+		if slot == null:
+			return
+		at_g = slot.get_global_rect().get_center()
+	var burst := ExplosionBurst.new()
+	burst.name = "ExplosionVfx" if get_node_or_null("ExplosionVfx") == null else "ExplosionVfx_%d" % burst.get_instance_id()
+	burst.z_index = Z_EXPLOSION
+	var extent := 1600.0
+	var local: Vector2 = get_global_transform().affine_inverse() * at_g
+	burst.position = local - Vector2(extent, extent) * 0.5
+	burst.size = Vector2(extent, extent)
+	burst.clip_contents = false
+	add_child(burst)
+	burst.setup(burst.size * 0.5, n_side, float(CELL_W))
+	_kick_explosion_camera()
+
+
+func _kick_explosion_camera() -> void:
+	## 短促抖动 + 放大。只动画面，战斗秒和射速帽照常走。不做顿帧。
+	var margin := get_node_or_null("Margin") as Control
+	if margin == null:
 		return
-	var unit: Control = slot.get_node_or_null("UnitBody") as Control
-	var origin := slot.size * 0.5
-	if unit != null and unit.visible:
-		origin = unit.position + unit.size * 0.5
-	var root := Control.new()
-	root.name = "ExplosionVfx"
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.z_index = 30
-	slot.add_child(root)
-	root.position = origin
-	var flash := ColorRect.new()
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var flash_sz := 28.0 + float(maxi(n_side, 1)) * 8.0
-	flash.size = Vector2(flash_sz, flash_sz)
-	flash.position = -flash.size * 0.5
-	flash.color = Color(1.0, 0.95, 0.75, 0.95)
-	root.add_child(flash)
-	var end_sz := float(CELL_W) * (1.15 + float(maxi(n_side, 1)) * 0.85)
-	var ring := Panel.new()
-	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring.size = Vector2(end_sz, end_sz)
-	ring.pivot_offset = ring.size * 0.5
-	ring.position = -ring.pivot_offset
-	ring.scale = Vector2(0.15, 0.15)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(1.0, 0.55, 0.08, 0.18)
-	sb.border_color = Color(1.0, 0.78, 0.25, 1.0)
-	sb.set_border_width_all(4)
-	sb.set_corner_radius_all(999)
-	ring.add_theme_stylebox_override("panel", sb)
-	root.add_child(ring)
-	var sparks: Array = []
-	for i in 8:
-		var p := ColorRect.new()
-		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		p.size = Vector2(6, 6)
-		p.position = -p.size * 0.5
-		p.color = Color(1.0, 0.45 + float(i % 3) * 0.12, 0.08, 0.95)
-		root.add_child(p)
-		sparks.append(p)
-	var dur := _paced(0.32)
-	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(flash, "modulate:a", 0.0, dur * 0.4)
-	tw.tween_property(ring, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(ring, "modulate:a", 0.0, dur)
-	for i in sparks.size():
-		var ang := TAU * float(i) / float(sparks.size())
-		var dist := 22.0 + float(maxi(n_side, 1)) * 14.0
-		var dest := Vector2(cos(ang), sin(ang)) * dist - (sparks[i] as Control).size * 0.5
-		tw.tween_property(sparks[i], "position", dest, dur * 0.85)
-		tw.tween_property(sparks[i], "modulate:a", 0.0, dur)
-	tw.chain().tween_callback(root.queue_free)
+	if not _boom_cam_held:
+		_boom_base_l = margin.offset_left
+		_boom_base_r = margin.offset_right
+		_boom_base_t = margin.offset_top
+		_boom_base_b = margin.offset_bottom
+		_boom_base_scale = margin.scale
+		_boom_cam_held = true
+	_boom_shake_left = 0.28
+	_boom_punch_left = 0.18
+	_boom_punch_amp = randf_range(0.04, 0.07)
+
+
+func _tick_explosion_camera(delta: float) -> void:
+	if not _boom_cam_held:
+		return
+	var margin := get_node_or_null("Margin") as Control
+	if margin == null:
+		return
+	_boom_shake_left = maxf(0.0, _boom_shake_left - delta)
+	_boom_punch_left = maxf(0.0, _boom_punch_left - delta)
+	if _boom_shake_left <= 0.0 and _boom_punch_left <= 0.0:
+		margin.offset_left = _boom_base_l
+		margin.offset_right = _boom_base_r
+		margin.offset_top = _boom_base_t
+		margin.offset_bottom = _boom_base_b
+		margin.scale = _boom_base_scale
+		_boom_cam_held = false
+		return
+	var mag := 16.0 * (_boom_shake_left / 0.28)
+	var dx := _boom_base_l + randf_range(-mag, mag)
+	var dy := _boom_base_t + randf_range(-mag, mag) * 0.7
+	margin.offset_left = dx
+	margin.offset_right = _boom_base_r - (dx - _boom_base_l)
+	margin.offset_top = dy
+	margin.offset_bottom = _boom_base_b - (dy - _boom_base_t)
+	var punch := 0.0 if _boom_punch_left <= 0.0 else _boom_punch_left / 0.18
+	margin.pivot_offset = margin.size * 0.5
+	margin.scale = _boom_base_scale * (1.0 + _boom_punch_amp * punch)
 
 
 func _spawn_hit_event(ev: Dictionary) -> void:
