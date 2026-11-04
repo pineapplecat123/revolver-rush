@@ -51,7 +51,12 @@ const MAX_EXTRA_AUTOFIREs_PER_CHAIN := 10
 
 ## rush! 敌人连续向左滑行：走完 1 格所需秒数（受战斗速度倍率影响）。
 ## v0.3.2 为 1.15s/格一跳；v0.3.3 改平滑连续并放慢约 30%（1.65s/格 ≈ 41 px/s @CELL_W 68）。
-const ENEMY_AUTO_STEP_SEC := 1.65
+## v0.4.26：所有敌人移动速度 ×0.5（1.65 → 3.3 s/格，≈41 → ≈21 px/s）。攻击/伤害/血量不变。
+const ENEMY_AUTO_STEP_SEC := 3.3
+## 走路动画按 1.65 s/格 设计；播放速度 = 实际滑行速度 × 这个值（1× 战斗速度下 = 0.5）。
+const ENEMY_WALK_ANIM_REF_STEP_SEC := 1.65
+## 地图商店滑行速度保持原样（不跟敌人一起减速）。
+const MAP_SHOP_STEP_SEC := 1.65
 
 ## rush! 波次刷怪数量倍率（相对设计表）；ceil 后上限 BOARD_SIZE-1。
 const WAVE_SPAWN_COUNT_MULT := 1.5

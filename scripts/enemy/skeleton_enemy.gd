@@ -40,6 +40,10 @@ var _flash_mod: Color = Color(1, 1, 1, 1)
 var _eye_open: Node2D
 var _eye_x: Node2D
 var _scale_mul: float = 1.0
+## v0.4.26 朝向：-1 = 面朝左（玩家方向，敌人默认行进方向）；+1 = 面朝右。
+## 画法原生朝右（口鼻/高光在 +x），所以朝左 = Rig.scale.x 取反；整体 scale（Boss×1.55 / 熊×1.25）不动。
+var facing: int = -1
+var _walk_rate: float = 1.0
 
 ## 配色（按物种填）
 var col_fur: Color
@@ -83,6 +87,7 @@ func setup(def_id: int) -> void:
 	_scale_mul = 1.55 if is_boss else (1.25 if species == "bear" else (1.05 if species == "dummy" else 1.0))
 	scale = Vector2(_scale_mul, _scale_mul)
 	_build_rig()
+	set_facing(-1)
 	_build_hp_badge()
 	_build_animations()
 	if anim:
@@ -96,6 +101,28 @@ func _ready() -> void:
 
 # ---------------------------------------------------------------- 外部接口
 
+func set_facing(dir: int) -> void:
+	## 面向 dir（<0 左 / >0 右）。只翻 Rig，不碰根节点 scale，也不翻血条文字。
+	if is_dummy:
+		dir = -1
+	var d: int = -1 if dir < 0 else 1
+	facing = d
+	if rig != null:
+		rig.scale = Vector2(float(d), 1.0)
+
+
+func set_walk_rate(rate: float) -> void:
+	## 走路动画播放倍率（跟滑行速度同比，脚不打滑）。
+	_walk_rate = maxf(rate, 0.05)
+	_apply_anim_rate()
+
+
+func _apply_anim_rate() -> void:
+	if anim == null:
+		return
+	anim.speed_scale = _walk_rate if anim.current_animation == ANIM_WALK else 1.0
+
+
 func set_moving(on: bool) -> void:
 	if is_dead or is_dummy:
 		return
@@ -105,12 +132,15 @@ func set_moving(on: bool) -> void:
 	if anim.current_animation in [ANIM_ATTACK, ANIM_HURT, ANIM_DEATH]:
 		return
 	anim.play(ANIM_WALK if on else ANIM_IDLE, 0.08)
+	_apply_anim_rate()
 
 
 func play_attack() -> void:
 	if is_dead or is_dummy:
 		return
+	set_facing(-1)  # 攻击时面向玩家
 	anim.play(ANIM_ATTACK, 0.04)
+	_apply_anim_rate()
 
 
 func play_hurt() -> void:
@@ -120,6 +150,7 @@ func play_hurt() -> void:
 		anim.seek(0.0, true)
 	else:
 		anim.play(ANIM_HURT, 0.02)
+	_apply_anim_rate()
 
 
 func play_death() -> void:
@@ -128,6 +159,7 @@ func play_death() -> void:
 	is_dead = true
 	moving = false
 	anim.play(ANIM_DEATH, 0.05)
+	_apply_anim_rate()
 
 
 func set_hp(hp: int, max_hp: int) -> void:
@@ -717,3 +749,4 @@ func _on_anim_finished(n: StringName) -> void:
 		return
 	if n == ANIM_ATTACK or n == ANIM_HURT:
 		anim.play(ANIM_WALK if moving else ANIM_IDLE, 0.1)
+		_apply_anim_rate()

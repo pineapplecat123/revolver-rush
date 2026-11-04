@@ -29,6 +29,9 @@ const FIRE_FLASH_HOLD := 0.2 / WHEEL_SPEED_MULT
 const POST_FIRE_STATUS_DELAY := 0.45
 ## v0.3.5 连点射击：转盘快速补间（可被下一次点击打断），额外轮弹道错开。
 const FIRE_ROT_SEC := 0.06
+## v0.4.26：实弹出膛后在红圈下停一下再转走（看清打的是哪一仓）。连射 / 倾泻。
+const VOLLEY_FIRE_HOLD_SEC := 0.05
+const DUMP_FIRE_HOLD_SEC := 0.01
 const EXTRA_SHOT_STAGGER_SEC := 0.05
 ## v0.4.20 墓碑：袋里幽灵先飞到转轮（手枪）再一起射出，这段聚拢时长（短，不卡操作）
 const GHOST_GATHER_SEC := 0.16
@@ -218,6 +221,14 @@ var _shop_temps: Array = []
 var _volley_ui_running: bool = false
 ## v0.4.24：连射步进中（用慢一点、看得清的转一格动画）；上一发转盘动画时长（未乘速度）。
 var _volley_stepping: bool = false
+## v0.4.26 击发核对：每发实弹出膛那一帧，记录红圈下（按盘面真实角度算）的仓、逻辑击发仓、该仓显示的弹。
+var shot_audit: Array = []
+## 已在逻辑里打掉、但画面上还没出膛的仓：slot → ammo_id（出膛转走前仍显示原弹）
+var _display_hold: Dictionary = {}
+## v0.4.26 地图商店独立覆盖块：每帧按连续格坐标定位（旧版借用格子 UnitBody，_refresh_board 会把它弹回格心 → 一顿一顿）
+var _shop_overlay: Panel = null
+## v0.4.26 小动物朝向：记上一帧连续 x，判断行进方向
+var _enemy_last_x: Dictionary = {}
 var _last_fire_rot_sec: float = 0.0
 var _player_rings: EnemyStatusRings = null
 var _pickup_layer: Control = null
@@ -1055,9 +1066,12 @@ func _animate_disk_to(target_steps: float, duration: float) -> void:
 	_wheel_animating = true
 	if _disk_tween != null and _disk_tween.is_valid():
 		_disk_tween.kill()
-	_disk_tween = create_tween()
-	_disk_tween.tween_method(_apply_disk_rotation, from_s, to_s, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	await _disk_tween.finished
+	var tw := create_tween()
+	_disk_tween = tw
+	tw.tween_method(_apply_disk_rotation, from_s, to_s, duration).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	# v0.4.26：不 await tw.finished——被 kill 的 Tween 永远不发 finished，旧写法会让整条 await 链卡死（装弹软锁根因）。
+	while tw.is_valid() and tw.is_running():
+		await get_tree().process_frame
 	_apply_disk_rotation(fposmod(to_s, float(CombatConstants.MAGAZINE_SIZE)))
 	_wheel_animating = false
 
@@ -1250,7 +1264,17 @@ func _busy() -> bool:
 	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying
 
 
+func is_shooting() -> bool:
+	## v0.4.26：开火中（预转 + 整轮连射 + 倾泻 + 转轮补间）。这段时间禁止装弹。
+	if _volley_ui_running or _dump_ui_running:
+		return true
+	return state != null and (state.is_volley_pending() or state.is_dump_pending())
+
+
 func _on_manual_load() -> void:
+	# v0.4.26：射击中按装弹直接忽略（不排队），且不许碰转盘补间（旧版在这里 kill 了射击补间 → 软锁）。
+	if is_shooting():
+		return
 	_snap_fire_disk()
 	if _busy():
 		return
@@ -1374,8 +1398,11 @@ func _on_fire() -> void:
 
 
 func _run_fire_press() -> void:
-	## v0.4.25：≥2 发时先随机转轮（逻辑立刻转，升级仍按第一发立刻结算），再播转动画，
-	## 然后弹道；之后打一发转一格。红圈始终对准要打/刚打的那一仓。
+	## v0.4.26：盘面先对齐逻辑锤位 → 逻辑随机转 + 第一发当帧结算（被打仓画面上保留）→ 播预转动画
+	## → 红圈下出膛 → 打一发转一格。全程 is_shooting()：装弹键灰掉、_refresh 不按逻辑硬对齐盘面。
+	_display_hold.clear()
+	_snap_disk_to_logic()
+	_refresh()
 	var spin_steps := 0
 	if (
 		state != null
@@ -1385,21 +1412,40 @@ func _run_fire_press() -> void:
 		and state.can_fire()
 	):
 		spin_steps = state.spin_cylinder_for_volley()
-	# 第一发逻辑立刻结算（升级三选一不能等转动画）
+	# 第一发逻辑仍在按下当帧结算（升级三选一时机不变）；画面上先留住被打掉的仓，
+	# 预转动画从「转前锤位」转到「转后锤位」，红圈下正是第一发，然后才出膛。
 	var pack: Dictionary = _resolve_fire_logic()
+	for rec in pack.get("shots", []):
+		if is_chamber_shot(rec):
+			_display_hold[int(rec["slot"])] = int(rec.get("ammo_id", -1))
+	_refresh_mag_contents()
 	if spin_steps > 0:
 		await _play_roll_spin_visual(spin_steps)
-	if not pack.is_empty():
-		pack["visual_before"] = _wheel_visual_steps
-		var shots: Array = pack.get("shots", [])
-		if not shots.is_empty():
-			pack["start_before"] = int(shots[0].get("start_before", 0))
 	await _present_resolved_fire_async(pack)
 	if state != null and state.is_volley_pending():
 		await _run_volley_autofire()
-	while _dump_ui_running:
+	var guard := 0
+	while _dump_ui_running and guard < 2000:
+		guard += 1
 		await _pwait(0.02)
+	_display_hold.clear()
 	_volley_ui_running = false
+	_snap_disk_to_logic()
+	_refresh()
+
+
+func _snap_disk_to_logic() -> void:
+	## 盘面硬对齐到逻辑锤位（同余里取离当前最近的，避免整圈跳）。空匣不动。
+	if state == null or state.magazine == null or state.magazine.is_empty():
+		return
+	var n := float(CombatConstants.MAGAZINE_SIZE)
+	var want := float(state.magazine.start_index)
+	var cur: float = _wheel_visual_steps
+	var d: float = fposmod(want - cur, n)
+	if d > n * 0.5:
+		d -= n
+	if absf(d) > 0.001:
+		_apply_disk_rotation(cur + d)
 
 
 func _snap_fire_disk() -> void:
@@ -1470,49 +1516,61 @@ func _run_fire_tap() -> void:
 
 
 func _present_tap_shots(shots: Array, hit_events: Array, visual_before: float, start_before: int) -> void:
-	## v0.4.25：红圈先对准本发击发仓并黄闪，再转一格到下一锤位。空仓先快跳到有弹处。
-	## 可 await：连射路径会等转盘落稳；倾泻等旧调用不 await 也能跑（tween 仍启动）。
+	## v0.4.26：每一发实弹：盘面对准它的仓（红圈下）→ 该仓保留原弹并黄闪 → 出膛（审计）→ 清仓 → 转到下一锤位。
+	## 逻辑已先结算；画面以 rec 的 start_before/slot/start_after 为准，不读逻辑当前锤位。
 	if shots.is_empty():
 		for ev in hit_events:
 			_spawn_hit_event(ev)
 		_refresh()
 		return
-	var primary: Dictionary = shots[0]
+	# 同步阶段（无 await）先把所有本批实弹仓「留住」，避免逻辑清仓后同帧画成空
 	for rec in shots:
-		if not bool(rec.get("echo", false)) and not bool(rec.get("virtual", false)):
-			primary = rec
-			break
-		if not bool(rec.get("echo", false)):
-			primary = rec
-			break
-	var blank_skip: int = int(primary.get("blank_skip", 0))
-	var fired_slot: int = int(primary.get("slot", -1))
-	var start_after: int = int(primary.get("start_after", start_before))
-	# 以 start_before 为基准对齐；visual_before 若已同步则沿用连续步数避免整圈回跳
-	var base: float = visual_before
-	var base_mod: float = fposmod(base, float(CombatConstants.MAGAZINE_SIZE))
-	var want_mod: float = float(start_before % CombatConstants.MAGAZINE_SIZE)
-	var diff: float = want_mod - base_mod
-	if absf(diff) > 0.01:
-		if diff < -0.01:
-			diff += float(CombatConstants.MAGAZINE_SIZE)
-		base += diff
-	# 1) 快跳空仓，让红圈落到本发实弹仓
-	if blank_skip > 0:
-		var skip_dur: float = _paced(CombatConstants.VOLLEY_EMPTY_SKIP_SEC) * float(blank_skip)
-		_wheel_animating = true
-		await _animate_disk_to(base + float(blank_skip), maxf(skip_dur, 0.02))
-		base = _wheel_visual_steps
-	else:
-		_apply_disk_rotation(base)
-	# 2) 黄闪本发仓（盘面仍停在击发仓上；内容可能已空，但仓位与红圈一致）
-	_begin_fire_flash(fired_slot)
+		if is_chamber_shot(rec):
+			_display_hold[int(rec["slot"])] = int(rec.get("ammo_id", -1))
 	_refresh_mag_contents()
-	_refresh()
-	# 3) 弹道
-	_in_flight_shots += shots.size()
-	var ghost_n: int = 0
+	# 按实弹分组：每组 = 一发实弹 + 跟在它后面的虚拟/回声
+	var groups: Array = []
+	var cur: Array = []
 	for rec in shots:
+		if is_chamber_shot(rec) and not cur.is_empty():
+			groups.append(cur)
+			cur = []
+		cur.append(rec)
+	if not cur.is_empty():
+		groups.append(cur)
+	var first := true
+	for g in groups:
+		await _present_shot_group(g, hit_events if first else [])
+		first = false
+	_refresh_hud_only()
+
+
+func _present_shot_group(group: Array, hit_events: Array) -> void:
+	var lead: Dictionary = {}
+	for rec in group:
+		if is_chamber_shot(rec):
+			lead = rec
+			break
+	var volley_like: bool = state != null and not state.is_dump_pending() and (state.is_volley_pending() or _volley_stepping or _volley_ui_running)
+	var n := CombatConstants.MAGAZINE_SIZE
+	var slot := -1
+	if not lead.is_empty():
+		slot = int(lead["slot"])
+		var sb: int = int(lead.get("start_before", slot))
+		var skip: int = int(lead.get("blank_skip", 0))
+		_set_disk_mod(float(sb))
+		if skip > 0:
+			_wheel_animating = true
+			await _animate_disk_to(_wheel_visual_steps + float(skip), maxf(_paced(CombatConstants.VOLLEY_EMPTY_SKIP_SEC) * float(skip), 0.02))
+		# 保险：红圈下必须就是本发仓（FIRE_PORT_OFFSET=0 → 盘面步数=仓号）
+		if ring_slot_from_disk() != slot:
+			_set_disk_mod(float(posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)))
+		_begin_fire_flash(slot)
+		_refresh_mag_contents()
+	# 出膛（_play_tap_shot 首发同步执行到审计点）
+	_in_flight_shots += group.size()
+	var ghost_n: int = 0
+	for rec in group:
 		if int(rec.get("ammo_id", -1)) == FireResolver.ID_GHOST and bool(rec.get("virtual", false)):
 			ghost_n += 1
 	var batch_delay: float = 0.0
@@ -1520,28 +1578,39 @@ func _present_tap_shots(shots: Array, hit_events: Array, visual_before: float, s
 		_play_ghost_gather(ghost_n)
 		batch_delay = _paced(GHOST_GATHER_SEC)
 	_ghost_gather_from = []
-	for i in shots.size():
-		_play_tap_shot(shots[i], hit_events if i == 0 else [], i, batch_delay)
-	for ev in hit_events:
-		# 命中特效已由 _play_tap_shot 在落点播；这里避免重复时 hit_events 可能已空
-		pass
-	# 4) 转一格到下一锤位（消耗后的 start_after）
-	var fired_visual_mod: int = (start_before + blank_skip) % CombatConstants.MAGAZINE_SIZE
-	var remain: int = (start_after - fired_visual_mod + CombatConstants.MAGAZINE_SIZE) % CombatConstants.MAGAZINE_SIZE
+	for i in group.size():
+		_play_tap_shot(group[i], hit_events if i == 0 else [], i, batch_delay)
+	if lead.is_empty():
+		# 连发窗免费弹 / 纯虚拟：不动转轮
+		return
+	# 等首发真正出膛（幽灵聚拢有延迟）+ 短暂停留让玩家看清是这一仓
+	var hold_s: float = batch_delay + _paced(VOLLEY_FIRE_HOLD_SEC if volley_like else DUMP_FIRE_HOLD_SEC)
+	if hold_s > 0.0:
+		await _pwait(hold_s)
+	_display_hold.erase(slot)
+	_clear_fire_flash()
+	# 转到下一锤位
+	var fired_mod: int = posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)
+	var sa: int = int(lead.get("start_after", fired_mod + 1))
+	var remain: int = posmod(sa - fired_mod, n)
 	if remain == 0:
 		remain = 1
-	var rot_sec: float = FIRE_ROT_SEC
-	if state != null and (state.is_volley_pending() or _volley_stepping or _volley_ui_running) and not state.is_dump_pending():
-		rot_sec = CombatState.volley_rotate_sec()
+	var rot_sec: float = CombatState.volley_rotate_sec() if volley_like else FIRE_ROT_SEC
 	_last_fire_rot_sec = rot_sec
-	_fire_disk_target = _wheel_visual_steps + float(remain)
-	_fire_disk_tweening = true
 	_wheel_animating = true
-	await _animate_disk_to(_fire_disk_target, _paced(rot_sec))
-	_fire_disk_tweening = false
-	_clear_fire_flash()
+	await _animate_disk_to(_wheel_visual_steps + float(remain), _paced(rot_sec))
 	_refresh_mag_contents()
 
+
+func _set_disk_mod(target_mod: float) -> void:
+	## 把盘面转到 ≡ target_mod (mod 6) 且离当前最近的位置（瞬时）。
+	var n := float(CombatConstants.MAGAZINE_SIZE)
+	var cur: float = _wheel_visual_steps
+	var d: float = fposmod(target_mod - cur, n)
+	if d > n * 0.5:
+		d -= n
+	if absf(d) > 0.001:
+		_apply_disk_rotation(cur + d)
 
 
 func _run_dump_autofire() -> void:
@@ -1622,6 +1691,50 @@ func _on_fire_disk_tween_done(tw: Tween) -> void:
 	_refresh_mag_contents()
 
 
+func ring_slot_from_disk() -> int:
+	## 红圈固定正上；按盘面真实旋转角反推正上是哪一仓（不读逻辑 start_index）。
+	if _disk == null:
+		return -1
+	var steps: float = -_disk.rotation / (TAU / float(CombatConstants.MAGAZINE_SIZE))
+	return posmod(int(round(steps)), CombatConstants.MAGAZINE_SIZE)
+
+
+func displayed_ammo_at(slot_i: int) -> int:
+	## 画面上该仓显示的弹（含出膛前保留）。
+	if slot_i < 0 or state == null or state.magazine == null:
+		return Magazine.EMPTY
+	if _display_hold.has(slot_i):
+		return int(_display_hold[slot_i])
+	return int(state.magazine.slots[slot_i])
+
+
+static func is_chamber_shot(rec: Dictionary) -> bool:
+	## 真从转轮里打出的那一发（非连发窗免费弹 / 幽灵虚拟 / 回声第二下）。
+	return (
+		int(rec.get("slot", -1)) >= 0
+		and not bool(rec.get("virtual", false))
+		and not bool(rec.get("echo", false))
+		and not bool(rec.get("burst_free", false))
+	)
+
+
+func _audit_spawn(rec: Dictionary) -> void:
+	if not is_chamber_shot(rec):
+		return
+	var ring: int = ring_slot_from_disk()
+	shot_audit.append({
+		"ring": ring,
+		"fired": int(rec.get("slot", -1)),
+		"ammo": int(rec.get("ammo_id", -1)),
+		"shown": displayed_ammo_at(ring),
+		"flash": _fire_flash_slot,
+		"disk_steps": -_disk.rotation / (TAU / float(CombatConstants.MAGAZINE_SIZE)) if _disk != null else -1.0,
+		"ms": Time.get_ticks_msec(),
+	})
+	if shot_audit.size() > 400:
+		shot_audit.pop_front()
+
+
 func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: float = 0.0) -> void:
 	## 单发弹道（不 await 逻辑）：飞到命中格时播放该格延后的飘字/飚血，落地后清尸体。
 	var wait_s: float = batch_delay + (_paced(EXTRA_SHOT_STAGGER_SEC) * float(order) if order > 0 else 0.0)
@@ -1629,6 +1742,7 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 		await _pwait(wait_s)
 		if order > 0 and _skel_player != null and is_instance_valid(_skel_player):
 			_skel_player.play_shoot()  # 错开的额外弹各自后坐一下（首发由 on_shot 钩子触发）
+	_audit_spawn(rec)
 	var hit_cells: Array = rec.get("hit_cells", [])
 	var hit_amts: Array = rec.get("hit_amounts", [])
 	var from_g: Vector2 = _player_shot_origin_global()
@@ -1943,6 +2057,18 @@ func _update_enemy_animal_motion() -> void:
 		if sk == null or not is_instance_valid(sk) or sk.is_dead:
 			continue
 		var moving: bool = (not e.is_dummy) and state.enemy_glide_fraction(e) > 0.02 and e.is_alive()
+		# 走路动画播放速度跟滑行速度同比（v0.4.26 减速 50% 后脚不打滑）
+		sk.set_walk_rate(_enemy_glide_cells_per_sec() * CombatConstants.ENEMY_WALK_ANIM_REF_STEP_SEC)
+		# 朝向：按连续 x 的变化（行进方向）；不动时保持；攻击时面向玩家（SkeletonEnemy 内处理）
+		var eid: int = e.get_instance_id()
+		var cx: float = state.enemy_continuous_x(e)
+		if _enemy_last_x.has(eid):
+			var dx: float = cx - float(_enemy_last_x[eid])
+			if dx < -0.0005:
+				sk.set_facing(-1)
+			elif dx > 0.0005:
+				sk.set_facing(1)
+		_enemy_last_x[eid] = cx
 		sk.set_moving(moving)
 
 
@@ -4636,7 +4762,7 @@ func _refresh() -> void:
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
-	btn_manual_load.disabled = busy or not state.can_manual_load()
+	btn_manual_load.disabled = busy or is_shooting() or not state.can_manual_load()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
@@ -4748,23 +4874,60 @@ func _drop_uncollected_pickups() -> void:
 			c.queue_free()
 
 
-func _position_map_shop() -> void:
-	## 商店在格子之间平滑滑动，而不是走满一格才跳。
+func _ensure_shop_overlay() -> Panel:
+	if _shop_overlay != null and is_instance_valid(_shop_overlay):
+		return _shop_overlay
+	_shop_overlay = Panel.new()
+	_shop_overlay.name = "MapShopOverlay"
+	_shop_overlay.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shop_overlay.size = Vector2(UNIT_W, UNIT_H)
+	_shop_overlay.top_level = true
+	_shop_overlay.z_index = 6
+	var style := StyleBoxFlat.new()
+	style.set_corner_radius_all(8)
+	style.bg_color = Color(0.85, 0.7, 0.2, 0.98)
+	style.border_color = Color(1.0, 0.92, 0.45)
+	style.set_border_width_all(3)
+	_shop_overlay.add_theme_stylebox_override("panel", style)
+	var lab := Label.new()
+	lab.text = "商店"
+	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lab.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	lab.add_theme_color_override("font_color", Color(0.15, 0.1, 0.0))
+	lab.add_theme_font_size_override("font_size", 15)
+	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shop_overlay.add_child(lab)
+	add_child(_shop_overlay)
+	_shop_overlay.visible = false
+	return _shop_overlay
+
+
+func map_shop_global_x() -> float:
+	## 商店块左上角全局 x（由逻辑连续格坐标纯函数算出；同一帧多次调用结果一致）。-1 = 不在场。
 	if state == null or board_row == null or state.shop_cell < 0:
-		return
-	if state.occupied_cells().has(state.shop_cell):
-		return
+		return -1.0
 	var i: int = state.shop_cell
 	if i < 0 or i >= board_row.get_child_count():
-		return
+		return -1.0
 	var slot: Control = board_row.get_child(i) as Control
 	if slot == null:
+		return -1.0
+	return slot.global_position.x + _unit_rest_position().x - state.shop_glide_fraction() * float(CELL_W)
+
+
+func _position_map_shop() -> void:
+	## v0.4.26：商店是独立覆盖块，位置只由 shop_cell + 本格滑行比例决定（幂等）。
+	## _process 每帧调，_refresh_board 也调 → 任意时刻刷新棋盘都不会把它弹回格心。
+	var ov: Panel = _ensure_shop_overlay()
+	var gx: float = map_shop_global_x()
+	if gx < 0.0 or _shop_open:
+		ov.visible = false
 		return
-	var unit: Control = slot.get_node_or_null("UnitBody") as Control
-	if unit == null or not unit.visible:
-		return
-	var frac: float = state.shop_glide_fraction()
-	unit.position = _unit_rest_position() + Vector2(-frac * float(CELL_W), 0.0)
+	var slot: Control = board_row.get_child(state.shop_cell) as Control
+	ov.visible = true
+	ov.size = Vector2(UNIT_W, UNIT_H)
+	ov.global_position = Vector2(gx, slot.global_position.y + _unit_rest_position().y)
 
 
 func _update_burn_vfx() -> void:
@@ -4912,15 +5075,6 @@ func _refresh_board() -> void:
 				style.set_border_width_all(0)
 			info.text = ""
 			hp_bar.visible = false
-		elif state.shop_cell == i:
-			unit.visible = true
-			style.bg_color = Color(0.85, 0.7, 0.2, 0.98)
-			style.border_color = Color(1.0, 0.92, 0.45)
-			style.set_border_width_all(3)
-			info.text = "商店"
-			info.add_theme_color_override("font_color", Color(0.15, 0.1, 0.0))
-			info.add_theme_font_size_override("font_size", 15)
-			hp_bar.visible = false
 		else:
 			# 空格：不画地块色块，只留线上位
 			unit.visible = false
@@ -4929,6 +5083,7 @@ func _refresh_board() -> void:
 		unit.add_theme_stylebox_override("panel", style)
 	_sync_skeleton_enemies(by_cell)
 	_update_enemy_status_rings()
+	_position_map_shop()
 
 
 func _style_hp_bar(bar: ProgressBar, fill: Color) -> void:
@@ -4959,7 +5114,7 @@ func _refresh_hud_only() -> void:
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
-	btn_manual_load.disabled = busy or not state.can_manual_load()
+	btn_manual_load.disabled = busy or is_shooting() or not state.can_manual_load()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
@@ -4976,8 +5131,10 @@ func _refresh_mag() -> void:
 	var start_i: int = state.magazine.start_index
 	# 逐步装/射/滚/Tween 期间禁止瞬间对齐，否则会跳过 60° 动画并造成标位错位
 	# 空匣 start_index 常被清成 0：勿硬拉盘面，否则正上红圈会闪跳
+	# v0.4.26：射击中（预转+连射+倾泻）逻辑跑在画面前面，绝不按逻辑锤位硬对齐，否则红圈会提前跳到下一仓。
 	if (
 		not _wheel_animating and not _loading and not _firing and not _rolling
+		and not is_shooting()
 		and state.magazine != null and not state.magazine.is_empty()
 	):
 		var want := float(start_i)
@@ -4996,7 +5153,7 @@ func _paint_mag_chambers() -> void:
 	for slot_i in CombatConstants.MAGAZINE_SIZE:
 		var panel: Panel = _chamber_panels[slot_i]
 		var info: Label = panel.get_node("Info")
-		var ammo_id: int = state.magazine.slots[slot_i]
+		var ammo_id: int = displayed_ammo_at(slot_i)
 		var style := StyleBoxFlat.new()
 		style.set_corner_radius_all(999)
 		style.set_border_width_all(2)

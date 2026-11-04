@@ -1,3 +1,12 @@
+## 2026-11-04 — v0.4.26 红圈=击发仓（实测）/ 射击禁装弹+软锁 / 朝向 / 敌人减速 / 商店平滑
+- 红圈根因（实测，非猜）：在出膛帧按 `_disk.rotation` 反推红圈仓（`ring_slot_from_disk`）并审计（`shot_audit`）。v0.4.25 实时探针 32/32 发全错：多数 ring=fired+1（红圈已在下一发），其余 ring==fired 但该仓画成空。原因①逻辑先清仓+`start_index+1`，任何 `_refresh()`（含 present 里自己调的）走 `_refresh_mag()`，在 `_wheel_animating=false` 时把盘面硬对齐到逻辑锤位=下一仓；预转同理（spin/fire 的信号先把盘面对齐，再从错位处播整圈）。原因②被打掉的仓在出膛前已按逻辑画成空。
+- 修：射击期 `is_shooting()` 时 `_refresh_mag` 不对齐；`_display_hold` 出膛前保留原弹；`_present_shot_group` 对准→黄闪→出膛(审计)→停 0.05s→清仓→转一格；预转先播完再逻辑击发；每次结束 `_snap_disk_to_logic`。修后探针 32/32、74/74 全对（含倾泻、连发窗、幽灵、1×/2×/3×/0.5× 速度、15–60fps）。
+- 软锁根因（实测）：`_on_manual_load` 先调 `_snap_fire_disk()` kill 了射击转盘 Tween；`_animate_disk_to` `await tween.finished`，被 kill 的 Tween 永不发 finished → 连射协程永挂，`_volley_ui_running` 恒 true（复现：开火 0.8s 后按装弹，4 秒后仍 volley_ui=true pending=true）。修：等待改为 `while tw.is_valid() and tw.is_running(): await process_frame`；射击中装弹直接 return，按钮 disabled。
+- 朝向：画法原生朝右（口鼻/高光 +x）而敌人向左走。`set_facing` 只翻 Rig.scale.x，根 scale（Boss 1.55/熊 1.25/木桩 1.05）不动；UI 按连续 x 变化定朝向，攻击时面向玩家。
+- 敌人减速：`ENEMY_AUTO_STEP_SEC` 1.65→3.3 s/格（≈41→≈21 px/s @CELL_W 68）；走路动画 speed_scale = 滑行速度×1.65（1× 时 0.5）。商店用新 `MAP_SHOP_STEP_SEC=1.65` 保持原速。
+- 商店卡顿根因（实测）：商店借用格子 UnitBody，`_refresh_board` 把它放回格心，`_position_map_shop` 只在 `_process` 里加滑行偏移；弹道落地等 tween 回调在 `_process` 之后 `_refresh` → 当帧画在格心。探针：580 帧里 29 次回跳 / 23 次前跳（±63px）。修：独立 top_level 覆盖块，位置为状态纯函数，`_process` 与 `_refresh_board` 都调。
+- GUT：`test_rr_v0426`（随机多轮审计、射击中装弹、kill tween 不挂、倾泻/商店中途、朝向/缩放、减速、商店幂等）。
+
 ## 2026-11-04 — v0.4.25 开火前转轮 + 红圈对准击发仓
 - 任务：截图红圈与实弹对不上；「射击之前先转一下」。
 - 根因：连射 UI `_present_tap_shots` 在逻辑已清空锤位仓并 `start_index+1` 之后才转盘，红圈（固定正上）短暂/持续停在空仓上；有空仓时下一发前的等待也停在空仓上。

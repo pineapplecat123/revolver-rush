@@ -24,7 +24,7 @@ func _rush(seed_v: int) -> CombatState:
 
 
 func test_version_0_4_25() -> void:
-	assert_eq(GameVersion.STRING, "0.4.25")
+	assert_true(GameVersion.STRING >= "0.4.25")
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.25"' in text)
 	assert_true('"version": "0.4.24"' in text)

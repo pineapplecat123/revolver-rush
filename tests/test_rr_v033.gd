@@ -148,10 +148,9 @@ func test_fuzz_interleaved_fire_and_reload_keeps_ammo() -> void:
 # ---------- 敌人连续滑行 ----------
 
 func test_enemy_speed_slower_than_v032() -> void:
-	## v0.3.2 为 1.15s/格；v0.3.3 放慢约 30%。
-	assert_almost_eq(CombatConstants.ENEMY_AUTO_STEP_SEC, 1.65, 0.001)
-	var slow_ratio: float = 1.0 - 1.15 / CombatConstants.ENEMY_AUTO_STEP_SEC
-	assert_between(slow_ratio, 0.25, 0.40)
+	## v0.3.2 为 1.15s/格；v0.3.3 放慢约 30%（1.65）；v0.4.26 再 ×0.5 速度（3.3）。
+	assert_almost_eq(CombatConstants.ENEMY_AUTO_STEP_SEC, 3.3, 0.001)
+	assert_gt(CombatConstants.ENEMY_AUTO_STEP_SEC, 1.15)
 
 
 func test_glide_is_continuous_and_lands_on_cell() -> void:

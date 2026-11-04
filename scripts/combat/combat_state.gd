@@ -4487,7 +4487,7 @@ func tick_map_shop(delta_sec: float) -> bool:
 		_log("地图商店出现在格 %d。" % shop_cell)
 		changed = true
 	if shop_cell >= 0:
-		_shop_move_prog += delta_sec / CombatConstants.ENEMY_AUTO_STEP_SEC
+		_shop_move_prog += delta_sec / CombatConstants.MAP_SHOP_STEP_SEC
 		while _shop_move_prog >= 1.0 and shop_cell > 0:
 			_shop_move_prog -= 1.0
 			shop_cell -= 1
