@@ -185,6 +185,8 @@ var _muzzle_tip_from_long_press: bool = false
 var _long_press_kind: String = ""  ## "ammo" | "muzzle"
 ## 每格独立抖动 tween（key=cell）；不再整块棋盘抖
 var _cell_shake_tweens: Dictionary = {}
+## v0.4.21 骨骼动画玩家（纯表现）：挂在玩家格 UnitBody 上，替代蓝色方块
+var _skel_player: SkeletonPlayer = null
 ## 开火结算时暂存飘字/抖动，等射线飞到再播
 var _defer_hit_vfx: bool = false
 var _pending_hit_vfx: Array = []
@@ -285,6 +287,7 @@ func _ready() -> void:
 	_ensure_long_press_timer()
 	_ensure_enemy_auto_timer()
 	_build_board_cells()
+	_ensure_skeleton_player()
 	_build_wheel_chambers()
 	_build_ammo_detail_panel()
 	_build_rush_shop_panel()
@@ -1562,9 +1565,11 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 	var wait_s: float = batch_delay + (_paced(EXTRA_SHOT_STAGGER_SEC) * float(order) if order > 0 else 0.0)
 	if wait_s > 0.0:
 		await _pwait(wait_s)
+		if order > 0 and _skel_player != null and is_instance_valid(_skel_player):
+			_skel_player.play_shoot()  # 错开的额外弹各自后坐一下（首发由 on_shot 钩子触发）
 	var hit_cells: Array = rec.get("hit_cells", [])
 	var hit_amts: Array = rec.get("hit_amounts", [])
-	var from_g: Vector2 = _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+	var from_g: Vector2 = _player_shot_origin_global()
 	if hit_cells.is_empty() or from_g == Vector2.ZERO:
 		for ev in events:
 			_spawn_hit_event(ev)
@@ -1763,8 +1768,34 @@ func _animate_fire_shots() -> void:
 		_apply_disk_rotation(float(state.magazine.start_index))
 
 
+func _ensure_skeleton_player() -> void:
+	## v0.4.21：玩家格挂骨骼小人（脚底贴 UnitBody 底边中点），订阅 state 信号/钩子自己播动画。
+	if board_row == null or board_row.get_child_count() <= CombatConstants.PLAYER_CELL:
+		return
+	var unit: Control = board_row.get_child(CombatConstants.PLAYER_CELL).get_node_or_null("UnitBody") as Control
+	if unit == null:
+		return
+	if _skel_player != null and is_instance_valid(_skel_player):
+		_skel_player.queue_free()
+	_skel_player = (load("res://scenes/player/skeleton_player.tscn") as PackedScene).instantiate() as SkeletonPlayer
+	_skel_player.position = Vector2(UNIT_W * 0.5 - 2.0, UNIT_H)
+	_skel_player.scale = Vector2(1.35, 1.35)
+	unit.add_child(_skel_player)
+	_skel_player.bind_state(state)
+
+
+func _player_shot_origin_global() -> Vector2:
+	## 弹道起点：有骨骼小人就从枪口出，否则沿用玩家块中心。
+	if _skel_player != null and is_instance_valid(_skel_player) and not _skel_player.is_dead:
+		return _skel_player.muzzle_global_position()
+	return _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+
+
 func player_status_anchor_global() -> Vector2:
-	## 玩家头顶状态圆环锚点。没骨骼小人时用玩家块顶边中点，方便骨骼分支在这里接 status_anchor。
+	## 玩家头顶状态圆环/飘字锚点（血条上方）；没小人就用玩家块顶边中点。
+	## v0.4.22 玩家状态环也走这里。
+	if _skel_player != null and is_instance_valid(_skel_player):
+		return _skel_player.status_anchor_global_position()
 	var c := _cell_unit_global_center(CombatConstants.PLAYER_CELL)
 	return c - Vector2(0, UNIT_H * 0.5)
 
@@ -1793,7 +1824,7 @@ func _play_shot_beam_and_impact() -> void:
 		hit_amts = [int(state.last_shot_dealt)]
 	if hit_cells.is_empty():
 		return
-	var from_g: Vector2 = _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+	var from_g: Vector2 = _player_shot_origin_global()
 	var end_cell: int = int(hit_cells[hit_cells.size() - 1])
 	var to_g: Vector2 = _cell_unit_global_center(end_cell)
 	if from_g == Vector2.ZERO or to_g == Vector2.ZERO:
@@ -4684,7 +4715,15 @@ func _refresh_board() -> void:
 		style.content_margin_right = 4
 		style.content_margin_top = 4
 		style.content_margin_bottom = 4
-		if i == CombatConstants.PLAYER_CELL:
+		if i == CombatConstants.PLAYER_CELL and _skel_player != null:
+			# v0.4.21：骨骼小人代替蓝方块；方块透明、文字/血条交给小人头顶
+			unit.visible = true
+			style.bg_color = Color(0, 0, 0, 0)
+			style.set_border_width_all(0)
+			info.text = ""
+			hp_bar.visible = false
+			_skel_player.set_hp(state.player_hp, state.player_max_hp)
+		elif i == CombatConstants.PLAYER_CELL:
 			unit.visible = true
 			style.bg_color = Color(0.2, 0.48, 0.92, 0.98)
 			style.border_color = Color(0.65, 0.88, 1.0)
