@@ -3324,6 +3324,42 @@ func is_volley_pending() -> bool:
 	return _volley_pending
 
 
+func spin_cylinder_for_volley() -> int:
+	## v0.4.25：连射前随机转轮。0/1 发不转。不发射。UI 先逻辑转，再播动画，再出第一发弹道。
+	if magazine == null or magazine.loaded_count() <= 1:
+		return 0
+	commit_load_session_if_active()
+	if magazine == null or magazine.loaded_count() <= 1:
+		return 0
+	if burst_window_remaining > 0.0 or not can_fire():
+		return 0
+	var before: int = magazine.start_index
+	var steps: int = magazine.random_roll(rng)
+	if steps > 0:
+		_log("连射前转轮随机 %d 步（起点槽 %d → %d）。" % [steps, before, magazine.start_index])
+	_emit()
+	return steps
+
+
+func advance_empty_chambers() -> int:
+	## 把锤位快进到最近有弹仓（不消耗弹药）。返回跳过的空仓数。
+	## UI 在连射等待/开火前调用，让红圈停在「下一发要打的仓」上。
+	if magazine == null or magazine.is_empty():
+		return 0
+	var skipped := 0
+	var guard := 0
+	while guard < CombatConstants.MAGAZINE_SIZE:
+		var h: int = magazine.chamber_at_fire_port()
+		if magazine.slots[h] != Magazine.EMPTY:
+			break
+		_advance_cylinder_one_step()
+		skipped += 1
+		guard += 1
+	if skipped > 0:
+		_emit()
+	return skipped
+
+
 static func volley_shot_interval_sec() -> float:
 	## v0.4.24：连射每发间隔（未乘战斗速度）。射速帽是下限。
 	return maxf(CombatConstants.VOLLEY_SHOT_INTERVAL_SEC, CombatConstants.MIN_FIRE_INTERVAL_SEC)
@@ -3347,9 +3383,9 @@ func volley_next_empty_skips() -> int:
 	return n
 
 
-func volley_wait_before_next_sec() -> float:
-	## 下一发前的等待（未乘战斗速度）：一格间隔 + 每个空仓一点点快转时间。
-	return volley_shot_interval_sec() + CombatConstants.VOLLEY_EMPTY_SKIP_SEC * float(volley_next_empty_skips())
+static func volley_wait_before_next_sec() -> float:
+	## 下一发前的等待（未乘战斗速度）。空仓由 advance_empty_chambers + 快转动画单独处理，不塞进这段等待。
+	return volley_shot_interval_sec()
 
 
 func _volley_should_continue() -> bool:
@@ -3721,7 +3757,8 @@ func do_fire() -> bool:
 
 ## v0.4.22：一次开火打光已装弹。resolve_dump_sync=true 时本调用内打完（测试）；false 时只打第一发，其余交给 take_volley_shot / 倾泻步进。
 ## 连发窗内仍是免费平庸、不耗仓。倾泻主发仍走 0.06s 步进。连射或倾泻进行中再按 = 忽略。
-## v0.4.24：开火前不再随机转轮，从当前击发仓直接打；UI 每发之间按 VOLLEY_SHOT_INTERVAL_SEC 转一格。
+## v0.4.25：连射前可由 spin_cylinder_for_volley 随机转；UI 每发之间按 VOLLEY_SHOT_INTERVAL_SEC 转一格。
+## 红圈对准：advance_empty_chambers 先跳过空仓，_present_tap_shots 先闪击发仓再转格。
 func fire_tap(resolve_dump_sync: bool = true) -> Array:
 	var shots: Array = []
 	if _volley_pending or _dump_pending:

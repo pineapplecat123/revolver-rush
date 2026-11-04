@@ -309,7 +309,7 @@ func test_ui_n_taps_same_frame_n_shots() -> void:
 	assert_eq(cs.magazine.loaded_count(), 5, "同一帧只结算第一发，其余连射")
 	assert_eq(cs.discard.size(), d0 + 1)
 	assert_false(ui.btn_fire.disabled, "射击键不因动画禁用")
-	await wait_seconds(3.0)
+	await wait_seconds(6.0)  # v0.4.25：开火前转轮 + 0.25s/发，3s 不够打完并落地
 	assert_eq(cs.magazine.loaded_count(), 0, "一次开火把匣打空")
 	assert_eq(cs.discard.size(), d0 + 6)
 	assert_eq(ui._in_flight_shots, 0, "所有弹道落地")

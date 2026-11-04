@@ -1,3 +1,12 @@
+## 2026-11-04 — v0.4.25 开火前转轮 + 红圈对准击发仓
+- 任务：截图红圈与实弹对不上；「射击之前先转一下」。
+- 根因：连射 UI `_present_tap_shots` 在逻辑已清空锤位仓并 `start_index+1` 之后才转盘，红圈（固定正上）短暂/持续停在空仓上；有空仓时下一发前的等待也停在空仓上。
+- 修：`advance_empty_chambers` 开火/等待前把锤位推到最近实弹；`_present_tap_shots` 先快跳空仓 → 黄闪击发仓（与红圈同位）→ 再转一格。倾泻路径同样 await。
+- 恢复 `spin_cylinder_for_volley`（≥2 发随机 1–5 步）。逻辑顺序与 v0.4.22 相同：先 spin+fire_tap（升级立刻），再播转动画与弹道。装满后仍 `LOAD_FULL_RANDOM_SPIN=false`。
+- 节奏：`VOLLEY_SHOT_INTERVAL_SEC=0.25` / `VOLLEY_ROTATE_SEC=0.18` 保留；空仓等待改由快跳承担，不再叠进 interval。
+- GUT：`test_rr_v0425`；放宽 v0424 冲突断言。
+- 仓格红边：`floor(visual_steps)` 改 `round`，转动中红边不再粘在已离开正上的仓上。
+
 ## 2026-11-04 — v0.4.24 连射放慢 + 去掉随机转轮
 - 任务（t420u）：「打一枪转一下，然后装弹装满不用转那一下了」。
 - 删 `spin_cylinder_for_volley`（连射前随机 1–5 步）；`LOAD_FULL_RANDOM_SPIN=false`，装满后 `needs_spin` 恒 false，`do_load` 也不再 `apply_roll`。按开火从当前击发仓直接打。ROLL 的 `apply_roll` 本身保留。

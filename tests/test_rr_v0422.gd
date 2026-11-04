@@ -49,7 +49,7 @@ func test_version_0_4_22() -> void:
 
 
 func test_volley_empties_and_ignores_repress() -> void:
-	## v0.4.24：连射前不再随机转轮（原 spin_cylinder_for_volley 已删）。
+	## 连射打光；转轮由 UI 在 fire_tap 前调用（本测试不转）。
 	var cs := _rush(42201)
 	cs.dev_force_load([
 		WHITE, WHITE, WHITE, WHITE, WHITE, WHITE,

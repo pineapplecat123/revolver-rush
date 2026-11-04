@@ -24,7 +24,7 @@ func _rush(seed_v: int) -> CombatState:
 
 
 func test_version_0_4_24() -> void:
-	assert_eq(GameVersion.STRING, "0.4.24")
+	assert_true(GameVersion.STRING >= "0.4.24")
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.24"' in text)
 
@@ -38,9 +38,10 @@ func test_volley_interval_constants() -> void:
 	assert_false(CombatConstants.LOAD_FULL_RANDOM_SPIN)
 
 
-func test_no_pre_volley_spin_api() -> void:
+func test_pre_volley_spin_api_exists_again() -> void:
+	## v0.4.25 起又加回；本文件保留间隔/装满不转等断言。
 	var cs := _rush(42401)
-	assert_false(cs.has_method("spin_cylinder_for_volley"), "连射前随机转轮已删除")
+	assert_true(cs.has_method("spin_cylinder_for_volley"))
 
 
 func test_fire_starts_from_current_chamber() -> void:
@@ -77,17 +78,14 @@ func test_full_load_does_not_spin() -> void:
 		assert_eq(cs.magazine.start_index, expect_start, "装满后停在会话末仓，不随机转")
 
 
-func test_empty_chambers_add_only_short_wait() -> void:
+func test_empty_chambers_wait_is_plain_interval() -> void:
+	## v0.4.25：空仓由 advance_empty_chambers 快跳，等待本身不再加空仓时间。
 	var cs := _rush(42406)
 	cs.magazine.clear()
 	cs.magazine.set_slot(3, WHITE)
 	cs.magazine.start_index = 0
 	assert_eq(cs.volley_next_empty_skips(), 3)
-	assert_almost_eq(
-		cs.volley_wait_before_next_sec(),
-		CombatState.volley_shot_interval_sec() + 3.0 * CombatConstants.VOLLEY_EMPTY_SKIP_SEC,
-		0.0001
-	)
+	assert_almost_eq(cs.volley_wait_before_next_sec(), CombatState.volley_shot_interval_sec(), 0.0001)
 	cs.magazine.start_index = 3
 	assert_eq(cs.volley_next_empty_skips(), 0)
 	assert_almost_eq(cs.volley_wait_before_next_sec(), CombatState.volley_shot_interval_sec(), 0.0001)
