@@ -187,6 +187,8 @@ var _long_press_kind: String = ""  ## "ammo" | "muzzle"
 var _cell_shake_tweens: Dictionary = {}
 ## v0.4.21 骨骼动画玩家（纯表现）：挂在玩家格 UnitBody 上，替代蓝色方块
 var _skel_player: SkeletonPlayer = null
+## 小动物怪（纯表现）：EnemyInstance.get_instance_id() → SkeletonEnemy
+var _skel_enemies: Dictionary = {}
 ## 开火结算时暂存飘字/抖动，等射线飞到再播
 var _defer_hit_vfx: bool = false
 var _pending_hit_vfx: Array = []
@@ -288,6 +290,7 @@ func _ready() -> void:
 	_ensure_enemy_auto_timer()
 	_build_board_cells()
 	_ensure_skeleton_player()
+	_bind_enemy_animal_signals()
 	_build_wheel_chambers()
 	_build_ammo_detail_panel()
 	_build_rush_shop_panel()
@@ -1237,6 +1240,7 @@ func _update_enemy_glide_visuals() -> void:
 		if unit == null or not unit.visible:
 			continue
 		unit.position = _unit_rest_position_for_cell(i)
+	_update_enemy_animal_motion()
 
 
 func _busy() -> bool:
@@ -1801,6 +1805,87 @@ func _nearest_enemy_global() -> Variant:
 			best_d = d
 			best = p
 	return best
+
+
+func _bind_enemy_animal_signals() -> void:
+	if state == null:
+		return
+	if not state.enemy_attacked.is_connected(_on_enemy_attacked_visual):
+		state.enemy_attacked.connect(_on_enemy_attacked_visual)
+
+
+func _on_enemy_attacked_visual(e: EnemyInstance, _kind: String) -> void:
+	if e == null:
+		return
+	var sk: SkeletonEnemy = _skel_enemies.get(e.get_instance_id()) as SkeletonEnemy
+	if sk != null and is_instance_valid(sk):
+		sk.play_attack()
+
+
+func _play_enemy_hurt_visual(cell: int) -> void:
+	if state == null:
+		return
+	for e in state.enemies:
+		if e != null and int(e.cell) == cell:
+			var sk: SkeletonEnemy = _skel_enemies.get(e.get_instance_id()) as SkeletonEnemy
+			if sk != null and is_instance_valid(sk) and not sk.is_dead:
+				sk.play_hurt()
+			return
+
+
+func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
+	## 按场上敌人增删/换格同步小动物；木桩也挂（布偶造型）。
+	var live_ids: Dictionary = {}
+	for cell in by_cell.keys():
+		var e: EnemyInstance = by_cell[cell]
+		if e == null:
+			continue
+		var eid: int = e.get_instance_id()
+		live_ids[eid] = true
+		var unit: Control = board_row.get_child(int(cell)).get_node_or_null("UnitBody") as Control
+		if unit == null:
+			continue
+		var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+		if sk == null or not is_instance_valid(sk):
+			sk = (load("res://scenes/enemy/skeleton_enemy.tscn") as PackedScene).instantiate() as SkeletonEnemy
+			sk.setup(int(e.def_id))
+			_skel_enemies[eid] = sk
+		if sk.get_parent() != unit:
+			if sk.get_parent() != null:
+				sk.get_parent().remove_child(sk)
+			unit.add_child(sk)
+			sk.position = Vector2(UNIT_W * 0.5, UNIT_H)
+		sk.set_hp(e.hp, e.max_hp)
+		if e.hp <= 0 and not sk.is_dead:
+			sk.play_death()
+		elif e.hp > 0 and sk.is_dead:
+			# 理论上不会复活；保险起见重建
+			sk.queue_free()
+			_skel_enemies.erase(eid)
+	# 清掉已离场的
+	var drop: Array = []
+	for eid2 in _skel_enemies.keys():
+		if not live_ids.has(eid2):
+			drop.append(eid2)
+	for eid3 in drop:
+		var oldsk: SkeletonEnemy = _skel_enemies[eid3] as SkeletonEnemy
+		if oldsk != null and is_instance_valid(oldsk):
+			oldsk.queue_free()
+		_skel_enemies.erase(eid3)
+
+
+func _update_enemy_animal_motion() -> void:
+	## 滑行中播走路，停下播待机；受击闪一下由飘血入口触发。
+	if state == null:
+		return
+	for e in state.enemies:
+		if e == null:
+			continue
+		var sk: SkeletonEnemy = _skel_enemies.get(e.get_instance_id()) as SkeletonEnemy
+		if sk == null or not is_instance_valid(sk) or sk.is_dead:
+			continue
+		var moving: bool = (not e.is_dummy) and state.enemy_glide_fraction(e) > 0.02 and e.is_alive()
+		sk.set_moving(moving)
 
 
 func _player_shot_origin_global() -> Vector2:
@@ -2638,6 +2723,7 @@ func _spawn_hit_event(ev: Dictionary) -> void:
 		_spawn_explosion_vfx(int(ev.get("cell", -1)), int(ev.get("n_side", 1)))
 	var cell: int = int(ev.get("cell", -1))
 	var amount: int = int(ev.get("amount", 0))
+	_play_enemy_hurt_visual(cell)
 	_spawn_damage_float(cell, amount, str(ev.get("kind", "")))
 	_spawn_blood_at_cell(cell, amount, _enemy_corpse_at_cell(cell))
 
@@ -2646,6 +2732,7 @@ func _on_enemy_damaged(cell: int, amount: int, kind: String = "") -> void:
 	if _defer_hit_vfx:
 		_pending_hit_vfx.append({"cell": cell, "amount": amount, "kind": kind})
 		return
+	_play_enemy_hurt_visual(cell)
 	_spawn_damage_float(cell, amount, kind)
 	# 致死：血浆爆开（怪仍在场）；未死：普通飙血
 	if _enemy_corpse_at_cell(cell):
@@ -4696,8 +4783,9 @@ func _update_enemy_status_rings() -> void:
 			rings.z_index = 4
 			slot.add_child(rings)
 		var rest_y: float = _unit_rest_position().y
+		var ring_lift: float = 18.0  # 给小动物头顶留空
 		rings.size = Vector2(float(CELL_W), ring_h)
-		rings.position = Vector2(_enemy_glide_px(i), rest_y - ring_h - 2.0)
+		rings.position = Vector2(_enemy_glide_px(i), rest_y - ring_h - 2.0 - ring_lift)
 		if by_cell.has(i):
 			var entries: Array = (by_cell[i] as EnemyInstance).status_ring_entries(dot_left)
 			rings.visible = not entries.is_empty()
@@ -4757,28 +4845,15 @@ func _refresh_board() -> void:
 		elif by_cell.has(i):
 			var e: EnemyInstance = by_cell[i]
 			unit.visible = true
-			style.bg_color = Color(0.78, 0.22, 0.24, 0.98)
+			# 小动物代替红方块；可攻击时留一圈淡黄描边提示
+			style.bg_color = Color(0, 0, 0, 0)
 			if state.can_attack_player(e):
-				style.border_color = Color(1.0, 0.88, 0.2)
-				style.set_border_width_all(4)
+				style.border_color = Color(1.0, 0.88, 0.2, 0.85)
+				style.set_border_width_all(3)
 			else:
-				style.border_color = Color(0.98, 0.55, 0.5)
-				style.set_border_width_all(2)
-			var st := e.status_text()
-			var tag_s := ",".join(e.tags) if e.tags.size() > 0 else ""
-			if e.is_dummy and state.sandbox_mode:
-				tag_s = "累计%d" % e.dmg_taken_total  # v0.4.20：木桩头上显示自己挨的总伤害
-			info.text = "%s\n%d%s%s" % [
-				e.name_zh, e.hp,
-				("\n" + tag_s) if tag_s != "" else "",
-				("\n" + st) if st != "" else ""
-			]
-			info.add_theme_color_override("font_color", Color(1, 0.95, 0.95))
-			info.add_theme_font_size_override("font_size", 13)
-			hp_bar.visible = true
-			hp_bar.max_value = maxi(e.max_hp, 1)
-			hp_bar.value = e.hp
-			_style_hp_bar(hp_bar, Color(0.95, 0.35, 0.3))
+				style.set_border_width_all(0)
+			info.text = ""
+			hp_bar.visible = false
 		elif state.shop_cell == i:
 			unit.visible = true
 			style.bg_color = Color(0.85, 0.7, 0.2, 0.98)
@@ -4794,6 +4869,7 @@ func _refresh_board() -> void:
 			hp_bar.visible = false
 			info.text = ""
 		unit.add_theme_stylebox_override("panel", style)
+	_sync_skeleton_enemies(by_cell)
 	_update_enemy_status_rings()
 
 

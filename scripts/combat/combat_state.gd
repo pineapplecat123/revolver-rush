@@ -30,6 +30,8 @@ signal enemy_damaged(cell: int, amount: int, kind: String)
 signal explosive_detonated(cell: int, n_side: int)
 ## 玩家实际扣血（怪物普攻、愤怒自伤等）；UI 抖玩家格 + 飘字。
 signal player_damaged(amount: int, kind: String)
+## UI 表现用：敌人出手（打玩家或混乱打怪）时发一次。
+signal enemy_attacked(enemy: EnemyInstance, kind: String)
 signal player_healed(amount: int, kind: String)
 ## UI：金币入账时抛出（拾取或贪婪），用于金色飘字
 signal gold_gained(cell: int, amount: int)
@@ -1645,11 +1647,13 @@ func _enemy_attack_or_confuse(e: EnemyInstance) -> void:
 			hooks.emit_hook(&"on_confuse_attack", {
 				"cs": self, "attacker_id": e.get_instance_id(), "victim_id": victim.get_instance_id(), "dealt": dealt
 			})
+			enemy_attacked.emit(e, "confuse")
 			return
 		_log("%s 混乱但无邻近目标，跳过攻击。" % e.name_zh)
 		return
 	var incoming: int = int(round(float(e.atk) * _incoming_pride_multiplier()))
 	_apply_player_damage(incoming, "")
+	enemy_attacked.emit(e, "player")
 	_log("%s 攻击玩家，造成 %d（玩家 HP %d/%d · 射程 %d%s）" % [
 		e.name_zh, incoming, player_hp, player_max_hp, e.attack_range,
 		(" · 傲慢×%d" % _muzzle_pride) if _muzzle_pride > 0 else ""
