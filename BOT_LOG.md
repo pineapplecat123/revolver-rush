@@ -1,3 +1,13 @@
+## 2026-11-04 — v0.4.22 连射 / 弹药不丢 / 商店暂停 / 爆炸金币经验燃烧
+- 炸药爆炸加大：光晕约 3 格以上，3–5 道过冲冲击波，36–54 颗黄橙白火花（重力+烟尾），屏幕闪白和棋盘抖动，焦痕，持续 1.2–1.5 秒，每次随机。自绘，不用 GPUParticles2D。z 高于伤害飘字。
+- 开火：按一次 `spin_cylinder_for_volley`（2 发以上随机 1–5 步）再打光已装弹。UI 异步步进间隔 `MIN_FIRE_INTERVAL_SEC=0.1`。连射中再按忽略。空仓在同一发里快跳，不另等 0.1 秒。连发窗仍免费平庸不耗仓。倾泻主发仍 `DUMP_SHOT_INTERVAL_SEC=0.06`，逻辑上 `interrupt_dump` 还在，按键不再调用它。
+- 弹药变少根因：离店 `_snapshot_combat_bag_baseline` 只拍袋子，并且把袋内临时弹全部写成永久。膛里和弃牌里的永久弹不在新基线里；下次袋空 `_reset_bag_in_combat` 清掉弃牌、按变短的基线重灌，那些永久弹就没了。修：基线 = 袋+膛+弃的永久弹（跳过 ephemeral 和 TTL）；离店按原下标保留 TTL；开发/沙盒永久加弹记入基线。临时罪孽、幽灵、小石头、嫉妒复制到期只删自己。
+- 射速帽：`tick_player_fire_gate` 在 `auto_enemy_advance=false` 时由 UI `_process` 单独减。`shop_hold` / 升级暂停时不减。`tick_combat_time` 里原来的那次改走同一个函数，避免双倍衰减。
+- 商店：`get_tree().paused` + `shop_hold`。面板和遮罩 `PROCESS_MODE_ALWAYS`。地图商店用 `shop_visual_cell()` 每帧插值。
+- 燃烧：目标身上 `BurnVfx` 自绘火苗。金币：爆开落地再加速飞向玩家，`collect_gold_piece` 才入账；`on_kill_gold` 仍在掉落时发，`on_gold_pickup` 在入账时发。概率不变（25%×2，Boss 8）。战败 `abandon_pending_gold`。经验粒子只是表现，`gain_xp` 仍在死亡当帧，升级不会等。飙血 `BLOOD_TRAIL_HISTORY` 4→8。玩家状态环用 `player_status_anchor_global()`（玩家块顶边中点），骨骼分支可在这个函数里接锚点。
+- 顺手修好两个 GUT 根本加载不了的测试：`test_ammo_effects` 补 `_log_has` / `_shot_one`；`test_rr_v0421` 爆炸节点补类型。
+- GUT：`test_rr_v0422`。
+
 ## 2026-11-03 — v0.4.21 头顶倒计时 / 炸药爆炸 / 射速帽 / 删停用弹 / 罪孽只开局 / 击杀掉金
 - 敌人状态（燃、血、乱、缓，以及不消退的油/湿）画在头顶小圆环上，剩余时间越短圈越短。三木桩沙盒也能看见。
 - 炸药打到已燃烧目标时闪光 + 扩散环 + 火星。

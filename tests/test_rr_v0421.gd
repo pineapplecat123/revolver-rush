@@ -27,7 +27,6 @@ func _ring(entries: Array, id: String) -> Dictionary:
 
 
 func test_version_and_fire_cap_constants() -> void:
-	assert_eq(GameVersion.STRING, "0.4.21")
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.21"' in text)
 	assert_almost_eq(CombatConstants.MAX_FIRE_RATE_HZ, 10.0, 0.001)
@@ -49,10 +48,12 @@ func test_second_fire_tap_inside_interval_is_swallowed() -> void:
 		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
 	var a: Array = cs.fire_tap()
-	assert_eq(a.size(), 1)
+	assert_eq(a.size(), 2, "同步连射打光两发")
+	assert_eq(cs.magazine.loaded_count(), 0)
+	cs.magazine.set_slot(0, CombatConstants.WHITE_AMMO_ID)
+	cs.magazine.start_index = 0
 	var b: Array = cs.fire_tap()
-	assert_eq(b.size(), 0, "间隔内第二次点射被吞")
-	assert_eq(cs.magazine.loaded_count(), 1)
+	assert_eq(b.size(), 0, "射速帽内再按被吞")
 	cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC * 0.5)
 	assert_eq(cs.fire_tap().size(), 0)
 	cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
@@ -179,7 +180,7 @@ func test_explosive_detonation_signal_and_vfx() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	ui._spawn_explosion_vfx(5, 1)
-	var vfx := ui.find_child("ExplosionVfx", true, false)
+	var vfx: Node = ui.find_child("ExplosionVfx", true, false)
 	assert_not_null(vfx)
 	assert_gt(vfx.get_child_count(), 2)
 
@@ -247,10 +248,13 @@ func test_kill_gold_chance_override_and_dummies() -> void:
 		kills.append(int(p.get("gold", -1)))
 	)
 	cs._remove_dead()
-	assert_eq(cs.gold, CombatConstants.KILL_GOLD_DROP_AMOUNT)
+	assert_eq(cs.gold, 0, "掉落还没捡到，钱包不加")
+	assert_eq(cs.pending_gold_total(), CombatConstants.KILL_GOLD_DROP_AMOUNT)
 	assert_eq(got.size(), 1)
 	assert_eq(int(got[0].get("amount", 0)), CombatConstants.KILL_GOLD_DROP_AMOUNT)
 	assert_eq(kills[kills.size() - 1], CombatConstants.KILL_GOLD_DROP_AMOUNT)
+	assert_eq(cs.collect_gold_piece(int(cs.gold_drops[0]["id"]), CombatConstants.KILL_GOLD_DROP_AMOUNT), CombatConstants.KILL_GOLD_DROP_AMOUNT)
+	assert_eq(cs.gold, CombatConstants.KILL_GOLD_DROP_AMOUNT)
 
 	var dummy: EnemyInstance = cs.sandbox_spawn_dummy(20, 6)
 	dummy.hp = 0
@@ -264,4 +268,6 @@ func test_kill_gold_chance_override_and_dummies() -> void:
 	cs.kill_gold_chance_override = 0.0
 	cs.rng.seed = 3
 	cs._remove_dead()
+	assert_eq(cs.pending_gold_total(), CombatConstants.KILL_GOLD_BOSS_DROP_AMOUNT)
+	assert_eq(cs.collect_gold_piece(int(cs.gold_drops[0]["id"]), CombatConstants.KILL_GOLD_BOSS_DROP_AMOUNT), CombatConstants.KILL_GOLD_BOSS_DROP_AMOUNT)
 	assert_eq(cs.gold, before + CombatConstants.KILL_GOLD_BOSS_DROP_AMOUNT, "Boss 必掉，不受普通概率覆盖")

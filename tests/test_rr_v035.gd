@@ -86,9 +86,8 @@ func test_sins_across_separate_sessions_with_fire_between_trigger() -> void:
 	# 开火打掉白弹（提交会话）：把锤位对到白弹
 	cs.commit_load_session_if_active()
 	cs.magazine.start_index = 0
-	var shots: Array = cs.fire_tap()
-	assert_eq(shots.size(), 1)
-	assert_eq(int(shots[0]["ammo_id"]), WHITE, "先打白弹")
+	assert_true(cs.do_fire_one())
+	assert_eq(cs.last_shot_ammo_id, WHITE, "先打白弹")
 	assert_eq(cs.sin_count_in_cylinder(W), 2)
 	assert_eq(cs.player_hp, hp0)
 	assert_eq(_load_one(cs), W)
@@ -109,9 +108,8 @@ func test_fourth_sin_does_not_retrigger_and_refill_to_three_retriggers() -> void
 	assert_eq(cs.player_hp, hp0 - 6, "第 4 颗不重复罚")
 	cs.commit_load_session_if_active()
 	# 打掉 2 颗愤怒 → 剩 2；再装 1 颗 → 回到 3 → 再罚
-	cs.fire_tap()
-	cs.player_fire_gate_remaining = 0.0
-	cs.fire_tap()
+	assert_true(cs.do_fire_one())
+	assert_true(cs.do_fire_one())
 	assert_eq(cs.sin_count_in_cylinder(W), 2)
 	var hp1: int = cs.player_hp
 	assert_eq(_load_one(cs), W)
@@ -225,17 +223,10 @@ func test_rapid_taps_fire_exactly_n_shots_no_desync() -> void:
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	var d0: int = cs.discard.size()
 	var hp0: int = cs.enemies[0].hp
-	for n in 6:
-		if n > 0:
-			cs.player_fire_gate_remaining = 0.0
-		var start: int = cs.magazine.start_index
-		var shots: Array = cs.fire_tap()
-		assert_eq(shots.size(), 1, "第 %d 次点击恰好 1 发" % (n + 1))
-		assert_eq(int(shots[0]["slot"]), start, "打的是锤位那一仓")
-		assert_eq(cs.magazine.loaded_count(), 5 - n)
-		assert_eq(cs.discard.size(), d0 + n + 1, "弃弹堆 +1，无丢/重发")
-		assert_eq(cs.magazine.slots[start], Magazine.EMPTY)
-		assert_false(cs.is_busy_firing(), "点完立即可再点")
+	var shots: Array = cs.fire_tap()
+	assert_eq(shots.size(), 6, "一次连射打光 6 发")
+	assert_eq(cs.magazine.loaded_count(), 0)
+	assert_eq(cs.discard.size(), d0 + 6)
 	assert_true(cs.enemies[0].hp < hp0)
 	assert_eq(cs.fire_tap().size(), 0, "空匣点击不出弹")
 
@@ -247,13 +238,11 @@ func test_rapid_taps_skip_empty_chambers() -> void:
 	cs.magazine.set_slot(4, WHITE)
 	cs.magazine.start_index = 0
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
-	var a: Array = cs.fire_tap()
-	cs.player_fire_gate_remaining = 0.0
-	var b: Array = cs.fire_tap()
-	assert_eq(a.size(), 1)
-	assert_eq(b.size(), 1)
-	assert_eq(int(a[0]["slot"]), 1)
-	assert_eq(int(b[0]["slot"]), 4)
+	var shots: Array = cs.fire_tap()
+	assert_eq(shots.size(), 2, "空仓快跳，一次连射两发")
+	assert_eq(int(shots[0]["slot"]), 1)
+	assert_eq(int(shots[1]["slot"]), 4)
+	assert_gte(int(shots[0].get("blank_skip", 0)), 1)
 	assert_true(cs.magazine.is_empty())
 
 
@@ -279,11 +268,10 @@ func test_rapid_tap_muzzle_mounts() -> void:
 	cs.magazine.set_slot(1, WHITE)
 	cs.magazine.start_index = 0
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
-	cs.fire_tap()
+	assert_true(cs.do_fire_one())
 	assert_eq(cs._muzzle_wrath, 1, "愤怒挂枪口")
 	var hp0: int = cs.enemies[0].hp
-	cs.player_fire_gate_remaining = 0.0
-	cs.fire_tap()
+	assert_true(cs.do_fire_one())
 	assert_true(cs.enemies[0].hp < hp0)
 
 
@@ -314,16 +302,16 @@ func test_ui_n_taps_same_frame_n_shots() -> void:
 	assert_false(ui._fire_blocked())
 	assert_true(cs.can_fire())
 	var d0: int = cs.discard.size()
+	cs.enemies[0].atk = 0
 	for _i in 4:
 		ui._on_fire()
-	assert_eq(cs.magazine.loaded_count(), 5, "同一帧 4 次点击只打出 1 发")
+	assert_true(ui._volley_ui_running or cs.is_volley_pending(), "连射开始后同帧再按被忽略")
+	assert_eq(cs.magazine.loaded_count(), 5, "同一帧只结算第一发，其余连射")
 	assert_eq(cs.discard.size(), d0 + 1)
 	assert_false(ui.btn_fire.disabled, "射击键不因动画禁用")
-	for _j in 5:
-		cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
-		ui._on_fire()
-	assert_eq(cs.magazine.loaded_count(), 0, "间隔过后能把匣打空")
-	await wait_seconds(0.6)
+	await wait_seconds(3.0)
+	assert_eq(cs.magazine.loaded_count(), 0, "一次开火把匣打空")
+	assert_eq(cs.discard.size(), d0 + 6)
 	assert_eq(ui._in_flight_shots, 0, "所有弹道落地")
 	assert_false(ui._wheel_animating)
 
