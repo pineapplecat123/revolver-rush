@@ -7,6 +7,10 @@ extends Control
 const ShopState = preload("res://scripts/shop/shop_state.gd")
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 const BagPhysicsBox = preload("res://scripts/combat/bag_physics_box.gd")
+const ExplosionVfxScript = preload("res://scripts/combat/explosion_vfx.gd")
+const BurnVfxScript = preload("res://scripts/combat/burn_vfx.gd")
+const GoldCoinVfxScript = preload("res://scripts/combat/gold_coin_vfx.gd")
+const XpOrbVfxScript = preload("res://scripts/combat/xp_orb_vfx.gd")
 
 ## 竖屏 720 宽：10 格 × 68 = 680
 const CELL_W := 68
@@ -75,18 +79,21 @@ const BLOOD_DEATH_BURST_MAX := 56
 const BLOOD_ACTIVE_MAX := 96
 const BLOOD_GRAVITY := 1350.0
 const BLOOD_STAIN_FADE_SEC := 2.4
-## 拖尾历史段数（少段 = 少 ColorRect，缓解击发卡顿）
-const BLOOD_TRAIL_HISTORY := 4
+## 拖尾历史段数。v0.4.22 加长一倍（4→8），血尾大约长一倍。
+const BLOOD_TRAIL_HISTORY := 8
 ## 拖尾头部粗细下限；实际按血滴尺寸匹配，尾部渐细（见 _blood_trail_push）
 const BLOOD_TRAIL_SEG_W_MIN := 4.0
-## 回收池上限：≥ ACTIVE_MAX*(1+TRAIL_HISTORY)=480，留余量避免冷分配
-const BLOOD_POOL_MAX := 520
+## 回收池上限：≥ ACTIVE_MAX*(1+TRAIL_HISTORY)=864，留余量避免冷分配
+const BLOOD_POOL_MAX := 960
 ## 战斗 VFX（飙血/枪线）低于遮罩与奖励/商店等模态，避免盖住选奖
 const Z_BLOOD_STAIN := 12
 const Z_BLOOD_TRAIL := 40
 const Z_BLOOD_DROP := 41
 const Z_SHOT_VFX := 42
 const Z_DMG_FLOAT := 43
+const Z_PICKUP := 58
+const Z_SCREEN_FX := 64
+const Z_EXPLOSION := 72
 const Z_MODAL_DIMMER := 80
 const Z_MODAL_PANEL := 90
 const Z_WAVE_BANNER := 100
@@ -203,6 +210,12 @@ var _ammo_detail_panel: PanelContainer = null
 var _ammo_detail_body: RichTextLabel = null
 var _shop: ShopState = ShopState.new()
 var _shop_open: bool = false
+var _shop_temps: Array = []
+var _volley_ui_running: bool = false
+var _player_rings: EnemyStatusRings = null
+var _pickup_layer: Control = null
+var _punch_left: float = 0.0
+var _punch_power: float = 0.0
 var _shop_panel: PanelContainer = null
 var _shop_title: Label = null
 var _shop_gold_label: Label = null
@@ -252,6 +265,8 @@ func _ready() -> void:
 	state.explosive_detonated.connect(_on_explosive_detonated)
 	state.player_damaged.connect(_on_player_damaged)
 	state.gold_gained.connect(_on_gold_gained)
+	state.gold_drop_spawned.connect(_on_gold_drop_spawned)
+	state.xp_orb_spawned.connect(_on_xp_orb_spawned)
 	btn_manual_load.pressed.connect(_on_manual_load)
 	btn_fire.pressed.connect(_on_fire)
 	btn_dev.pressed.connect(_toggle_dev)
@@ -264,7 +279,7 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "随时装弹 / 随时开火：手动装弹每次补 1 发；射击每次打 1 发。敌人会自动向左推进，靠近就攻击。长按弹药可看效果。"
+		hint_lab.text = "随时装弹，每次补 1 发。开火会先转轮，再按顺序打光已装弹。敌人会自动向左推进，靠近就攻击。长按弹药可看效果。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
@@ -1134,8 +1149,25 @@ func _enemy_glide_cells_per_sec() -> float:
 	return maxf(_combat_speed, 0.01) / maxf(CombatConstants.ENEMY_AUTO_STEP_SEC, 0.01)
 
 
+func _exit_tree() -> void:
+	if _shop_open and is_inside_tree() and get_tree().paused:
+		get_tree().paused = false
+	if state != null:
+		state.shop_hold = false
+
+
 func _process(delta: float) -> void:
-	if state == null or not _enemy_auto_allowed():
+	_tick_screen_punch(delta)
+	if state == null:
+		return
+	if _shop_open or state.shop_hold:
+		return
+	# 射速帽不绑在「敌人自动走」上。商店/升级/选罪已经在上面或 _enemy_auto_allowed 里停掉。
+	if not _enemy_auto_allowed():
+		if not _sin_pick_open and not _reward_open and not _reward_delaying and not state.reward_pending:
+			if state.phase != CombatState.Phase.WON and state.phase != CombatState.Phase.LOST:
+				state.tick_player_fire_gate(delta * maxf(_combat_speed, 0.01))
+		_update_player_status_rings()
 		return
 	# 战斗秒（含枪口层衰减）：与怪滑行同一套暂停条件；按战斗速度缩放逻辑秒。
 	# tick_combat_time 内已调 tick_muzzle_durations，勿再另调以免双倍衰减。
@@ -1145,6 +1177,7 @@ func _process(delta: float) -> void:
 		_refresh()
 	if state.shop_touch_pending and not _shop_open and not _reward_open and not _sin_pick_open:
 		_open_rush_shop()
+		return
 	var alive_before: bool = not state.alive_enemies().is_empty()
 	var steps: int = state.advance_enemy_glide(delta * _enemy_glide_cells_per_sec())
 	if steps > 0 and alive_before:
@@ -1154,7 +1187,10 @@ func _process(delta: float) -> void:
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
 	_update_sandbox_stats_hud()
+	_position_map_shop()
 	_update_enemy_status_rings()
+	_update_burn_vfx()
+	_update_player_status_rings()
 
 
 func _enemy_glide_px(cell: int) -> float:
@@ -1316,12 +1352,42 @@ func _fire_blocked() -> bool:
 func _on_fire() -> void:
 	if _fire_blocked():
 		return
-	if state != null and state.is_dump_pending():
-		_dump_ui_gen += 1
-		state.interrupt_dump()
-		_refresh()
+	## 连射/倾泻进行中再按开火：忽略（不 interrupt_dump）。
+	if _volley_ui_running:
 		return
-	_run_fire_tap()
+	if state != null and (state.is_volley_pending() or state.is_dump_pending()):
+		return
+	if state != null and state.player_fire_gate_remaining > 0.0:
+		return
+	_volley_ui_running = true
+	_run_fire_press()
+
+
+func _run_fire_press() -> void:
+	## 逻辑先结算（升级暂停不能等转动画）。转轮动画播完再出弹道，然后按射速帽打光剩余仓。
+	var spin_steps := 0
+	if (
+		state != null
+		and state.burst_window_remaining <= 0.0
+		and state.magazine != null
+		and state.magazine.loaded_count() > 1
+		and state.can_fire()
+	):
+		spin_steps = state.spin_cylinder_for_volley()
+	var pack: Dictionary = _resolve_fire_logic()
+	if spin_steps > 0:
+		await _play_roll_spin_visual(spin_steps)
+	if not pack.is_empty():
+		pack["visual_before"] = _wheel_visual_steps
+		var shots: Array = pack.get("shots", [])
+		if not shots.is_empty():
+			pack["start_before"] = int(shots[0].get("start_before", 0))
+	_present_resolved_fire(pack)
+	if state != null and state.is_volley_pending():
+		await _run_volley_autofire()
+	while _dump_ui_running:
+		await _pwait(0.02)
+	_volley_ui_running = false
 
 
 func _snap_fire_disk() -> void:
@@ -1334,18 +1400,14 @@ func _snap_fire_disk() -> void:
 		_apply_disk_rotation(fposmod(_fire_disk_target, float(CombatConstants.MAGAZINE_SIZE)))
 
 
-func _run_fire_tap() -> void:
-	## rush! v0.3.5：点一下 = 本帧同步结算 1 发（+额外轮），弹道/飚血/飘字并发播放；转盘快速补间可被下一次点击打断。
-	## v0.4.16：倾泻主发后由 _run_dump_autofire 按 ~0.06s/发步进剩余仓（可中断）。
-	## v0.4.21：射速帽内的连点直接吞掉，别把正在转的盘子掐掉。倾泻中的点击仍要打断。
+func _resolve_fire_logic() -> Dictionary:
+	## 本帧结算第一发（连射的其余发仍挂着）。画面由 _present_resolved_fire 再播。
 	if state == null or not state.can_fire():
 		_refresh()
-		return
+		return {}
 	if state.player_fire_gate_remaining > 0.0 and not state.is_dump_pending():
-		return
+		return {}
 	_snap_fire_disk()
-	var visual_before: float = _wheel_visual_steps
-	var start_before: int = state.magazine.start_index
 	_pending_hit_vfx.clear()
 	_defer_hit_vfx = true
 	_ghost_gather_from = _capture_bag_ghost_globals()
@@ -1353,14 +1415,41 @@ func _run_fire_tap() -> void:
 	_defer_hit_vfx = false
 	var hit_events: Array = _pending_hit_vfx.duplicate()
 	_pending_hit_vfx.clear()
+	var start_before := 0
+	if not shots.is_empty():
+		start_before = int(shots[0].get("start_before", 0))
+	elif state.magazine != null:
+		start_before = state.magazine.start_index
+	return {
+		"shots": shots,
+		"events": hit_events,
+		"visual_before": _wheel_visual_steps,
+		"start_before": start_before,
+	}
+
+
+func _present_resolved_fire(pack: Dictionary) -> void:
+	if pack.is_empty():
+		return
+	var shots: Array = pack.get("shots", [])
+	var hit_events: Array = pack.get("events", [])
 	if shots.is_empty():
 		for ev in hit_events:
 			_spawn_hit_event(ev)
 		_refresh()
 		return
-	_present_tap_shots(shots, hit_events, visual_before, start_before)
+	_present_tap_shots(
+		shots, hit_events,
+		float(pack.get("visual_before", _wheel_visual_steps)),
+		int(pack.get("start_before", 0))
+	)
 	if state != null and state.is_dump_pending():
 		_run_dump_autofire()
+
+
+func _run_fire_tap() -> void:
+	## 兼容旧调用：立刻结算并播出。
+	_present_resolved_fire(_resolve_fire_logic())
 
 
 func _present_tap_shots(shots: Array, hit_events: Array, visual_before: float, start_before: int) -> void:
@@ -1429,6 +1518,33 @@ func _run_dump_autofire() -> void:
 			break
 		_present_tap_shots(more, hit_events, visual_before, start_before)
 	_dump_ui_running = false
+
+
+func _run_volley_autofire() -> void:
+	## 非倾泻的连射：每发间隔 MIN_FIRE_INTERVAL_SEC（吃战斗速度）。空仓在 take_volley_shot 里快跳，不另等。
+	while state != null and state.is_volley_pending():
+		await _pwait(_paced(CombatConstants.MIN_FIRE_INTERVAL_SEC))
+		if state == null or not state.is_volley_pending():
+			break
+		_snap_fire_disk()
+		var visual_before: float = _wheel_visual_steps
+		var start_before: int = state.magazine.start_index if state.magazine != null else 0
+		_pending_hit_vfx.clear()
+		_defer_hit_vfx = true
+		_ghost_gather_from = _capture_bag_ghost_globals()
+		var more: Array = state.take_volley_shot()
+		_defer_hit_vfx = false
+		var hit_events: Array = _pending_hit_vfx.duplicate()
+		_pending_hit_vfx.clear()
+		if more.is_empty():
+			for ev in hit_events:
+				_spawn_hit_event(ev)
+			_refresh()
+			break
+		_present_tap_shots(more, hit_events, visual_before, start_before)
+		if state != null and state.is_dump_pending():
+			_run_dump_autofire()
+			break
 
 
 func _on_fire_disk_tween_done(tw: Tween) -> void:
@@ -1645,6 +1761,12 @@ func _animate_fire_shots() -> void:
 	# 非空匣才对齐逻辑锤位；空匣保留末发后视觉落点，装弹会话再对齐
 	if state.magazine != null and not state.magazine.is_empty():
 		_apply_disk_rotation(float(state.magazine.start_index))
+
+
+func player_status_anchor_global() -> Vector2:
+	## 玩家头顶状态圆环锚点。没骨骼小人时用玩家块顶边中点，方便骨骼分支在这里接 status_anchor。
+	var c := _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+	return c - Vector2(0, UNIT_H * 0.5)
 
 
 func _cell_unit_global_center(cell: int) -> Vector2:
@@ -2379,65 +2501,86 @@ func _on_explosive_detonated(cell: int, n_side: int) -> void:
 
 
 func _spawn_explosion_vfx(cell: int, n_side: int) -> void:
-	## 炸药炸开：闪光 + 扩散环 + 几粒火星。挂在格子上，跟单位走。
+	## 炸药：大光晕、多层过冲冲击波、几十颗黄橙白火花（带重力烟尾）、屏幕闪白和抖动、焦痕。画在伤害飘字上面。
 	if board_row == null or cell < 0 or cell >= board_row.get_child_count():
 		return
 	var slot: Control = board_row.get_child(cell) as Control
 	if slot == null:
 		return
-	var unit: Control = slot.get_node_or_null("UnitBody") as Control
-	var origin := slot.size * 0.5
-	if unit != null and unit.visible:
-		origin = unit.position + unit.size * 0.5
-	var root := Control.new()
+	var origin_g := _cell_unit_global_center(cell)
+	if origin_g == Vector2.ZERO:
+		origin_g = slot.get_global_rect().get_center()
+	var span := float(CELL_W) * (3.1 + float(maxi(n_side, 1)) * 0.45)
+	var root = ExplosionVfxScript.new()
 	root.name = "ExplosionVfx"
-	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.z_index = 30
-	slot.add_child(root)
-	root.position = origin
-	var flash := ColorRect.new()
-	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var flash_sz := 28.0 + float(maxi(n_side, 1)) * 8.0
-	flash.size = Vector2(flash_sz, flash_sz)
-	flash.position = -flash.size * 0.5
-	flash.color = Color(1.0, 0.95, 0.75, 0.95)
-	root.add_child(flash)
-	var end_sz := float(CELL_W) * (1.15 + float(maxi(n_side, 1)) * 0.85)
-	var ring := Panel.new()
-	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	ring.size = Vector2(end_sz, end_sz)
-	ring.pivot_offset = ring.size * 0.5
-	ring.position = -ring.pivot_offset
-	ring.scale = Vector2(0.15, 0.15)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(1.0, 0.55, 0.08, 0.18)
-	sb.border_color = Color(1.0, 0.78, 0.25, 1.0)
-	sb.set_border_width_all(4)
-	sb.set_corner_radius_all(999)
-	ring.add_theme_stylebox_override("panel", sb)
-	root.add_child(ring)
-	var sparks: Array = []
-	for i in 8:
-		var p := ColorRect.new()
-		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		p.size = Vector2(6, 6)
-		p.position = -p.size * 0.5
-		p.color = Color(1.0, 0.45 + float(i % 3) * 0.12, 0.08, 0.95)
-		root.add_child(p)
-		sparks.append(p)
-	var dur := _paced(0.32)
+	root.z_index = Z_EXPLOSION
+	add_child(root)
+	root.setup(span)
+	root.global_position = origin_g - root.size * 0.5
+	# 三个子节点留给旧测试计数；真正的火花在脚本 _draw 里
+	for child_name in ["Flash", "Bloom", "Ring"]:
+		var marker := ColorRect.new()
+		marker.name = child_name
+		marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		marker.color = Color(1, 1, 1, 0)
+		marker.size = Vector2(4, 4)
+		root.add_child(marker)
+	_spawn_scorch_mark(slot)
+	_screen_flash()
+	_screen_punch(1.0 + float(maxi(n_side, 1)) * 0.35)
+
+
+func _spawn_scorch_mark(slot: Control) -> void:
+	var mark := ColorRect.new()
+	mark.name = "ScorchMark"
+	mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mark.z_index = 1
+	var w := randf_range(46.0, 78.0)
+	var h := randf_range(10.0, 18.0)
+	mark.size = Vector2(w, h)
+	mark.position = Vector2((slot.size.x - w) * 0.5 + randf_range(-8, 8), slot.size.y - h - 2.0)
+	mark.rotation = randf_range(-0.4, 0.4)
+	mark.pivot_offset = mark.size * 0.5
+	mark.color = Color(0.12, 0.07, 0.04, 0.72)
+	slot.add_child(mark)
 	var tw := create_tween()
-	tw.set_parallel(true)
-	tw.tween_property(flash, "modulate:a", 0.0, dur * 0.4)
-	tw.tween_property(ring, "scale", Vector2.ONE, dur).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
-	tw.tween_property(ring, "modulate:a", 0.0, dur)
-	for i in sparks.size():
-		var ang := TAU * float(i) / float(sparks.size())
-		var dist := 22.0 + float(maxi(n_side, 1)) * 14.0
-		var dest := Vector2(cos(ang), sin(ang)) * dist - (sparks[i] as Control).size * 0.5
-		tw.tween_property(sparks[i], "position", dest, dur * 0.85)
-		tw.tween_property(sparks[i], "modulate:a", 0.0, dur)
-	tw.chain().tween_callback(root.queue_free)
+	tw.tween_property(mark, "modulate:a", 0.0, randf_range(2.2, 3.2)).set_delay(0.8)
+	tw.tween_callback(mark.queue_free)
+
+
+func _screen_flash() -> void:
+	var flash := ColorRect.new()
+	flash.name = "ScreenFlash"
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.z_index = Z_SCREEN_FX
+	flash.color = Color(1.0, 0.92, 0.62, 0.55)
+	flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	flash.offset_right = 0
+	flash.offset_bottom = 0
+	add_child(flash)
+	var tw := create_tween()
+	tw.tween_property(flash, "color:a", 0.0, 0.14)
+	tw.tween_callback(flash.queue_free)
+
+
+func _screen_punch(power: float) -> void:
+	_punch_left = 0.22
+	_punch_power = maxf(_punch_power, power)
+
+
+func _tick_screen_punch(delta: float) -> void:
+	if board_row == null:
+		return
+	if _punch_left <= 0.0:
+		if absf(board_row.rotation) > 0.0001:
+			board_row.rotation = 0.0
+		return
+	_punch_left = maxf(0.0, _punch_left - delta)
+	var k: float = _punch_left / 0.22
+	board_row.pivot_offset = board_row.size * 0.5
+	board_row.rotation = sin(_punch_left * 78.0) * 0.03 * k * _punch_power
+	if _punch_left <= 0.0:
+		board_row.rotation = 0.0
 
 
 func _spawn_hit_event(ev: Dictionary) -> void:
@@ -2493,8 +2636,103 @@ func _spawn_blood_at_cell(cell: int, amount: int, death_plasma: bool = false) ->
 
 
 func _on_gold_gained(cell: int, amount: int) -> void:
-	## 贪婪掉金：金色 +N，动画与伤害飘字相同。
+	## 入账飘字（拾取或贪婪）。
 	_spawn_damage_float(cell, amount, "金币")
+
+
+func _ensure_pickup_layer() -> Control:
+	if _pickup_layer != null and is_instance_valid(_pickup_layer):
+		return _pickup_layer
+	_pickup_layer = Control.new()
+	_pickup_layer.name = "PickupLayer"
+	_pickup_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_pickup_layer.z_index = Z_PICKUP
+	_pickup_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(_pickup_layer)
+	return _pickup_layer
+
+
+func _player_pickup_global() -> Vector2:
+	var anchor := player_status_anchor_global()
+	if anchor != Vector2.ZERO:
+		return anchor + Vector2(0, UNIT_H * 0.55)
+	return _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+
+
+func _xp_target_global() -> Vector2:
+	_ensure_xp_bar()
+	if _xp_bar_root != null and is_instance_valid(_xp_bar_root):
+		return _xp_bar_root.get_global_rect().get_center()
+	return Vector2(size.x * 0.5, 36.0)
+
+
+func _on_gold_drop_spawned(drop_id: int, cell: int, amount: int) -> void:
+	## 金币爆出落地，再加速飞向玩家；碰到才入账。波次结束不删，战败可以丢。
+	if amount <= 0:
+		return
+	var layer := _ensure_pickup_layer()
+	var origin := _cell_unit_global_center(cell)
+	if origin == Vector2.ZERO and board_row != null and cell >= 0 and cell < board_row.get_child_count():
+		origin = (board_row.get_child(cell) as Control).get_global_rect().get_center()
+	var ground := _board_ground_global_y() - 16.0
+	var n: int = maxi(amount, 1)
+	var each := 1
+	var remainder := amount
+	for i in n:
+		var worth := each
+		if i == n - 1:
+			worth = remainder
+		else:
+			remainder -= worth
+		var coin = GoldCoinVfxScript.new()
+		layer.add_child(coin)
+		coin.setup(
+			drop_id, worth, ground,
+			origin + Vector2(randf_range(-10, 10), randf_range(-6, 6)),
+			Callable(self, "_player_pickup_global"),
+			Callable(self, "_on_coin_arrived")
+		)
+
+
+func _on_coin_arrived(drop_id: int, worth: int, at: Vector2) -> void:
+	if state == null or state.phase == CombatState.Phase.LOST:
+		return
+	var got: int = state.collect_gold_piece(drop_id, worth, CombatConstants.PLAYER_CELL)
+	if got <= 0:
+		return
+	_spawn_pickup_sparkle(at)
+
+
+func _spawn_pickup_sparkle(at: Vector2) -> void:
+	for i in 6:
+		var p := ColorRect.new()
+		p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		p.z_index = Z_PICKUP + 1
+		p.size = Vector2(4, 4)
+		p.color = Color(1.0, 0.92, 0.45, 1.0)
+		add_child(p)
+		p.global_position = at
+		var dest := at + Vector2.from_angle(TAU * float(i) / 6.0) * randf_range(10.0, 22.0)
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(p, "global_position", dest, 0.22)
+		tw.tween_property(p, "modulate:a", 0.0, 0.22)
+		tw.chain().tween_callback(p.queue_free)
+
+
+func _on_xp_orb_spawned(cell: int, amount: int) -> void:
+	## 经验已经入账（升级三选一不会等粒子）。这里只飞向经验条。
+	if amount <= 0:
+		return
+	var layer := _ensure_pickup_layer()
+	var origin := _cell_unit_global_center(cell)
+	if origin == Vector2.ZERO:
+		return
+	var n: int = clampi(int(round(sqrt(float(amount)))), 4, 8)
+	for _i in n:
+		var orb = XpOrbVfxScript.new()
+		layer.add_child(orb)
+		orb.setup(origin + Vector2(randf_range(-12, 12), randf_range(-10, 8)), Callable(self, "_xp_target_global"))
 
 
 func _spawn_damage_float(cell: int, amount: int, kind: String = "") -> void:
@@ -2747,9 +2985,19 @@ func _open_rush_shop() -> void:
 	dev_panel.visible = false
 	_hide_ammo_detail()
 	var seed_v: int = int(state.elapsed_sec) * 9973 + state.gold * 13 + 17 + state.shop_spawn_count * 131
+	_shop_temps.clear()
+	state._sync_temp_arrays()
+	for i in state.bag.size():
+		_shop_temps.append(state.bag_temp[i] if i < state.bag_temp.size() else 0.0)
 	_shop.begin(state.gold, state.bag.duplicate(), state.shop_spawn_count, seed_v)
 	_shop_open = true
+	state.shop_hold = true
+	_shop_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	if dimmer != null:
+		dimmer.process_mode = Node.PROCESS_MODE_ALWAYS
 	_shop_panel.visible = true
+	if is_inside_tree():
+		get_tree().paused = true
 	state.acknowledge_shop_touch()
 	_refresh_rush_shop_panel()
 	_update_dimmer()
@@ -2859,6 +3107,7 @@ func _refresh_rush_shop_bag() -> void:
 
 func _on_rush_shop_buy(slot: int) -> void:
 	if _shop.buy(slot):
+		_shop_temps.append(0.0)
 		_refresh_rush_shop_panel()
 
 
@@ -2867,6 +3116,8 @@ func _on_rush_shop_remove(ammo_id: int) -> void:
 	if idx < 0:
 		return
 	if _shop.remove_at(idx):
+		if idx >= 0 and idx < _shop_temps.size():
+			_shop_temps.remove_at(idx)
 		_refresh_rush_shop_panel()
 
 
@@ -2879,17 +3130,15 @@ func _on_rush_shop_leave() -> void:
 	if not _shop.open:
 		return
 	var payload: Dictionary = _shop.end_session()
+	if is_inside_tree() and get_tree().paused:
+		get_tree().paused = false
 	if state != null:
-		state.gold = int(payload.get("gold", state.gold))
-		# 商店可能增删袋内弹：整袋替换并保持非临时（商店货不带 TTL）
-		var new_bag: Array = payload.get("bag", [])
-		state.bag.clear()
-		state.bag_temp.clear()
-		for idv in new_bag:
-			state._bag_append(int(idv), false)
-		state._snapshot_combat_bag_baseline()
-		state._log("离开地图商店（金 %d，袋 %d 发）。" % [state.gold, state.bag.size()])
+		state.shop_hold = false
+		state.apply_shop_session(payload.get("bag", []), _shop_temps, int(payload.get("gold", state.gold)))
+	_shop_temps.clear()
 	_shop_open = false
+	if dimmer != null and not _reward_open:
+		dimmer.process_mode = Node.PROCESS_MODE_INHERIT
 	if _shop_panel != null:
 		_shop_panel.visible = false
 	_update_dimmer()
@@ -4204,6 +4453,7 @@ func _refresh() -> void:
 	match state.phase:
 		CombatState.Phase.LOST:
 			_cancel_reward_show_delay()
+			_drop_uncollected_pickups()
 			if state.lose_reason == CombatState.LoseReason.AMMO_EXHAUSTED:
 				result_label.text = "失败：弹药耗尽"
 			else:
@@ -4292,6 +4542,86 @@ func _refresh_xp_bar() -> void:
 	var need: int = maxi(1, state.xp_needed())
 	_xp_bar_fill.anchor_right = clampf(float(state.xp) / float(need), 0.0, 1.0)
 	_xp_bar_label.text = "Lv%d  经验 %d / %d" % [state.level, state.xp, need]
+
+
+func _drop_uncollected_pickups() -> void:
+	## 战败：没捡到的金币可以消失。经验粒子一并清掉。
+	if state != null:
+		state.abandon_pending_gold()
+	if _pickup_layer != null and is_instance_valid(_pickup_layer):
+		for c in _pickup_layer.get_children():
+			c.queue_free()
+
+
+func _position_map_shop() -> void:
+	## 商店在格子之间平滑滑动，而不是走满一格才跳。
+	if state == null or board_row == null or state.shop_cell < 0:
+		return
+	if state.occupied_cells().has(state.shop_cell):
+		return
+	var i: int = state.shop_cell
+	if i < 0 or i >= board_row.get_child_count():
+		return
+	var slot: Control = board_row.get_child(i) as Control
+	if slot == null:
+		return
+	var unit: Control = slot.get_node_or_null("UnitBody") as Control
+	if unit == null or not unit.visible:
+		return
+	var frac: float = state.shop_glide_fraction()
+	unit.position = _unit_rest_position() + Vector2(-frac * float(CELL_W), 0.0)
+
+
+func _update_burn_vfx() -> void:
+	if board_row == null or state == null:
+		return
+	var burning := {}
+	for e in state.enemies:
+		if e != null and e.is_alive() and e.burn_stacks > 0:
+			burning[e.cell] = true
+	for i in mini(CombatConstants.BOARD_SIZE, board_row.get_child_count()):
+		var slot: Control = board_row.get_child(i) as Control
+		if slot == null:
+			continue
+		var unit: Control = slot.get_node_or_null("UnitBody") as Control
+		if unit == null:
+			continue
+		var flames: Control = unit.get_node_or_null("BurnVfx") as Control
+		if burning.has(i):
+			if flames == null:
+				flames = BurnVfxScript.new()
+				flames.name = "BurnVfx"
+				unit.add_child(flames)
+			flames.visible = true
+			flames.position = Vector2(0, -4)
+			flames.size = unit.size
+		elif flames != null:
+			flames.visible = false
+
+
+func _update_player_status_rings() -> void:
+	## 环的底边贴在 player_status_anchor_global() 上，骨骼小人换锚点时不用改这里。
+	if state == null:
+		return
+	if _player_rings == null or not is_instance_valid(_player_rings):
+		_player_rings = EnemyStatusRings.new()
+		_player_rings.name = "PlayerStatusRings"
+		_player_rings.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_player_rings.z_index = 6
+		add_child(_player_rings)
+	var entries: Array = state.player_status_ring_entries()
+	_player_rings.set_entries(entries)
+	_player_rings.visible = not entries.is_empty()
+	if entries.is_empty():
+		return
+	var cols: int = mini(entries.size(), EnemyStatusRings.COLS)
+	var rows: int = int(ceil(float(entries.size()) / float(EnemyStatusRings.COLS)))
+	_player_rings.size = Vector2(
+		float(cols) * (EnemyStatusRings.RING_SIZE + EnemyStatusRings.RING_GAP),
+		float(rows) * (EnemyStatusRings.RING_SIZE + EnemyStatusRings.RING_GAP)
+	)
+	var anchor := player_status_anchor_global()
+	_player_rings.global_position = anchor - Vector2(_player_rings.size.x * 0.5, _player_rings.size.y)
 
 
 func _update_enemy_status_rings() -> void:

@@ -63,7 +63,11 @@ func test_burst_window_opens_and_free_shot_no_chamber() -> void:
 	var loaded0: int = cs.magazine.loaded_count()
 	_shot(cs)
 	assert_almost_eq(cs.burst_window_remaining, CombatConstants.BURST_WINDOW_SEC, 0.001)
-	assert_eq(cs.magazine.loaded_count(), loaded0 - 1)
+	assert_eq(cs.magazine.loaded_count(), 0, "连射把连发后面的白弹也打掉")
+	assert_lt(cs.magazine.loaded_count(), loaded0)
+	cs.player_fire_gate_remaining = 0.0
+	cs.magazine.set_slot(0, WHITE)
+	cs.magazine.start_index = 0
 	var bag0: int = cs.bag.size()
 	var disc0: int = cs.discard.size()
 	var hp0: int = cs.enemies[0].hp
@@ -71,7 +75,7 @@ func test_burst_window_opens_and_free_shot_no_chamber() -> void:
 	var shots: Array = _shot(cs)
 	assert_gt(shots.size(), 0)
 	assert_true(bool(shots[0].get("burst_free", false)) or bool(shots[0].get("virtual", false)))
-	assert_eq(cs.magazine.loaded_count(), loaded0 - 1, "free shot must not spend chamber")
+	assert_eq(cs.magazine.loaded_count(), 1, "free shot must not spend chamber")
 	assert_eq(cs.discard.size(), disc0, "free shot must not pollute discard")
 	assert_eq(cs.bag.size(), bag0)
 	assert_lt(cs.enemies[0].hp, hp0)
@@ -80,13 +84,15 @@ func test_burst_window_opens_and_free_shot_no_chamber() -> void:
 func test_burst_window_refresh_not_stack() -> void:
 	var cs := _rush(4011)
 	cs.dev_force_load([
-		FireResolver.ID_BURST, FireResolver.ID_BURST,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
+		FireResolver.ID_BURST,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
 	_shot(cs)
 	cs.burst_window_remaining = 0.3
-	# 打第二发连发应刷新到满 1.0，而不是 1.3
+	cs.player_fire_gate_remaining = 0.0
 	cs.burst_window_remaining = 0.0  # 窗关才能打仓内弹
+	cs.magazine.set_slot(0, FireResolver.ID_BURST)
+	cs.magazine.start_index = 0
 	_shot(cs)
 	assert_almost_eq(cs.burst_window_remaining, CombatConstants.BURST_WINDOW_SEC, 0.001)
 

@@ -7,6 +7,22 @@ func before_each() -> void:
 	BulletEffectRegistry.ensure_defaults()
 
 
+func _shot_one(cs: CombatState) -> void:
+	assert_true(cs.begin_fire())
+	cs.fire_next_shot()
+	if cs.has_paced_shot_pending():
+		cs.finalize_paced_shot()
+	if cs.post_fire_enemy_pending():
+		cs._post_fire_enemy_pending = false
+
+
+func _log_has(cs: CombatState, needle: String) -> bool:
+	for line in cs.last_log:
+		if needle in str(line):
+			return true
+	return false
+
+
 func test_gold_triggers_extra_auto_load_and_fire() -> void:
 	## v0.4.10：金币弹按公式造成伤害并扣金，不再追加额外轮。
 	var cs := CombatState.new(808)

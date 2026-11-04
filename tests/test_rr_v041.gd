@@ -123,7 +123,7 @@ func test_echo_fire_tap_emits_twin_record_and_hooks() -> void:
 	var cs := _rush(4114)
 	cs.pace_after_fire = true
 	cs.dev_force_load([
-		ECHO, WHITE, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
+		ECHO, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
 	] as Array[int])
 	var seen_echo_hook := {"n": 0, "shot": 0}
 	cs.hooks.subscribe(&"on_muzzle_apply", func(p):

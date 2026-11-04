@@ -1,6 +1,6 @@
 class_name CombatState
 ## 战斗状态机（rush!）：清场后奖励三选一，结算后再下一波。
-## 随时装弹 / 随时单发射击：每次射击只打锤位 1 发，随后怪回合；装弹不倾倒已上膛子弹，可在有空仓时随时补弹。
+## 随时装弹；开火一次先随机转轮，再按射速帽打光已装弹。装弹不倾倒已上膛子弹，可在有空仓时随时补弹。
 
 enum Phase {
 	AWAIT_LOAD,
@@ -31,8 +31,12 @@ signal explosive_detonated(cell: int, n_side: int)
 ## 玩家实际扣血（怪物普攻、愤怒自伤等）；UI 抖玩家格 + 飘字。
 signal player_damaged(amount: int, kind: String)
 signal player_healed(amount: int, kind: String)
-## UI：贪婪掉金时抛出（cell + 掉落金币量），用于金色飘字
+## UI：金币入账时抛出（拾取或贪婪），用于金色飘字
 signal gold_gained(cell: int, amount: int)
+## 击杀掉落：金币先飞出来，碰到玩家才入账
+signal gold_drop_spawned(drop_id: int, cell: int, amount: int)
+## 击杀经验：数值已入账，UI 只播飞向经验条的粒子
+signal xp_orb_spawned(cell: int, amount: int)
 
 ## v0.4.0 连携钩子总线（见 combat_hooks.gd）
 var hooks: CombatHooks = CombatHooks.new()
@@ -390,11 +394,19 @@ var fire_lock_remaining: float = 0.0
 var _focus_shots_fired: int = 0
 ## 本发小石头融合段长（≥2 时一次清空多仓）。
 var _pebble_fuse_count: int = 0
-## v0.4.0 倾泻：击发倾泻后待自动打出的剩余仓；可被下一次点射中断。
+## v0.4.0 倾泻：击发倾泻后待自动打出的剩余仓。v0.4.22 连射期间再按开火是忽略，不再用点射打断。
 var _dump_pending: bool = false
 var _dump_interrupted: bool = false
 ## UI 异步倾泻：跳过 fire_tap 末尾金色/收束，等倾泻结束（含中断）再补。
 var _dump_followup_pending: bool = false
+## v0.4.22：一次开火打光已装弹。异步时剩余仓由 take_volley_shot 步进。
+var _volley_pending: bool = false
+var _volley_followup_pending: bool = false
+## 地图商店打开：逻辑时钟（怪、枪口、TTL、刷怪、射速帽）全部停。
+var shop_hold: bool = false
+## 尚未飞到玩家手里的金币。{id, cell, remaining, total}
+var gold_drops: Array = []
+var _gold_drop_seq: int = 0
 ## v0.4.0 DoT 独立计时。
 var _dot_timer: float = 0.0
 ## v0.4.0 地图商店实体（格位；-1=不在场）。碰到玩家（cell<=1）打开商店。
@@ -506,6 +518,11 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	_dump_pending = false
 	_dump_interrupted = false
 	_dump_followup_pending = false
+	_volley_pending = false
+	_volley_followup_pending = false
+	shop_hold = false
+	gold_drops.clear()
+	_gold_drop_seq = 0
 	_dot_timer = CombatConstants.DOT_TICK_SEC
 	shop_cell = -1
 	shop_spawn_count = 0
@@ -920,17 +937,46 @@ func _fill_starter_bag(extra_sin: int = 0) -> void:
 		_bag_append(selected_sin_ammo_id, true)
 
 
+func _counts_as_permanent(ammo_id: int, temporary) -> bool:
+	## 永久拥有：非空、非衍生物、没有剩余 TTL。
+	if ammo_id == Magazine.EMPTY:
+		return false
+	if DataRegistry.is_ammo_ephemeral(ammo_id):
+		return false
+	return Magazine.temp_value(temporary) <= 0.0
+
+
+func _note_baseline_add(ammo_id: int, temporary) -> void:
+	if _counts_as_permanent(ammo_id, temporary):
+		_combat_bag_baseline.append(ammo_id)
+
+
+func _baseline_remove_one(ammo_id: int) -> void:
+	var k: int = _combat_bag_baseline.find(ammo_id)
+	if k >= 0:
+		_combat_bag_baseline.remove_at(k)
+
+
 func _snapshot_combat_bag_baseline() -> void:
-	## 记录本波永久构筑（跳过 ephemeral 与临时额外罪孽），供战斗内袋重置恢复。
+	## 永久构筑 = 袋 + 膛 + 弃牌里的永久弹（跳过 ephemeral 与带 TTL 的临时弹）。
+	## 只拍袋会把正在膛里/弃牌堆里的永久弹从基线抹掉，下次袋空重置就把它们丢了。
 	_combat_bag_baseline.clear()
 	_sync_temp_arrays()
 	for i in bag.size():
 		var id: int = int(bag[i])
-		if DataRegistry.is_ammo_ephemeral(id):
-			continue
-		if i < bag_temp.size() and Magazine.temp_value(bag_temp[i]) > 0.0:
-			continue
-		_combat_bag_baseline.append(id)
+		var tv = bag_temp[i] if i < bag_temp.size() else 0.0
+		if _counts_as_permanent(id, tv):
+			_combat_bag_baseline.append(id)
+	if magazine != null:
+		for s in magazine.slots.size():
+			var mid: int = int(magazine.slots[s])
+			if _counts_as_permanent(mid, magazine.slot_temp_life(s)):
+				_combat_bag_baseline.append(mid)
+	for i in discard.size():
+		var did: int = int(discard[i])
+		var dv = discard_temp[i] if i < discard_temp.size() else 0.0
+		if _counts_as_permanent(did, dv):
+			_combat_bag_baseline.append(did)
 
 
 func _strip_temporary_ammo_from_bag() -> void:
@@ -1075,6 +1121,40 @@ func _reset_bag_in_combat() -> bool:
 		_bag_append(FireResolver.ID_GHOST, float(gl))  # 各自剩余 TTL 继续倒计时
 	_shuffle_bag()
 	return true
+
+
+func count_permanent_owned() -> int:
+	## 袋 + 膛 + 弃牌里的永久弹（不含幽灵/小石头/带 TTL 的临时弹）。
+	var n := 0
+	_sync_temp_arrays()
+	for i in bag.size():
+		var tv = bag_temp[i] if i < bag_temp.size() else 0.0
+		if _counts_as_permanent(int(bag[i]), tv):
+			n += 1
+	for i in discard.size():
+		var dv = discard_temp[i] if i < discard_temp.size() else 0.0
+		if _counts_as_permanent(int(discard[i]), dv):
+			n += 1
+	if magazine != null:
+		for s in magazine.slots.size():
+			var mid: int = int(magazine.slots[s])
+			if _counts_as_permanent(mid, magazine.slot_temp_life(s)):
+				n += 1
+	return n
+
+
+func apply_shop_session(new_ids: Array, new_temps: Array, new_gold: int) -> void:
+	## 离店写回：按商店袋的顺序还原，临时 TTL 跟着原下标走；新买的是永久弹。
+	## 膛和弃牌不动。基线重拍成「袋+膛+弃」里的全部永久弹，避免重置时丢掉没在袋里的那部分。
+	gold = new_gold
+	bag.clear()
+	bag_temp.clear()
+	for i in new_ids.size():
+		var tv = new_temps[i] if i < new_temps.size() else 0.0
+		_bag_append(int(new_ids[i]), tv)
+	_snapshot_combat_bag_baseline()
+	_log("离开地图商店（金 %d，袋 %d 发，永久合计 %d）。" % [gold, bag.size(), count_permanent_owned()])
+	_emit()
 
 
 func total_ammo_count(ammo_id: int) -> int:
@@ -1604,11 +1684,58 @@ func _try_kill_gold_drop(e: EnemyInstance) -> int:
 		chance = kill_gold_chance_override
 	if amount <= 0 or rng.randf() >= chance:
 		return 0
-	gold += amount
-	_log("击杀掉金币 +%d（现 %d）。" % [amount, gold])
-	if e.cell >= 0:
-		gold_gained.emit(e.cell, amount)
+	_gold_drop_seq += 1
+	var drop_id: int = _gold_drop_seq
+	gold_drops.append({
+		"id": drop_id,
+		"cell": e.cell,
+		"remaining": amount,
+		"total": amount,
+	})
+	_log("击杀掉金币 %d（待拾取，钱包仍 %d）。" % [amount, gold])
+	gold_drop_spawned.emit(drop_id, e.cell, amount)
 	return amount
+
+
+func pending_gold_total() -> int:
+	var n := 0
+	for d in gold_drops:
+		n += int(d.get("remaining", 0))
+	return n
+
+
+func collect_gold_piece(drop_id: int, piece: int, cell: int = -1) -> int:
+	## 金币碰到玩家：入账 piece（不超过该次掉落剩余）。战败后掉落已丢弃则返回 0。
+	if piece <= 0 or phase == Phase.LOST:
+		return 0
+	for i in gold_drops.size():
+		var rec: Dictionary = gold_drops[i]
+		if int(rec.get("id", -1)) != drop_id:
+			continue
+		var left: int = int(rec.get("remaining", 0))
+		var take: int = mini(piece, left)
+		if take <= 0:
+			gold_drops.remove_at(i)
+			return 0
+		left -= take
+		rec["remaining"] = left
+		gold_drops[i] = rec
+		if left <= 0:
+			gold_drops.remove_at(i)
+		gold += take
+		var at: int = cell if cell >= 0 else int(rec.get("cell", -1))
+		if at >= 0:
+			gold_gained.emit(at, take)
+		hooks.emit_hook(&"on_gold_pickup", {"cs": self, "amount": take, "drop_id": drop_id, "cell": at})
+		_log("拾取金币 +%d（现 %d）。" % [take, gold])
+		_emit()
+		return take
+	return 0
+
+
+func abandon_pending_gold() -> void:
+	## 战败：没捡到的金币可以消失。
+	gold_drops.clear()
 
 
 func _try_greed_gold_drop(dealt: int, cell: int = -1) -> void:
@@ -2144,6 +2271,7 @@ func _finish_load_session_empty() -> bool:
 func _lose_ammo_exhausted() -> void:
 	## 仅当袋+弃+膛皆空且无法洗回时触发（正常对局袋空会在下回合洗回，不应走到这里）。
 	lose_reason = LoseReason.AMMO_EXHAUSTED
+	abandon_pending_gold()
 	_clear_all_sin_muzzle(true)
 	_reset_muzzle()
 	_purge_ghost_ammo()
@@ -2179,6 +2307,7 @@ func _reshuffle_if_needed_for_load() -> void:
 
 func _lose_hp() -> void:
 	lose_reason = LoseReason.HP
+	abandon_pending_gold()
 	_clear_all_sin_muzzle(true)
 	_reset_muzzle()
 	_purge_ghost_ammo()
@@ -3184,8 +3313,37 @@ func is_dump_pending() -> bool:
 	return _dump_pending
 
 
+func is_volley_pending() -> bool:
+	return _volley_pending
+
+
+func spin_cylinder_for_volley() -> int:
+	## 连射前随机转轮。0/1 发不转。不发射。UI 先播这段再 fire_tap。
+	if magazine == null or magazine.loaded_count() <= 1:
+		return 0
+	commit_load_session_if_active()
+	if magazine == null or magazine.loaded_count() <= 1:
+		return 0
+	if burst_window_remaining > 0.0 or not can_fire():
+		return 0
+	var before: int = magazine.start_index
+	var steps: int = magazine.random_roll(rng)
+	if steps > 0:
+		_log("连射前转轮随机 %d 步（起点槽 %d → %d）。" % [steps, before, magazine.start_index])
+	_emit()
+	return steps
+
+
+func _volley_should_continue() -> bool:
+	if phase == Phase.WON or phase == Phase.LOST:
+		return false
+	if magazine == null or magazine.is_empty():
+		return false
+	return true
+
+
 func interrupt_dump() -> bool:
-	## 倾泻中再点射 → 中断剩余自动射击。返回是否确实中断了进行中的倾泻。
+	## 逻辑中断剩余倾泻。v0.4.22 起玩家再按开火不会走这里（连射/倾泻中按键直接忽略）。
 	if not _dump_pending:
 		return false
 	_dump_interrupted = true
@@ -3327,7 +3485,7 @@ func enemy_continuous_x(e: EnemyInstance) -> float:
 
 func advance_enemy_glide(delta_cells: float) -> int:
 	## rush! 连续推进：累计滑行距离（格），每满 1 格调用一次 tick_enemy_auto_step。返回本次落格拍数。
-	if not auto_enemy_advance or phase == Phase.WON or phase == Phase.LOST:
+	if shop_hold or not auto_enemy_advance or phase == Phase.WON or phase == Phase.LOST:
 		return 0
 	if delta_cells <= 0.0 or reward_pending:
 		return 0  # v0.3.9：升级三选一 = 纯暂停，滑行进度原地不动
@@ -3346,7 +3504,7 @@ func advance_enemy_glide(delta_cells: float) -> int:
 func tick_enemy_auto_step() -> bool:
 	## rush! 连续推进一拍（滑满 1 格时落格）：会移动者向左 1 格，进入射程则攻击；结算燃烧/流血/再生/召唤。
 	## 不进入 ENEMY_TURN，避免锁死装弹/射击按钮。返回 false 表示战斗已结束。
-	if not auto_enemy_advance:
+	if shop_hold or not auto_enemy_advance:
 		return false
 	if phase == Phase.WON or phase == Phase.LOST:
 		return false
@@ -3543,16 +3701,12 @@ func do_fire() -> bool:
 	return any
 
 
-## v0.3.5 rush! 连点射击：一次点击 = 同步结算 1 发（+超级回合/金色额外轮各补1射1），无冷却。
-## 返回本次点击打出的每一发记录（供 UI 并发播放弹道/飚血）；空数组 = 没打出。
-## 逻辑全部在本帧完成，UI 只播表现，连点不会丢发/重发/锤位错位。
+## v0.4.22：一次开火打光已装弹。resolve_dump_sync=true 时本调用内打完（测试）；false 时只打第一发，其余交给 take_volley_shot / 倾泻步进。
+## 连发窗内仍是免费平庸、不耗仓。倾泻主发仍走 0.06s 步进。连射或倾泻进行中再按 = 忽略。
+## 随机转轮由 spin_cylinder_for_volley（UI 在发射前调用），这里不转，避免打乱「锤位打哪发」的测试。
 func fire_tap(resolve_dump_sync: bool = true) -> Array:
-	## v0.4.0：连发窗内点射=免费平庸；倾泻可同步打完剩余仓（resolve_dump_sync）或由 UI 步进 take_dump_shot。
-	## 倾泻进行中再点射 → 中断倾泻（不另开火）。
-	## v0.4.16：resolve_dump_sync=false 时延后金色额外轮与 finalize，等倾泻结束/中断后再收束。
 	var shots: Array = []
-	if _dump_pending:
-		interrupt_dump()
+	if _volley_pending or _dump_pending:
 		return shots
 	if player_fire_gate_remaining > 0.0:
 		return shots
@@ -3603,6 +3757,14 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 			_dump_followup_pending = true
 			_arm_player_fire_gate(shots)
 			return shots
+	elif _volley_should_continue():
+		if resolve_dump_sync:
+			_fire_volley_rest(shots)
+		else:
+			_volley_pending = true
+			_volley_followup_pending = true
+			_arm_player_fire_gate(shots)
+			return shots
 	var guard: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
 	while _pending_gold_autofires > 0 and guard > 0 and phase != Phase.WON and phase != Phase.LOST:
 		guard -= 1
@@ -3627,6 +3789,80 @@ func fire_tap(resolve_dump_sync: bool = true) -> Array:
 		resolve_post_fire_enemy_turn()
 	_arm_player_fire_gate(shots)
 	return shots
+
+
+func _fire_volley_rest(shots: Array) -> void:
+	## 同步打完剩余已装弹。空仓由 fire_next_shot 直接跳过，不单独占一发间隔。
+	var guard := CombatConstants.MAGAZINE_SIZE + 3
+	var saw_dump := false
+	while guard > 0 and _volley_should_continue():
+		guard -= 1
+		if not can_fire() or not begin_fire():
+			break
+		var next_id := -1
+		if magazine != null and not magazine.is_empty():
+			var order: Array[int] = magazine.fire_order()
+			if not order.is_empty():
+				next_id = int(order[0])
+		if next_id == FireResolver.ID_DUMP and not saw_dump:
+			saw_dump = true
+			hooks.emit_hook(&"on_dump_start", {"cs": self})
+			_log("倾泻：连射途中打出倾泻弹。")
+		_fire_tap_one(shots, true)
+		for g in _consume_pending_tombstone_ghost_shots():
+			shots.append(g)
+			_append_echo_twin_from_rec(shots, g)
+	if saw_dump:
+		hooks.emit_hook(&"on_dump_end", {"cs": self, "interrupted": false})
+
+
+func take_volley_shot() -> Array:
+	## 连射步进：打出下一发已装弹。空仓在这一发里快跳。途中遇到倾泻则把剩余仓交给倾泻步进。
+	var out: Array = []
+	if not _volley_pending:
+		return out
+	if not _volley_should_continue() or not can_fire() or not begin_fire():
+		_finish_volley()
+		return out
+	var next_id := -1
+	if magazine != null and not magazine.is_empty():
+		var order: Array[int] = magazine.fire_order()
+		if not order.is_empty():
+			next_id = int(order[0])
+	_fire_tap_one(out, true)
+	for g in _consume_pending_tombstone_ghost_shots():
+		out.append(g)
+		_append_echo_twin_from_rec(out, g)
+	if (
+		next_id == FireResolver.ID_DUMP
+		and phase != Phase.WON and phase != Phase.LOST
+		and magazine != null and not magazine.is_empty()
+	):
+		_volley_pending = false
+		_volley_followup_pending = false
+		_dump_pending = true
+		_dump_interrupted = false
+		_dump_followup_pending = true
+		hooks.emit_hook(&"on_dump_start", {"cs": self})
+		_log("倾泻：连射途中改为倾泻步进。")
+		return out
+	if not _volley_should_continue():
+		_finish_volley()
+	return out
+
+
+func _finish_volley() -> void:
+	_volley_pending = false
+	if not _volley_followup_pending:
+		return
+	_volley_followup_pending = false
+	if phase == Phase.WON or phase == Phase.LOST:
+		return
+	if auto_enemy_advance:
+		finalize_post_fire()
+	elif _post_fire_enemy_pending:
+		resolve_post_fire_enemy_turn()
+	player_fire_gate_remaining = CombatConstants.MIN_FIRE_INTERVAL_SEC
 
 
 func _arm_player_fire_gate(shots: Array) -> void:
@@ -3876,6 +4112,11 @@ func _remove_dead() -> void:
 			_log("%s 被击败。" % e.name_zh)
 			_try_envy_copy_on_kill()
 			_try_gluttony_heal_on_kill()
+			var xp_cell: int = e.cell
+			var xp_amt: int = xp_for_enemy(e)
+			if xp_amt > 0:
+				xp_orb_spawned.emit(xp_cell, xp_amt)
+				hooks.emit_hook(&"on_xp_gain", {"cs": self, "amount": xp_amt, "cell": xp_cell})
 			var dropped: int = _try_kill_gold_drop(e)
 			hooks.emit_hook(&"on_kill", {
 				"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell,
@@ -4031,7 +4272,7 @@ func _spawn_up_to_cap(force_one: bool = false) -> int:
 
 func tick_combat_time(delta_sec: float) -> bool:
 	## UI 每帧（战斗秒×速度，暂停/奖励期间不调用）：累计时长、刷怪、Boss、临时罪孽寿命、连发窗、DoT、地图商店。返回是否有变化。
-	if delta_sec <= 0.0 or phase == Phase.LOST or phase == Phase.WON or reward_pending:
+	if shop_hold or delta_sec <= 0.0 or phase == Phase.LOST or phase == Phase.WON or reward_pending:
 		return false
 	var changed := false
 	elapsed_sec += delta_sec
@@ -4047,8 +4288,7 @@ func tick_combat_time(delta_sec: float) -> bool:
 	if fire_lock_remaining > 0.0:
 		fire_lock_remaining = maxf(0.0, fire_lock_remaining - delta_sec)
 		changed = true
-	if player_fire_gate_remaining > 0.0:
-		player_fire_gate_remaining = maxf(0.0, player_fire_gate_remaining - delta_sec)
+	tick_player_fire_gate(delta_sec)
 	# 枪口层时长：与战斗秒同一入口，避免沙盒/脚本只推 tick_combat_time 时永不掉层。
 	# UI 勿再另调 tick_muzzle_durations，否则会双倍衰减。
 	changed = tick_muzzle_durations(delta_sec) or changed
@@ -4206,6 +4446,70 @@ func tick_map_shop(delta_sec: float) -> bool:
 				_shop_move_prog = 0.0
 				break
 	return changed
+
+
+func shop_glide_fraction() -> float:
+	## 地图商店在当前格内已向左滑过的比例（0..1）。UI 每帧用它插值，避免一格一跳。
+	if shop_cell < 0:
+		return 0.0
+	return clampf(_shop_move_prog, 0.0, 1.0)
+
+
+func shop_visual_cell() -> float:
+	## 连续格坐标。-1 = 商店不在场。
+	if shop_cell < 0:
+		return -1.0
+	return float(shop_cell) - shop_glide_fraction()
+
+
+func tick_player_fire_gate(delta_sec: float) -> void:
+	## 射速帽独立于「敌人是否在自动走」。商店打开 / 升级三选一 / 胜负时停表。
+	if shop_hold or reward_pending or delta_sec <= 0.0:
+		return
+	if phase == Phase.WON or phase == Phase.LOST:
+		return
+	if player_fire_gate_remaining > 0.0:
+		player_fire_gate_remaining = maxf(0.0, player_fire_gate_remaining - delta_sec)
+
+
+func player_status_ring_entries() -> Array:
+	## 玩家自己的倒计时环：混乱、射速变慢（懒惰三罪）、自伤 DoT。锚点由 UI 按玩家位置摆。
+	var out: Array = []
+	if player_confuse_remaining > 0.0:
+		out.append(_player_timed_ring(
+			"confuse", "乱", player_confuse_remaining, CombatConstants.LUST_SELF_CONFUSE_SEC,
+			Color(0.95, 0.45, 0.9)
+		))
+	if sloth_fire_penalty_remaining > 0.0:
+		out.append(_player_timed_ring(
+			"slow", "缓", sloth_fire_penalty_remaining, CombatConstants.SLOTH_FIRE_PENALTY_SEC,
+			Color(0.45, 0.75, 1.0)
+		))
+	elif fire_lock_remaining > 0.0:
+		out.append(_player_timed_ring(
+			"lock", "锁", fire_lock_remaining, CombatConstants.SLOTH_FIRE_LOCK_SEC,
+			Color(0.75, 0.75, 0.85)
+		))
+	if gluttony_self_dot_remaining > 0.0:
+		out.append(_player_timed_ring(
+			"dot", "伤", gluttony_self_dot_remaining, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC,
+			Color(1.0, 0.45, 0.2)
+		))
+	return out
+
+
+func _player_timed_ring(id: String, label: String, remaining: float, total: float, col: Color) -> Dictionary:
+	var tot: float = maxf(maxf(total, remaining), 0.01)
+	return {
+		"id": id,
+		"label": label,
+		"stacks": 1,
+		"remaining": remaining,
+		"total": tot,
+		"ratio": clampf(remaining / tot, 0.0, 1.0),
+		"timed": true,
+		"color": col,
+	}
 
 
 func tick_temp_sin_lifetimes(delta_sec: float) -> bool:
@@ -4526,6 +4830,7 @@ func dev_add_ammo(ammo_id: int, count: int = 1) -> void:
 		return
 	for _i in count:
 		_bag_append(ammo_id, false)
+		_note_baseline_add(ammo_id, false)
 	_log("[开发] 弹药袋 +%d × %s（现 %d）" % [count, _ammo_name(ammo_id), bag.size()])
 	_emit()
 
@@ -4536,9 +4841,13 @@ func dev_remove_ammo(ammo_id: int, count: int = 1) -> void:
 	var i := 0
 	while i < bag.size() and left > 0:
 		if bag[i] == ammo_id:
+			var tv = bag_temp[i] if i < bag_temp.size() else 0.0
+			var perm := _counts_as_permanent(int(bag[i]), tv)
 			bag.remove_at(i)
 			if i < bag_temp.size():
 				bag_temp.remove_at(i)
+			if perm:
+				_baseline_remove_one(ammo_id)
 			left -= 1
 		else:
 			i += 1
@@ -4759,6 +5068,7 @@ func sandbox_add_ammo(ammo_id: int, count: int = 1, temp_life: float = 0.0) -> v
 	var life: float = maxf(0.0, temp_life)
 	for _i in n:
 		_bag_append(ammo_id, life)
+		_note_baseline_add(ammo_id, life)
 	_log("[沙盒] 袋 +%d × %s%s（现 %d）" % [
 		n, _ammo_name(ammo_id),
 		(" · TTL %.1fs" % life) if life > 0.0 else "",
@@ -4772,8 +5082,15 @@ func sandbox_set_bag_temp(index: int, temp_life: float) -> bool:
 	if index < 0 or index >= bag.size():
 		_log("[沙盒] 袋下标无效 %d" % index)
 		return false
-	bag_temp[index] = _normalize_temp_for(int(bag[index]), maxf(0.0, temp_life))
-	_log("[沙盒] 袋[%d] %s TTL → %.1fs" % [index, _ammo_name(int(bag[index])), float(bag_temp[index])])
+	var aid: int = int(bag[index])
+	var was_perm := _counts_as_permanent(aid, bag_temp[index])
+	bag_temp[index] = _normalize_temp_for(aid, maxf(0.0, temp_life))
+	var now_perm := _counts_as_permanent(aid, bag_temp[index])
+	if was_perm and not now_perm:
+		_baseline_remove_one(aid)
+	elif (not was_perm) and now_perm:
+		_combat_bag_baseline.append(aid)
+	_log("[沙盒] 袋[%d] %s TTL → %.1fs" % [index, _ammo_name(aid), float(bag_temp[index])])
 	_emit()
 	return true
 
