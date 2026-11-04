@@ -45,7 +45,7 @@ func _wait_volley_done(ui, max_sec: float = 8.0) -> void:
 
 
 func test_version_0_4_26() -> void:
-	assert_eq(GameVersion.STRING, "0.4.26")
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.26") >= 0)
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.26"' in text)
 

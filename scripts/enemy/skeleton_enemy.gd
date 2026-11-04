@@ -221,6 +221,93 @@ func _apply_palette() -> void:
 			col_accent = Color(0.7, 0.45, 0.25)
 
 
+# ---------------------------------------------------------------- 死亡碎块（v0.4.27）
+
+func gore_pieces() -> Array:
+	## 死亡飙血瞬间飞出去的「肢体」：按物种配色的耳朵/爪子/腿/尾巴/半个脑袋 + 两块肉。
+	## 每块 = {"layers": [[pts, col], ...]}，外描边在前、填充在后；以原点为中心，已乘体型倍率。
+	var out: Array = []
+	var ol: Color = col_outline
+	var meat := Color(0.86, 0.2, 0.24)
+	var meat_ol := Color(0.45, 0.06, 0.1)
+	if is_dummy:
+		var wood := Color(0.78, 0.6, 0.38)
+		var wood_ol := Color(0.38, 0.24, 0.12)
+		for sz in [Vector2(9, 4), Vector2(7, 3.5), Vector2(10, 3), Vector2(6, 5)]:
+			out.append(_gore([[_rect(-sz, sz), wood_ol], [_rect(-sz + Vector2(1, 1), sz - Vector2(1, 1)), wood]]))
+		var straw := Color(0.95, 0.85, 0.45)
+		for _i in 3:
+			out.append(_gore([[_rect(Vector2(-6, -1), Vector2(6, 1)), straw]]))
+		return out
+	# 耳朵 ×2
+	for _i in 2:
+		match species:
+			"rabbit":
+				var ear := PackedVector2Array([Vector2(-4, 9), Vector2(0, -11), Vector2(4, 9)])
+				var cen := Vector2(0, 2.3)
+				var inner := PackedVector2Array()
+				for v in ear:
+					inner.append(cen + (v - cen) * 0.5)
+				out.append(_gore([[_grow(ear, 1.1), ol], [ear, col_fur], [inner, col_accent]]))
+			"bat":
+				var ear2 := PackedVector2Array([Vector2(-4, 6), Vector2(0, -8), Vector2(4, 6)])
+				out.append(_gore([[_grow(ear2, 1.0), ol], [ear2, col_fur]]))
+			"pig":
+				var ear3 := PackedVector2Array([Vector2(-5, 4), Vector2(-2, -6), Vector2(5, 2)])
+				out.append(_gore([[_grow(ear3, 1.0), ol], [ear3, col_fur]]))
+			"bear":
+				out.append(_gore([[_circle(Vector2.ZERO, 5.0), ol], [_circle(Vector2.ZERO, 4.0), col_fur], [_circle(Vector2.ZERO, 2.0), col_accent]]))
+			_:
+				out.append(_gore([[_circle(Vector2.ZERO, 4.2), ol], [_circle(Vector2.ZERO, 3.2), col_fur]]))
+	# 爪子 ×2
+	for _i in 2:
+		out.append(_gore([[_ellipse(Vector2.ZERO, 5.0, 3.0), ol], [_ellipse(Vector2.ZERO, 4.0, 2.2), col_belly]]))
+	# 一条小腿
+	out.append(_gore([[_capsule(Vector2(0, -5), Vector2(0, 5), 3.8), ol], [_capsule(Vector2(0, -5), Vector2(0, 5), 2.8), col_fur]]))
+	# 尾巴 / 翅膀
+	match species:
+		"rabbit":
+			out.append(_gore([[_circle(Vector2.ZERO, 5.5), ol], [_circle(Vector2.ZERO, 4.5), col_belly]]))
+		"raccoon":
+			out.append(_gore([
+				[_capsule(Vector2(-7, 0), Vector2(7, 0), 3.2), ol],
+				[_capsule(Vector2(-7, 0), Vector2(7, 0), 2.4), col_fur],
+				[_rect(Vector2(-3, -2.4), Vector2(-1, 2.4)), col_fur2],
+				[_rect(Vector2(2, -2.4), Vector2(4, 2.4)), col_fur2]]))
+		"bat":
+			var wing := PackedVector2Array([Vector2(-9, -3), Vector2(7, -9), Vector2(9, -1), Vector2(1, 3), Vector2(-9, 1)])
+			out.append(_gore([[_grow(wing, 1.0), ol], [wing, col_accent]]))
+		"pig":
+			out.append(_gore([[_circle(Vector2.ZERO, 3.5), ol], [_circle(Vector2.ZERO, 2.5), col_fur]]))
+		_:
+			out.append(_gore([[_circle(Vector2.ZERO, 4.0), ol], [_circle(Vector2.ZERO, 3.0), col_fur]]))
+	# 半个脑袋（带一只 X 眼）
+	var half := PackedVector2Array()
+	for k in 9:
+		var a: float = PI + PI * float(k) / 8.0
+		half.append(Vector2(cos(a) * 9.0, sin(a) * 8.0 + 2.0))
+	var half_in := PackedVector2Array()
+	for v in half:
+		half_in.append(v * 0.86 + Vector2(0, 0.3))
+	out.append(_gore([[half, ol], [half_in, col_fur], [_rect(Vector2(-4, -3), Vector2(-1, -2)), col_eye], [_rect(Vector2(-3, -4.5), Vector2(-2, -0.5)), col_eye]]))
+	# 肉块 ×2（卡通粉红，不写实）
+	for r in [4.0, 3.2]:
+		var blob := _ellipse(Vector2.ZERO, r * 1.25, r, 10)
+		out.append(_gore([[_grow(blob, 1.0), meat_ol], [blob, meat], [_circle(Vector2(-r * 0.3, -r * 0.3), r * 0.3, 6), Color(1, 0.6, 0.62)]]))
+	return out
+
+
+func _gore(layers: Array) -> Dictionary:
+	var scaled: Array = []
+	for L in layers:
+		var pts: PackedVector2Array = L[0]
+		var sp := PackedVector2Array()
+		for v in pts:
+			sp.append(v * _scale_mul)
+		scaled.append([sp, L[1]])
+	return {"layers": scaled}
+
+
 # ---------------------------------------------------------------- 搭骨架
 
 func _build_rig() -> void:

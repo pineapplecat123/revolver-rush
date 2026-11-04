@@ -3334,7 +3334,16 @@ func spin_cylinder_for_volley() -> int:
 	if burst_window_remaining > 0.0 or not can_fire():
 		return 0
 	var before: int = magazine.start_index
-	var steps: int = magazine.random_roll(rng)
+	var steps: int
+	if magazine.loaded_count() < magazine.size():
+		# v0.4.27 未装满：落点在有弹仓里均匀随机，绝不停在空仓。抽到当前仓 → 整圈（6 步，逻辑锤位不变）。
+		steps = magazine.random_roll_to_loaded(rng)
+		if steps < 0:
+			return 0
+		if steps == 0:
+			steps = magazine.size()
+	else:
+		steps = magazine.random_roll(rng)
 	if steps > 0:
 		_log("连射前转轮随机 %d 步（起点槽 %d → %d）。" % [steps, before, magazine.start_index])
 	_emit()

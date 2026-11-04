@@ -1674,31 +1674,31 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 110,
-			"dps_proxy": 36.6666666666667,
+			"dealt": 417,
+			"dps_proxy": 139.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "厨槽A·爆发核",
 			"ops": 3,
-			"shots": 34
+			"shots": 37
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 297,
-			"dps_proxy": 12.9130434782609,
+			"dealt": 352,
+			"dps_proxy": 15.304347826087,
 			"gold_spent": 0,
-			"heal": 0,
+			"heal": 6,
 			"name": "厨槽B·窗与怒",
 			"ops": 23,
-			"shots": 34
+			"shots": 38
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 157,
-			"dps_proxy": 52.3333333333333,
-			"gold_spent": -30,
+			"dealt": 93,
+			"dps_proxy": 31.0,
+			"gold_spent": -46,
 			"heal": 0,
 			"name": "厨槽C·正义成长",
 			"ops": 3,
@@ -1707,41 +1707,41 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 16633,
-			"dps_proxy": 5544.33333333333,
+			"dealt": 3015,
+			"dps_proxy": 1005.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "厨槽D·AOE溅射",
 			"ops": 3,
-			"shots": 25
+			"shots": 28
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 71,
-			"dps_proxy": 23.6666666666667,
+			"dealt": 39,
+			"dps_proxy": 13.0,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "厨槽E·工具低伤",
 			"ops": 3,
-			"shots": 18
+			"shots": 16
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 179,
-			"dps_proxy": 59.6666666666667,
-			"gold_spent": 1,
+			"dealt": 134,
+			"dps_proxy": 44.6666666666667,
+			"gold_spent": 2,
 			"heal": 0,
 			"name": "随机混装#1",
 			"ops": 3,
-			"shots": 29
+			"shots": 26
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 331,
-			"dps_proxy": 25.4615384615385,
+			"dealt": 166,
+			"dps_proxy": 12.7692307692308,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#2",
@@ -1751,19 +1751,19 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 94,
-			"dps_proxy": 31.3333333333333,
+			"dealt": 55,
+			"dps_proxy": 18.3333333333333,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#3",
 			"ops": 3,
-			"shots": 26
+			"shots": 27
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 61,
-			"dps_proxy": 20.3333333333333,
+			"dealt": 54,
+			"dps_proxy": 18.0,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#4",
@@ -1773,74 +1773,74 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 84,
-			"dps_proxy": 28.0,
+			"dealt": 116,
+			"dps_proxy": 38.6666666666667,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#5",
 			"ops": 3,
-			"shots": 22
+			"shots": 20
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 98,
-			"dps_proxy": 7.53846153846154,
-			"gold_spent": -11,
+			"dealt": 83,
+			"dps_proxy": 27.6666666666667,
+			"gold_spent": -27,
 			"heal": 0,
 			"name": "随机混装#6",
-			"ops": 13,
-			"shots": 31
+			"ops": 3,
+			"shots": 24
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 78,
-			"dps_proxy": 26.0,
+			"dealt": 49,
+			"dps_proxy": 16.3333333333333,
 			"gold_spent": 2,
 			"heal": 0,
 			"name": "随机混装#7",
-			"ops": 3,
-			"shots": 29
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 375,
-			"dps_proxy": 125.0,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#8",
-			"ops": 3,
-			"shots": 22
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 76,
-			"dps_proxy": 25.3333333333333,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#9",
-			"ops": 3,
-			"shots": 37
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 144,
-			"dps_proxy": 48.0,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#10",
 			"ops": 3,
 			"shots": 18
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 173,
-			"dps_proxy": 57.6666666666667,
+			"dealt": 239,
+			"dps_proxy": 79.6666666666667,
+			"gold_spent": 1,
+			"heal": 0,
+			"name": "随机混装#8",
+			"ops": 3,
+			"shots": 20
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 84,
+			"dps_proxy": 28.0,
+			"gold_spent": 1,
+			"heal": 0,
+			"name": "随机混装#9",
+			"ops": 3,
+			"shots": 40
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 223,
+			"dps_proxy": 74.3333333333333,
+			"gold_spent": 1,
+			"heal": 0,
+			"name": "随机混装#10",
+			"ops": 3,
+			"shots": 24
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 244,
+			"dps_proxy": 81.3333333333333,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#11",
@@ -1850,8 +1850,8 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 139,
-			"dps_proxy": 10.6923076923077,
+			"dealt": 141,
+			"dps_proxy": 10.8461538461538,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#12",
@@ -1863,63 +1863,41 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 16633,
-			"dps_proxy": 5544.33333333333,
+			"dealt": 3015,
+			"dps_proxy": 1005.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "厨槽D·AOE溅射",
 			"ops": 3,
-			"shots": 25
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 375,
-			"dps_proxy": 125.0,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#8",
-			"ops": 3,
-			"shots": 22
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 331,
-			"dps_proxy": 25.4615384615385,
-			"gold_spent": 0,
-			"heal": 0,
-			"name": "随机混装#2",
-			"ops": 13,
 			"shots": 28
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 297,
-			"dps_proxy": 12.9130434782609,
+			"dealt": 417,
+			"dps_proxy": 139.0,
 			"gold_spent": 0,
 			"heal": 0,
+			"name": "厨槽A·爆发核",
+			"ops": 3,
+			"shots": 37
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 352,
+			"dps_proxy": 15.304347826087,
+			"gold_spent": 0,
+			"heal": 6,
 			"name": "厨槽B·窗与怒",
 			"ops": 23,
-			"shots": 34
+			"shots": 38
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 179,
-			"dps_proxy": 59.6666666666667,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#1",
-			"ops": 3,
-			"shots": 29
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 173,
-			"dps_proxy": 57.6666666666667,
+			"dealt": 244,
+			"dps_proxy": 81.3333333333333,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#11",
@@ -1929,30 +1907,41 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 157,
-			"dps_proxy": 52.3333333333333,
-			"gold_spent": -30,
+			"dealt": 239,
+			"dps_proxy": 79.6666666666667,
+			"gold_spent": 1,
 			"heal": 0,
-			"name": "厨槽C·正义成长",
+			"name": "随机混装#8",
 			"ops": 3,
-			"shots": 14
+			"shots": 20
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 144,
-			"dps_proxy": 48.0,
+			"dealt": 223,
+			"dps_proxy": 74.3333333333333,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#10",
 			"ops": 3,
-			"shots": 18
+			"shots": 24
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 139,
-			"dps_proxy": 10.6923076923077,
+			"dealt": 166,
+			"dps_proxy": 12.7692307692308,
+			"gold_spent": 0,
+			"heal": 0,
+			"name": "随机混装#2",
+			"ops": 13,
+			"shots": 28
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 141,
+			"dps_proxy": 10.8461538461538,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#12",
@@ -1962,90 +1951,101 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 110,
-			"dps_proxy": 36.6666666666667,
-			"gold_spent": 0,
+			"dealt": 134,
+			"dps_proxy": 44.6666666666667,
+			"gold_spent": 2,
 			"heal": 0,
-			"name": "厨槽A·爆发核",
-			"ops": 3,
-			"shots": 34
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 98,
-			"dps_proxy": 7.53846153846154,
-			"gold_spent": -11,
-			"heal": 0,
-			"name": "随机混装#6",
-			"ops": 13,
-			"shots": 31
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 94,
-			"dps_proxy": 31.3333333333333,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#3",
+			"name": "随机混装#1",
 			"ops": 3,
 			"shots": 26
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 84,
-			"dps_proxy": 28.0,
+			"dealt": 116,
+			"dps_proxy": 38.6666666666667,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#5",
 			"ops": 3,
-			"shots": 22
+			"shots": 20
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 78,
-			"dps_proxy": 26.0,
-			"gold_spent": 2,
+			"dealt": 93,
+			"dps_proxy": 31.0,
+			"gold_spent": -46,
 			"heal": 0,
-			"name": "随机混装#7",
+			"name": "厨槽C·正义成长",
 			"ops": 3,
-			"shots": 29
+			"shots": 14
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 76,
-			"dps_proxy": 25.3333333333333,
+			"dealt": 84,
+			"dps_proxy": 28.0,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#9",
 			"ops": 3,
-			"shots": 37
+			"shots": 40
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 71,
-			"dps_proxy": 23.6666666666667,
+			"dealt": 83,
+			"dps_proxy": 27.6666666666667,
+			"gold_spent": -27,
+			"heal": 0,
+			"name": "随机混装#6",
+			"ops": 3,
+			"shots": 24
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 55,
+			"dps_proxy": 18.3333333333333,
 			"gold_spent": 1,
 			"heal": 0,
-			"name": "厨槽E·工具低伤",
+			"name": "随机混装#3",
 			"ops": 3,
-			"shots": 18
+			"shots": 27
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 61,
-			"dps_proxy": 20.3333333333333,
+			"dealt": 54,
+			"dps_proxy": 18.0,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#4",
 			"ops": 3,
 			"shots": 18
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 49,
+			"dps_proxy": 16.3333333333333,
+			"gold_spent": 2,
+			"heal": 0,
+			"name": "随机混装#7",
+			"ops": 3,
+			"shots": 18
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 39,
+			"dps_proxy": 13.0,
+			"gold_spent": 1,
+			"heal": 0,
+			"name": "厨槽E·工具低伤",
+			"ops": 3,
+			"shots": 16
 		}
 	],
 	"pair_rank": [
@@ -3354,5 +3354,5 @@
 			"shots": 1
 		}
 	],
-	"version": "0.4.22"
+	"version": "0.4.27"
 }

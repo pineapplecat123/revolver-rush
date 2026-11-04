@@ -70,6 +70,13 @@ const SHOT_OUTLINE_PAD := 2.6
 const SHOT_GLOW_PAD := 7.0
 const SHOT_HEAD_SIZE := 18.0
 const SHOT_HEAD_GLOW := 28.0
+## v0.4.27 一体弹道：亮弹头段长度、前探、光晕加宽（很淡）
+const SHOT_TIP_LEN := 10.0
+const SHOT_TIP_LEAD := 0.0
+const SHOT_STREAK_HALO := 5.0
+## 火药屑：每发粒子数 / 全场同时最多几条
+const POWDER_PARTICLES := 34
+const POWDER_MAX_EMITTERS := 10
 const SHOT_TRAVEL_SEC := 0.14
 const SHOT_TRAVEL_SEC_PER_CELL := 0.032
 const BLOOD_BURST_MIN := 8
@@ -1775,7 +1782,8 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 			"hit_index": -1, "events": evs,
 		})
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
-	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel)
+	var powder: bool = shot_has_powder(ammo_id, rec.get("muzzle_outline_ids", []))
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder)
 	# 非命中格的伤害（雷链等）在落地时播
 	for ev in remaining:
 		_spawn_hit_event(ev)
@@ -2137,17 +2145,28 @@ func _play_shot_beam_and_impact() -> void:
 		var amt: int = int(hit_amts[i]) if i < hit_amts.size() else 0
 		waypoints.append({"g": g, "amount": amt, "cell": c, "hit_index": i})
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
-	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel)
+	var powder2: bool = shot_has_powder(ammo_id, state.last_shot_muzzle_outline_ids)
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder2)
 	_blood_shot_dir_active = false
 	_blood_spray_dir = Vector2.ZERO
 
 
+static func shot_has_powder(ammo_id: int, muzzle_ids) -> bool:
+	## 火药附着 = 枪口【炸药】（炸药弹药挂上，本发即生效）。这类子弹沿途掉黑灰火药屑。
+	if ammo_id == FireResolver.ID_EXPLOSIVE:
+		return true
+	for mid in muzzle_ids:
+		if int(mid) == FireResolver.ID_EXPLOSIVE:
+			return true
+	return false
+
+
 func _animate_shot_projectile(
 	from_g: Vector2, to_g: Vector2, core_col: Color, outline_cols: Array[Color],
-	waypoints: Array, travel_sec: float
+	waypoints: Array, travel_sec: float, powder: bool = false
 ) -> void:
-	## 弹头形钝圆头 + Line2D 连续光带拖尾（头尾衔接），从玩家飞向目标。
-	## 按已飞距离连续拉长，不再用 ColorRect 分段显隐（避免一节一节方块感）。
+	## v0.4.27 一体弹道：弹头就是枪线最前端，和枪线同宽；圆钝亮头 → 同宽一段 → 往后变细变淡。
+	## 不再有比枪线粗一圈的大圆球。每种弹药仍按自己的颜色上色；枪口描边色是同形状的外层。
 	var delta: Vector2 = to_g - from_g
 	if delta.length_squared() < 0.01:
 		delta = Vector2.RIGHT
@@ -2158,67 +2177,36 @@ func _animate_shot_projectile(
 	host.global_position = from_g
 	host.rotation = delta.angle()
 	var n_out: int = outline_cols.size()
-	# 有枪口描边时：最外辉光跟最外层描边色（outline_cols[0]=怒→傲→贪→穿甲之最外）；无描边则仍用弹药芯色
 	var glow_col: Color = core_col
 	if n_out > 0:
 		glow_col = outline_cols[0]
 	var trail_lines: Array = []
-	# 底层辉光 → 枪口描边 → 芯色；全部 Line2D，width_curve+gradient 连续渐变
-	var glow_trail_w: float = SHOT_TRAIL_THICK + SHOT_GLOW_PAD * 1.6
-	trail_lines.append(_make_shot_trail_line(
-		glow_trail_w,
-		Color(glow_col.r, glow_col.g, glow_col.b, 1.0),
-		1.0, 0.28, 0.50, 0.08
-	))
+	# 淡光晕：同形状、略宽、很淡（不是圆球）
+	trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK + SHOT_STREAK_HALO, _shot_head_display_color(glow_col, 0.2, 1.0), 0.30, 0.0))
 	for oi in n_out:
 		var oc: Color = outline_cols[oi]
 		var pad: float = float(n_out - oi) * SHOT_OUTLINE_PAD
-		trail_lines.append(_make_shot_trail_line(
-			SHOT_TRAIL_THICK + pad * 2.0,
-			Color(oc.r, oc.g, oc.b, 1.0),
-			1.0, 0.32, 0.90, 0.18
-		))
-	trail_lines.append(_make_shot_trail_line(
-		SHOT_TRAIL_THICK,
-		Color(core_col.r, core_col.g, core_col.b, 1.0),
-		1.0, 0.30, 0.98, 0.22
-	))
+		trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK + pad * 2.0, oc, 0.95, 0.10))
+	# 芯色：保留弹药色相、提亮到深色弹（愤怒红等）也看得清
+	trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK, _shot_head_display_color(core_col, 0.38, 1.0), 1.0, 0.12))
 	for line in trail_lines:
 		host.add_child(line)
 		line.visible = false
-	# 弹头形钝圆头（朝 +X=飞行方向）；尾部伸入拖尾与 Line2D 重叠，头尾成整体
-	# 提亮用 Color.lightened：暗弹药（愤怒）够亮可读红，傲慢等仍保色相
-	var head_glow := _make_shot_bullet_tip(
-		SHOT_HEAD_GLOW * 1.2,
-		SHOT_HEAD_GLOW,
-		glow_trail_w,
-		_shot_head_display_color(glow_col, 0.42, 0.55)
-	)
-	host.add_child(head_glow)
-	for oi in n_out:
-		var oc2: Color = outline_cols[oi]
-		var pad2: float = float(n_out - oi) * SHOT_OUTLINE_PAD
-		var tip_len: float = SHOT_HEAD_SIZE + pad2 * 2.2
-		var tip_base: float = SHOT_TRAIL_THICK + pad2 * 2.0
-		var ring := _make_shot_bullet_tip(
-			tip_len * 1.08, tip_len, tip_base,
-			Color(oc2.r, oc2.g, oc2.b, 0.95)
-		)
-		host.add_child(ring)
-	var head_core := _make_shot_bullet_tip(
-		SHOT_HEAD_SIZE * 1.1,
-		SHOT_HEAD_SIZE,
-		SHOT_TRAIL_THICK,
-		_shot_head_display_color(core_col, 0.38, 1.0)
-	)
-	host.add_child(head_core)
-	var head_hot := _make_shot_bullet_tip(
-		SHOT_HEAD_SIZE * 0.58,
-		SHOT_HEAD_SIZE * 0.40,
-		SHOT_TRAIL_THICK * 0.42,
-		_shot_head_display_color(core_col, 0.55, 0.72)
-	)
-	host.add_child(head_hot)
+	# 亮弹头：同宽一小段（圆头），颜色是弹药色提亮——和枪线是一体的
+	var tip := Line2D.new()
+	tip.width = SHOT_TRAIL_THICK
+	tip.antialiased = true
+	tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	tip.end_cap_mode = Line2D.LINE_CAP_NONE
+	tip.default_color = _shot_head_display_color(core_col, 0.55, 1.0)
+	var tip_grad := Gradient.new()
+	tip_grad.set_color(0, _shot_head_display_color(core_col, 0.7, 1.0))
+	tip_grad.set_color(1, _shot_head_display_color(core_col, 0.38, 1.0))
+	tip.gradient = tip_grad
+	tip.points = PackedVector2Array([Vector2(SHOT_TIP_LEAD, 0), Vector2(-SHOT_TIP_LEN, 0)])
+	host.add_child(tip)
+	if powder:
+		_attach_powder_trail(host)
 	var ctx := {
 		"host": host,
 		"from": from_g,
@@ -2244,7 +2232,84 @@ func _animate_shot_projectile(
 			_spawn_hit_event(ev2)
 		# 飙血改由 enemy_damaged 统一触发（含非子弹掉血）
 	if is_instance_valid(host):
+		_detach_powder_trail(host)
 		host.queue_free()
+
+
+func _make_shot_streak(width: float, col: Color, head_a: float, tail_a: float) -> Line2D:
+	## 一条枪线：最前端圆头（begin cap 在弹头），头部一段保持满宽，往后收细、变淡。
+	var line := Line2D.new()
+	line.width = width
+	line.default_color = Color(1, 1, 1, 1)
+	line.antialiased = true
+	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	line.end_cap_mode = Line2D.LINE_CAP_NONE
+	line.joint_mode = Line2D.LINE_JOINT_ROUND
+	var curve := Curve.new()
+	curve.add_point(Vector2(0.0, 1.0))
+	curve.add_point(Vector2(0.18, 1.0))
+	curve.add_point(Vector2(1.0, 0.18))
+	line.width_curve = curve
+	var grad := Gradient.new()
+	grad.set_color(0, Color(col.r, col.g, col.b, head_a))
+	grad.set_color(1, Color(col.r, col.g, col.b, tail_a))
+	grad.add_point(0.35, Color(col.r, col.g, col.b, head_a * 0.85))
+	line.gradient = grad
+	line.points = PackedVector2Array([Vector2.ZERO, Vector2(-1.0, 0.0)])
+	return line
+
+
+var _powder_emitters: int = 0
+
+
+func _attach_powder_trail(host: Node) -> void:
+	## 火药附着：弹头沿途撒黑灰火药屑（世界坐标，留在原地慢慢飘散变淡）。全局并发上限防卡。
+	if _powder_emitters >= POWDER_MAX_EMITTERS:
+		return
+	_powder_emitters += 1
+	var p := CPUParticles2D.new()
+	p.name = "PowderTrail"
+	p.local_coords = false
+	p.amount = POWDER_PARTICLES
+	p.lifetime = 0.7
+	p.explosiveness = 0.0
+	p.emitting = true
+	p.direction = Vector2(-1, 0)
+	p.spread = 70.0
+	p.initial_velocity_min = 8.0
+	p.initial_velocity_max = 40.0
+	p.gravity = Vector2(0, 26)
+	p.damping_min = 10.0
+	p.damping_max = 30.0
+	p.scale_amount_min = 2.4
+	p.scale_amount_max = 4.6
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = SHOT_TRAIL_THICK * 0.5
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(0.10, 0.10, 0.11, 0.95))
+	ramp.set_color(1, Color(0.36, 0.35, 0.34, 0.0))
+	ramp.add_point(0.45, Color(0.24, 0.23, 0.23, 0.85))
+	p.color_ramp = ramp
+	p.z_index = -1
+	host.add_child(p)
+
+
+func _detach_powder_trail(host: Node) -> void:
+	var p: CPUParticles2D = host.get_node_or_null("PowderTrail") as CPUParticles2D
+	if p == null:
+		return
+	var g: Vector2 = p.global_position
+	host.remove_child(p)
+	add_child(p)
+	p.global_position = g
+	p.z_index = Z_SHOT_VFX - 1
+	p.emitting = false
+	var tw := create_tween()
+	tw.tween_interval(p.lifetime + 0.1)
+	tw.tween_callback(func() -> void:
+		_powder_emitters = maxi(_powder_emitters - 1, 0)
+		if is_instance_valid(p):
+			p.queue_free())
 
 
 func _make_shot_trail_line(
@@ -2325,7 +2390,11 @@ func _shot_projectile_step(t: float, ctx: Dictionary) -> void:
 			line.visible = false
 		else:
 			line.visible = true
-			line.points = PackedVector2Array([Vector2.ZERO, Vector2(-visible_len, 0.0)])
+			# 多段点：宽度曲线才能平滑收细（两点会出台阶）
+			var pts := PackedVector2Array()
+			for k in 13:
+				pts.append(Vector2(-visible_len * float(k) / 12.0, 0.0))
+			line.points = pts
 	var waypoints: Array = ctx.get("waypoints", [])
 	var fired: Dictionary = ctx.get("fired", {})
 	var path_len: float = maxf(from_g.distance_to(to_g), 1.0)
@@ -2798,6 +2867,7 @@ func _refresh_reward_panel() -> void:
 				btn.tooltip_text = desc
 			btn.add_theme_font_size_override("font_size", 18)
 			_style_reward_choice_button(btn, colors["bg"])
+			RarityFx.attach(btn, ammo_id, colors["bg"], 8.0)
 			var idx := i
 			btn.pressed.connect(func(): _on_reward_pick(idx))
 			reward_choices.add_child(btn)
@@ -2954,6 +3024,53 @@ func _spawn_blood_at_cell(cell: int, amount: int, death_plasma: bool = false) ->
 	if (not death_plasma) and _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
 		dir = _blood_spray_dir
 	_spawn_blood_burst(at_g, amount, dir, death_plasma)
+	if death_plasma:
+		_spawn_gore_for_cell(cell, at_g)
+
+
+var _gore_layer: GoreLayer = null
+var _gore_done: Dictionary = {}  # enemy instance id → true（每只只炸一次）
+
+
+func _ensure_gore_layer() -> GoreLayer:
+	if _gore_layer != null and is_instance_valid(_gore_layer):
+		return _gore_layer
+	_gore_layer = GoreLayer.new()
+	_gore_layer.name = "GoreLayer"
+	_gore_layer.z_index = Z_SHOT_VFX - 2
+	add_child(_gore_layer)
+	return _gore_layer
+
+
+func _spawn_gore_for_cell(cell: int, at_g: Vector2) -> int:
+	## v0.4.27 死亡瞬间：按动物外形飞出耳朵/爪子/尾巴/半个头/肉块（可爱乱飞，不写实）。
+	if state == null:
+		return 0
+	for e in state.enemies:
+		if e == null or int(e.cell) != cell or e.is_alive():
+			continue
+		var eid: int = e.get_instance_id()
+		if _gore_done.has(eid):
+			return 0
+		_gore_done[eid] = true
+		if _gore_done.size() > 256:
+			_gore_done.clear()
+			_gore_done[eid] = true
+		var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+		if sk == null or not is_instance_valid(sk):
+			sk = (load("res://scenes/enemy/skeleton_enemy.tscn") as PackedScene).instantiate() as SkeletonEnemy
+			sk.setup(int(e.def_id))
+			var pcs0: Array = sk.gore_pieces()
+			sk.free()
+			return _ensure_gore_layer().spawn(pcs0, at_g, _board_ground_global_y(), _gore_bias())
+		return _ensure_gore_layer().spawn(sk.gore_pieces(), at_g, _board_ground_global_y(), _gore_bias())
+	return 0
+
+
+func _gore_bias() -> Vector2:
+	if _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
+		return -_blood_spray_dir
+	return Vector2.ZERO
 
 
 func _on_gold_gained(cell: int, amount: int) -> void:
@@ -3361,6 +3478,7 @@ func _refresh_rush_shop_stock() -> void:
 		var def: Dictionary = DataRegistry.get_ammo(ammo_id)
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
+		row.add_child(make_ammo_chip(ammo_id))
 		var info := Label.new()
 		var price: int = _shop.ammo_price(ammo_id)
 		if _shop.sold[i]:
@@ -3407,6 +3525,7 @@ func _refresh_rush_shop_bag() -> void:
 		var def: Dictionary = DataRegistry.get_ammo(int(ammo_id))
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
+		row.add_child(make_ammo_chip(int(ammo_id)))
 		var info := Label.new()
 		info.text = "%s ×%d" % [str(def.get("name", ammo_id)), int(counts[ammo_id])]
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -3703,6 +3822,32 @@ func _consume_expired_temp_events() -> void:
 		panel.modulate = Color(1.6, 1.3, 1.2, 1.0)
 		tw.tween_property(panel, "modulate", Color(1, 1, 1, 1), 0.35)
 	state.expired_temp_events.clear()
+
+
+func make_ammo_chip(ammo_id: int, side: float = 30.0) -> Panel:
+	## v0.4.27 小弹药片（商店/沙盒列表用）：弹药底色圆片 + 首字 + 稀有度特效。
+	var chip := Panel.new()
+	chip.custom_minimum_size = Vector2(side, side)
+	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	chip.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	var colors := _ammo_colors(ammo_id)
+	var st := StyleBoxFlat.new()
+	st.bg_color = colors.get("bg", Color(0.8, 0.8, 0.8))
+	st.set_corner_radius_all(999)
+	st.set_border_width_all(2)
+	st.border_color = Color(0.12, 0.12, 0.14)
+	chip.add_theme_stylebox_override("panel", st)
+	var lb := Label.new()
+	lb.name = "Info"
+	lb.text = _ammo_bag_glyph(ammo_id)
+	lb.set_anchors_preset(Control.PRESET_FULL_RECT)
+	lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	lb.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	lb.add_theme_font_size_override("font_size", int(side * 0.5))
+	lb.add_theme_color_override("font_color", colors.get("fg", Color(0.1, 0.1, 0.1)))
+	chip.add_child(lb)
+	RarityFx.attach(chip, ammo_id, st.bg_color, 999.0)
+	return chip
 
 
 func _ammo_bag_glyph(ammo_id: int) -> String:
@@ -4456,6 +4601,7 @@ func _sb_build_ammo(inner: VBoxContainer) -> void:
 			continue
 		var aid: int = int(item.get("id", 0))
 		var row := _sb_row(inner)
+		row.add_child(make_ammo_chip(aid, 26.0))
 		_sb_label(row, str(item.get("name", aid)), 0.0, true)
 		_sb_btn(row, "+1", func(id := aid): state.sandbox_add_ammo(id, 1, 0.0); _refresh(), 96.0)
 		_sb_btn(row, "临时", func(id := aid, tt := ttl): state.sandbox_add_ammo(id, 1, float(tt.get_meta("val"))); _refresh(), 96.0)
@@ -5183,15 +5329,13 @@ func _paint_mag_chambers() -> void:
 				style.shadow_color = Color(1.0, 0.82, 0.2, 0.72)
 				style.shadow_size = 10
 				style.shadow_offset = Vector2.ZERO
-			elif ammo_id == FireResolver.ID_ARMOR_PIERCE:
-				# 钢青辉光：冷边 + 外发光（袋内/弹仓一致可读）
-				style.border_color = Color(0.62, 0.88, 1.0)
-				style.set_border_width_all(3)
-				style.shadow_color = Color(0.45, 0.78, 0.98, 0.7)
-				style.shadow_size = 10
-				style.shadow_offset = Vector2.ZERO
 			info.text = short
 			info.add_theme_color_override("font_color", colors["fg"])
+		# v0.4.27 稀有度特效（超级回合保留专属金辉，不叠）
+		if ammo_id == Magazine.EMPTY or ammo_id == FireResolver.ID_SUPER_ROUND or ammo_id == CombatConstants.INVALID_AMMO_ID:
+			RarityFx.attach(panel, -1)
+		else:
+			RarityFx.attach(panel, ammo_id, _ammo_colors(ammo_id).get("bg", Color.WHITE), 999.0)
 		# 红/装边框跟屏幕固定标走：用「最接近正上」的仓（round）。
 		# 旧 floor 在顺时针转动时会把红边粘在已经离开正上的仓上，和固定红圈错位。
 		var vs: float = fposmod(_wheel_visual_steps, float(CombatConstants.MAGAZINE_SIZE))

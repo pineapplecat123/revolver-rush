@@ -91,6 +91,21 @@ func random_roll(p_rng: RandomNumberGenerator) -> int:
 	return steps
 
 
+## v0.4.27 未装满时的随机转：在「有弹的仓」里均匀抽一个，顺时针转到它对准击发点。
+## 返回逻辑步数 0..size-1（抽到当前仓 = 0，UI 仍整圈转一下）。0/1 发或空匣返回 -1（不转）。
+func random_roll_to_loaded(p_rng: RandomNumberGenerator) -> int:
+	if loaded_count() <= 1 or slots.size() <= 1:
+		return -1
+	var loaded: Array[int] = []
+	for i in slots.size():
+		if slots[i] != EMPTY:
+			loaded.append(i)
+	var target: int = loaded[p_rng.randi_range(0, loaded.size() - 1)]
+	var steps: int = posmod(target - start_index, slots.size())
+	start_index = target
+	return steps
+
+
 ## 自击发点起顺时针、跳过空槽，返回击发顺序中的弹药 id 列表。
 func fire_order() -> Array[int]:
 	var out: Array[int] = []
