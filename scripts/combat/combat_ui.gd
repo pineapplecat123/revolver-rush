@@ -1782,6 +1782,25 @@ func _ensure_skeleton_player() -> void:
 	_skel_player.scale = Vector2(1.35, 1.35)
 	unit.add_child(_skel_player)
 	_skel_player.bind_state(state)
+	_skel_player.aim_target_provider = _nearest_enemy_global  # 持枪手自动瞄最近的活怪
+
+
+func _nearest_enemy_global() -> Variant:
+	## 骨骼小猫瞄准用：离小猫最近的活怪单位中心（含滑行偏移）；没有就 null。
+	if state == null or _skel_player == null or not is_instance_valid(_skel_player):
+		return null
+	var me: Vector2 = _skel_player.global_position
+	var best: Variant = null
+	var best_d: float = INF
+	for e in state.alive_enemies():
+		var p: Vector2 = _cell_unit_global_center(int(e.cell))
+		if p == Vector2.ZERO:
+			continue
+		var d: float = me.distance_squared_to(p)
+		if d < best_d:
+			best_d = d
+			best = p
+	return best
 
 
 func _player_shot_origin_global() -> Vector2:
