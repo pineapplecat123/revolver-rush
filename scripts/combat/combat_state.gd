@@ -2064,7 +2064,7 @@ func is_busy_firing() -> bool:
 
 
 ## 一次装满（测试 / 金色额外轮 / 无动画路径）。UI 请用 begin_load + load_next_chamber + apply_load_rotate。
-## 装满后会自动 random_roll（与 UI 装满后的 reroll 动画一致）；不满匣不转。
+## v0.4.24：装满后不再随机转（LOAD_FULL_RANDOM_SPIN=false）；从当前击发仓直接开打。
 func do_load() -> bool:
 	if not begin_load():
 		return false
@@ -2227,7 +2227,10 @@ func _complete_load_session_after_shot(resolved: int, slot: int) -> Dictionary:
 
 func _complete_load_session() -> Dictionary:
 	var n: int = _load_resolved_ids.size()
-	var needs_spin: bool = n >= CombatConstants.MAGAZINE_SIZE and not magazine.is_empty()
+	var needs_spin: bool = (
+		CombatConstants.LOAD_FULL_RANDOM_SPIN
+		and n >= CombatConstants.MAGAZINE_SIZE and not magazine.is_empty()
+	)
 	_log("装填完成：共 %d 发%s。" % [
 		n, "（将随机旋转转轮）" if needs_spin else ""
 	])
@@ -3321,21 +3324,32 @@ func is_volley_pending() -> bool:
 	return _volley_pending
 
 
-func spin_cylinder_for_volley() -> int:
-	## 连射前随机转轮。0/1 发不转。不发射。UI 先播这段再 fire_tap。
-	if magazine == null or magazine.loaded_count() <= 1:
+static func volley_shot_interval_sec() -> float:
+	## v0.4.24：连射每发间隔（未乘战斗速度）。射速帽是下限。
+	return maxf(CombatConstants.VOLLEY_SHOT_INTERVAL_SEC, CombatConstants.MIN_FIRE_INTERVAL_SEC)
+
+
+static func volley_rotate_sec() -> float:
+	## 转一格动画时长，必须落在每发间隔之内。
+	return minf(CombatConstants.VOLLEY_ROTATE_SEC, volley_shot_interval_sec())
+
+
+func volley_next_empty_skips() -> int:
+	## 击发位往后连续空仓数（下一发前要快转跳过的格数）。空匣返回 0。
+	if magazine == null or magazine.is_empty():
 		return 0
-	commit_load_session_if_active()
-	if magazine == null or magazine.loaded_count() <= 1:
-		return 0
-	if burst_window_remaining > 0.0 or not can_fire():
-		return 0
-	var before: int = magazine.start_index
-	var steps: int = magazine.random_roll(rng)
-	if steps > 0:
-		_log("连射前转轮随机 %d 步（起点槽 %d → %d）。" % [steps, before, magazine.start_index])
-	_emit()
-	return steps
+	var n := 0
+	for i in CombatConstants.MAGAZINE_SIZE:
+		var idx: int = (magazine.start_index + i) % CombatConstants.MAGAZINE_SIZE
+		if magazine.slots[idx] != Magazine.EMPTY:
+			break
+		n += 1
+	return n
+
+
+func volley_wait_before_next_sec() -> float:
+	## 下一发前的等待（未乘战斗速度）：一格间隔 + 每个空仓一点点快转时间。
+	return volley_shot_interval_sec() + CombatConstants.VOLLEY_EMPTY_SKIP_SEC * float(volley_next_empty_skips())
 
 
 func _volley_should_continue() -> bool:
@@ -3707,7 +3721,7 @@ func do_fire() -> bool:
 
 ## v0.4.22：一次开火打光已装弹。resolve_dump_sync=true 时本调用内打完（测试）；false 时只打第一发，其余交给 take_volley_shot / 倾泻步进。
 ## 连发窗内仍是免费平庸、不耗仓。倾泻主发仍走 0.06s 步进。连射或倾泻进行中再按 = 忽略。
-## 随机转轮由 spin_cylinder_for_volley（UI 在发射前调用），这里不转，避免打乱「锤位打哪发」的测试。
+## v0.4.24：开火前不再随机转轮，从当前击发仓直接打；UI 每发之间按 VOLLEY_SHOT_INTERVAL_SEC 转一格。
 func fire_tap(resolve_dump_sync: bool = true) -> Array:
 	var shots: Array = []
 	if _volley_pending or _dump_pending:

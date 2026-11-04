@@ -216,6 +216,9 @@ var _shop: ShopState = ShopState.new()
 var _shop_open: bool = false
 var _shop_temps: Array = []
 var _volley_ui_running: bool = false
+## v0.4.24：连射步进中（用慢一点、看得清的转一格动画）；上一发转盘动画时长（未乘速度）。
+var _volley_stepping: bool = false
+var _last_fire_rot_sec: float = 0.0
 var _player_rings: EnemyStatusRings = null
 var _pickup_layer: Control = null
 var _punch_left: float = 0.0
@@ -283,7 +286,7 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "随时装弹，每次补 1 发。开火会先转轮，再按顺序打光已装弹。敌人会自动向左推进，靠近就攻击。长按弹药可看效果。"
+		hint_lab.text = "随时装弹，每次补 1 发。按一次开火，从当前仓开始打一发转一格，打光已装弹。敌人会自动向左推进，靠近就攻击。长按弹药可看效果。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
@@ -1298,7 +1301,7 @@ func _run_manual_load_one() -> void:
 		await _animate_disk_to(target, _paced(STEP_ROT_DURATION) * maxf(1.0, target - before_steps))
 		_refresh_mag_contents()
 	else:
-		# 装满结束：与整匣装相同，可随机转
+		# 装满结束：v0.4.24 起不随机转（needs_spin 恒 false）
 		if bool(result.get("needs_spin", false)) and state.can_start_roll():
 			await _run_shared_cylinder_spin()
 		else:
@@ -1371,19 +1374,9 @@ func _on_fire() -> void:
 
 
 func _run_fire_press() -> void:
-	## 逻辑先结算（升级暂停不能等转动画）。转轮动画播完再出弹道，然后按射速帽打光剩余仓。
-	var spin_steps := 0
-	if (
-		state != null
-		and state.burst_window_remaining <= 0.0
-		and state.magazine != null
-		and state.magazine.loaded_count() > 1
-		and state.can_fire()
-	):
-		spin_steps = state.spin_cylinder_for_volley()
+	## v0.4.24：不再随机转轮。按下立即从当前击发仓打第一发（升级暂停时机不变），
+	## 之后每发间隔 VOLLEY_SHOT_INTERVAL_SEC，中间播「转一格」动画。
 	var pack: Dictionary = _resolve_fire_logic()
-	if spin_steps > 0:
-		await _play_roll_spin_visual(spin_steps)
 	if not pack.is_empty():
 		pack["visual_before"] = _wheel_visual_steps
 		var shots: Array = pack.get("shots", [])
@@ -1479,7 +1472,12 @@ func _present_tap_shots(shots: Array, hit_events: Array, visual_before: float, s
 	if _disk_tween != null and _disk_tween.is_valid():
 		_disk_tween.kill()
 	_disk_tween = create_tween()
-	_disk_tween.tween_method(_apply_disk_rotation, visual_before, _fire_disk_target, _paced(FIRE_ROT_SEC)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	var rot_sec: float = FIRE_ROT_SEC
+	if state != null and (state.is_volley_pending() or _volley_stepping) and not state.is_dump_pending():
+		# v0.4.24 连射：转一格动画看得清，落在每发间隔内；跳过的空仓只加一点快转
+		rot_sec = CombatState.volley_rotate_sec() + CombatConstants.VOLLEY_EMPTY_SKIP_SEC * float(maxi(steps - 1, 0))
+	_last_fire_rot_sec = rot_sec
+	_disk_tween.tween_method(_apply_disk_rotation, visual_before, _fire_disk_target, _paced(rot_sec)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
 	_disk_tween.finished.connect(_on_fire_disk_tween_done.bind(_disk_tween))
 	_refresh_mag_contents()
 	_refresh()
@@ -1528,9 +1526,13 @@ func _run_dump_autofire() -> void:
 
 
 func _run_volley_autofire() -> void:
-	## 非倾泻的连射：每发间隔 MIN_FIRE_INTERVAL_SEC（吃战斗速度）。空仓在 take_volley_shot 里快跳，不另等。
+	## v0.4.24 非倾泻的连射：打一发 → 转一格 → 下一发。每发间隔 VOLLEY_SHOT_INTERVAL_SEC（吃战斗速度，
+	## 不快于射速帽）；空仓不另等整格，只每格多 VOLLEY_EMPTY_SKIP_SEC 快转。
+	_volley_stepping = true
 	while state != null and state.is_volley_pending():
-		await _pwait(_paced(CombatConstants.MIN_FIRE_INTERVAL_SEC))
+		# 至少等满一格间隔，且等上一发的转动播完（跳空仓时转得稍久）
+		var wait_s: float = maxf(state.volley_wait_before_next_sec(), _last_fire_rot_sec + 0.02)
+		await _pwait(_paced(wait_s))
 		if state == null or not state.is_volley_pending():
 			break
 		_snap_fire_disk()
@@ -1550,8 +1552,10 @@ func _run_volley_autofire() -> void:
 			break
 		_present_tap_shots(more, hit_events, visual_before, start_before)
 		if state != null and state.is_dump_pending():
+			_volley_stepping = false
 			_run_dump_autofire()
 			break
+	_volley_stepping = false
 
 
 func _on_fire_disk_tween_done(tw: Tween) -> void:

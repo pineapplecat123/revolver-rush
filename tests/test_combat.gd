@@ -406,8 +406,8 @@ func test_stepwise_load_api() -> void:
 	assert_eq(n, CombatConstants.MAGAZINE_SIZE)
 	assert_false(cs.is_busy_loading())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
-	# 装满后标记需要 reroll；start_index 在 spin 前保持会话末值
-	assert_true(bool(last.get("needs_spin", false)))
+	# v0.4.24：装满后不再随机转轮
+	assert_false(bool(last.get("needs_spin", false)))
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
 	# v0.4.0：装入时 33% 可能 +临时罪；三罪孽惩罚不再加临时
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - CombatConstants.MAGAZINE_SIZE + cs.load_temp_sins_spawned)
@@ -519,13 +519,13 @@ func test_stepwise_load_rotates_start_each_chamber() -> void:
 	assert_eq(starts, [1, 2, 3, 4, 5, 0])
 
 
-func test_do_load_full_applies_post_spin() -> void:
+func test_do_load_full_no_post_spin() -> void:
 	var cs := CombatState.new(99)
 	cs.start_rush(99)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_ACTION)
-	# 装满后必有 random_roll；步数∈[1,5]，start 合法
+	# v0.4.24：装满后不随机转；start 合法
 	assert_gte(cs.magazine.start_index, 0)
 	assert_lt(cs.magazine.start_index, CombatConstants.MAGAZINE_SIZE)
 

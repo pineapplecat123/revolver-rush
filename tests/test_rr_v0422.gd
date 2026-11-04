@@ -48,15 +48,13 @@ func test_version_0_4_22() -> void:
 	assert_true('"version": "0.4.22"' in text)
 
 
-func test_volley_spins_then_empties_and_ignores_repress() -> void:
+func test_volley_empties_and_ignores_repress() -> void:
+	## v0.4.24：连射前不再随机转轮（原 spin_cylinder_for_volley 已删）。
 	var cs := _rush(42201)
 	cs.dev_force_load([
 		WHITE, WHITE, WHITE, WHITE, WHITE, WHITE,
 	] as Array[int])
 	cs.magazine.set_start(0)
-	var steps: int = cs.spin_cylinder_for_volley()
-	assert_gte(steps, 1, "两发以上必转")
-	assert_eq(cs.magazine.start_index, steps % CombatConstants.MAGAZINE_SIZE)
 	var async_first: Array = cs.fire_tap(false)
 	assert_eq(async_first.size(), 1)
 	assert_true(cs.is_volley_pending())

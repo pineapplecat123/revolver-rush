@@ -8,7 +8,7 @@ func before_each() -> void:
 
 
 func test_version_0_4_23() -> void:
-	assert_eq(GameVersion.STRING, "0.4.23")
+	assert_true(GameVersion.STRING >= "0.4.23")
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.23"' in text)
 	assert_true('"version": "0.4.22"' in text)

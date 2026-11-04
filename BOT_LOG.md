@@ -1,3 +1,9 @@
+## 2026-11-04 — v0.4.24 连射放慢 + 去掉随机转轮
+- 任务（t420u）：「打一枪转一下，然后装弹装满不用转那一下了」。
+- 删 `spin_cylinder_for_volley`（连射前随机 1–5 步）；`LOAD_FULL_RANDOM_SPIN=false`，装满后 `needs_spin` 恒 false，`do_load` 也不再 `apply_roll`。按开火从当前击发仓直接打。ROLL 的 `apply_roll` 本身保留。
+- 节奏：`VOLLEY_SHOT_INTERVAL_SEC=0.25`（吃战斗速度，下限 `MIN_FIRE_INTERVAL_SEC`），每发之后转盘补间 `VOLLEY_ROTATE_SEC=0.18`（EASE_IN_OUT）放在间隔内；空仓并进下一发转动，每格只多 `VOLLEY_EMPTY_SKIP_SEC=0.04`。第一发仍按下立即结算（升级时机不变）。连发窗与倾泻（0.06s）不变。
+- GUT：`test_rr_v0424`；改 `test_rr_v0422` / `test_combat` 里断言随机转的用例。
+
 ## 2026-11-04 — v0.4.23 小猫玩家 + 小动物敌人
 - 玩家：Skeleton2D Q 版站立小橘猫（大头约两头身半 / 猫耳胡须大眼 / 三节摆尾 / 肉垫爪），左轮放大 1.75 倍；持枪手自动瞄最近活怪（平滑、夹角、叠在后坐上）。纯表现，玩法不动。
 - 动画：待机呼吸、开枪后坐（连射每发都会）、装弹、受击、倒地死亡（眼睛变 ><）；弹道从枪口出；头顶血条与玩家状态环用猫头锚点。
