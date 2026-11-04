@@ -9,7 +9,7 @@ func _initialize() -> void:
 func _wait_volley(max_sec: float) -> void:
 	var t := 0.0
 	await create_timer(0.1).timeout
-	while t < max_sec and (_ui._volley_ui_running or _ui.state.is_volley_pending() or _ui.state.is_dump_pending()):
+	while t < max_sec and (_ui._volley_ui_running or _ui.state.is_volley_pending()):
 		await process_frame
 		t += 1.0 / 30.0
 

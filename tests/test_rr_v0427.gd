@@ -33,7 +33,7 @@ func _ui_sandbox():
 
 
 func test_version_0_4_27() -> void:
-	assert_eq(GameVersion.STRING, "0.4.27")
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.27") >= 0)
 	assert_true('"version": "0.4.27"' in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
@@ -159,7 +159,7 @@ func test_projectile_powder_particles_and_fused_shape() -> void:
 				if cc is Line2D:
 					max_w = maxf(max_w, (cc as Line2D).width)
 				assert_false(cc is Polygon2D, "不再有比枪线粗的弹头圆球")
-	assert_eq(found_p, 1, "火药附着弹带一条火药屑粒子")
+	assert_eq(found_p, 2, "火药附着弹带火药屑 + 火星两路粒子")
 	assert_lte(max_w, ui.SHOT_TRAIL_THICK + ui.SHOT_STREAK_HALO + 0.01, "弹头与枪线同宽（只多一层很淡的光晕）")
-	await wait_seconds(1.6)
+	await wait_seconds(2.0)
 	assert_eq(ui._powder_emitters, 0, "粒子离场后回收")

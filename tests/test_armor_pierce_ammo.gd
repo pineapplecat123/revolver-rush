@@ -133,7 +133,6 @@ func test_armor_pierce_in_reward_choices_pool() -> void:
 		if DataRegistry.is_ammo_reward_eligible(aid):
 			pool.append(aid)
 	assert_true(FireResolver.ID_ARMOR_PIERCE in pool)
-	assert_true(FireResolver.ID_SUPER_ROUND in pool)
 	assert_false(FireResolver.ID_GHOST in pool)
 	assert_true(DataRegistry.get_ammo(11).is_empty(), "old pierce ammo id 11 removed")
 

@@ -31,8 +31,6 @@ func test_version_and_fire_cap_constants() -> void:
 	assert_true('"version": "0.4.21"' in text)
 	assert_almost_eq(CombatConstants.MAX_FIRE_RATE_HZ, 10.0, 0.001)
 	assert_almost_eq(CombatConstants.MIN_FIRE_INTERVAL_SEC, 0.1, 0.001)
-	assert_almost_eq(CombatConstants.DUMP_SHOT_INTERVAL_SEC, 0.06, 0.001)
-	assert_gt(CombatConstants.MIN_FIRE_INTERVAL_SEC, CombatConstants.DUMP_SHOT_INTERVAL_SEC)
 	assert_almost_eq(CombatConstants.KILL_GOLD_DROP_CHANCE, 0.25, 0.001)
 	assert_eq(CombatConstants.KILL_GOLD_DROP_AMOUNT, 2)
 	assert_almost_eq(CombatConstants.KILL_GOLD_BOSS_DROP_CHANCE, 1.0, 0.001)
@@ -60,38 +58,6 @@ func test_second_fire_tap_inside_interval_is_swallowed() -> void:
 	assert_eq(cs.fire_tap().size(), 1)
 
 
-func test_burst_window_taps_share_the_same_cap() -> void:
-	var cs := _sandbox(42102)
-	cs.sandbox_clear_enemies()
-	cs.sandbox_spawn_dummy(999, 3)
-	cs.dev_force_load([
-		FireResolver.ID_BURST,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	assert_gt(cs.fire_tap().size(), 0)
-	assert_gt(cs.burst_window_remaining, 0.0)
-	assert_eq(cs.fire_tap().size(), 0, "连发窗里连点也被吞")
-	cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
-	var free: Array = cs.fire_tap()
-	assert_gt(free.size(), 0)
-	assert_true(bool(free[0].get("burst_free", false)))
-
-
-func test_dump_steps_are_not_slowed_by_the_cap() -> void:
-	var cs := _sandbox(42103)
-	cs.sandbox_clear_enemies()
-	cs.sandbox_spawn_dummy(999, 3)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP, CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	var first: Array = cs.fire_tap(false)
-	assert_eq(first.size(), 1)
-	assert_true(cs.is_dump_pending())
-	assert_gt(cs.player_fire_gate_remaining, 0.0)
-	var step: Array = cs.take_dump_shot()
-	assert_eq(step.size(), 1, "倾泻步进不吃射速帽")
-	assert_true(cs.fire_tap().size() == 0 or not cs.is_dump_pending())
 
 
 func test_status_rings_shrink_and_cover_dummies() -> void:

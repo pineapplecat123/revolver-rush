@@ -185,6 +185,7 @@ func _start_ui_and_kill(levels: int):
 		e.hp = 500
 		e.max_hp = 500
 		e.atk = 0
+		e.pos_x = float(e.cell)  # v0.4.28：刷怪在视野外走进来；这里直接放进画面
 	for _k in 2:
 		ui._on_manual_load()
 		await wait_seconds(0.6)

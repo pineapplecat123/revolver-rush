@@ -39,7 +39,7 @@ func _ui_sandbox():
 
 func _wait_volley_done(ui, max_sec: float = 8.0) -> void:
 	var t := 0.0
-	while t < max_sec and (ui._volley_ui_running or ui.state.is_volley_pending() or ui.state.is_dump_pending()):
+	while t < max_sec and (ui._volley_ui_running or ui.state.is_volley_pending()):
 		await wait_seconds(0.05)
 		t += 0.05
 
@@ -147,41 +147,6 @@ func test_killed_disk_tween_does_not_hang() -> void:
 	assert_true(done[0], "被 kill 后 await 链照样结束")
 	assert_false(ui._wheel_animating)
 
-
-func test_dump_and_shop_during_volley_recover() -> void:
-	var ui = await _ui_sandbox()
-	var cs: CombatState = ui.state
-	# 倾泻弹在中间
-	cs.dev_force_load([WHITE, FireResolver.ID_DUMP, WHITE, WHITE, WHITE, WHITE] as Array[int])
-	cs.magazine.set_start(0)
-	ui._refresh()
-	await wait_process_frames(2)
-	ui._on_fire()
-	await wait_seconds(0.2)
-	ui._on_manual_load()
-	await _wait_volley_done(ui)
-	await wait_seconds(0.3)
-	assert_false(ui._volley_ui_running)
-	assert_false(cs.is_dump_pending())
-	assert_eq(cs.magazine.loaded_count(), 0)
-	# 连射途中打开商店（暂停整棵树）再离开
-	cs.dev_force_load([WHITE, WHITE, WHITE, WHITE, WHITE, WHITE] as Array[int])
-	cs.magazine.set_start(0)
-	ui._refresh()
-	await wait_process_frames(2)
-	ui._on_fire()
-	await wait_seconds(0.5)
-	ui._open_rush_shop()
-	assert_true(get_tree().paused)
-	# 暂停期间 GUT 的计时器也停，只能等 SceneTree 帧信号
-	for _f in 20:
-		await get_tree().process_frame
-	ui._on_rush_shop_leave()
-	assert_false(get_tree().paused)
-	await _wait_volley_done(ui)
-	await wait_seconds(0.3)
-	assert_false(ui._volley_ui_running, "商店开关后连射照样结束")
-	assert_eq(cs.magazine.loaded_count(), 0)
 
 
 func test_enemy_speed_halved() -> void:

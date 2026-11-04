@@ -52,6 +52,10 @@ const MAX_EXTRA_AUTOFIREs_PER_CHAIN := 10
 ## rush! 敌人连续向左滑行：走完 1 格所需秒数（受战斗速度倍率影响）。
 ## v0.3.2 为 1.15s/格一跳；v0.3.3 改平滑连续并放慢约 30%（1.65s/格 ≈ 41 px/s @CELL_W 68）。
 ## v0.4.26：所有敌人移动速度 ×0.5（1.65 → 3.3 s/格，≈41 → ≈21 px/s）。攻击/伤害/血量不变。
+## v0.4.28 自由行走：刷在最右格再往外 1.6 格（视野外）；走进到右侧 0.45 格内才能被打到；个体速度 ±13%。
+const WALK_IN_SPAWN_OFFSET_CELLS := 1.6
+const WALK_IN_TARGETABLE_SLACK := 0.45
+const ENEMY_SPEED_VARIATION := 0.13
 const ENEMY_AUTO_STEP_SEC := 3.3
 ## 走路动画按 1.65 s/格 设计；播放速度 = 实际滑行速度 × 这个值（1× 战斗速度下 = 0.5）。
 const ENEMY_WALK_ANIM_REF_STEP_SEC := 1.65
@@ -94,10 +98,6 @@ const BOSS_EVERY_SEC := 180.0
 const SPAWN_LANE_CELLS := 3
 
 ## ——— v0.4.0 语法基建 ———
-## 连发子弹：击发后 1.0s 连发窗（刷新不叠）；窗内每次射击=免费平庸伤一发（不耗仓、不转轮）。
-const BURST_WINDOW_SEC := 1.0
-## 倾泻：自动打剩余已装填仓，约 0.06s/发（v0.4.16 UI `_run_dump_autofire` 步进；测试/逻辑可同步打完）。
-const DUMP_SHOT_INTERVAL_SEC := 0.06
 ## 装入罪孽时 20% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。v0.4.20：0.33→0.20。
 const LOAD_TEMP_SIN_CHANCE := 0.20
 ## DoT（燃烧/流血）独立 0.5s 跳一次，不再挂在落格拍。
@@ -140,7 +140,7 @@ const SLOTH_FIRE_PENALTY_SEC := 4.0
 const SLOTH_FIRE_LOCK_SEC := 0.5
 
 ## v0.4.21 玩家点射射速帽。手动连点与连发窗免费点射共用，不能快过这个数。
-## 10 次/秒 = 间隔 0.1 秒。倾泻步进仍走 DUMP_SHOT_INTERVAL_SEC（0.06s），不吃这条。
+## 10 次/秒 = 间隔 0.1 秒。
 const MAX_FIRE_RATE_HZ := 10.0
 const MIN_FIRE_INTERVAL_SEC := 0.1
 

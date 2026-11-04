@@ -22,7 +22,6 @@ func before_each() -> void:
 func test_kitchensink_damage_study() -> void:
 	_method_notes.append("脚本化 CombatState.start_sandbox + 木桩；无 UI。伤害=木桩总 HP 掉量（多怪取 sum）。")
 	_method_notes.append("平庸基线：单发3；满匣6白=18。lift=场景总伤−等价白弹基线。")
-	_method_notes.append("倾泻用 fire_tap(true) 同步打完；连发窗在窗口内尽量点射（每点间隔 = 射速帽）。")
 	_method_notes.append("禁用旧色弹/穿透/汽油等 enabled_in_combat=false 未入测。")
 	_collect_exclusions()
 	_run_solo_ladder()
@@ -78,7 +77,7 @@ func _force_slots(cs: CombatState, ids: Array) -> void:
 
 
 func _fire_empty_cylinder(cs: CombatState, max_ops: int = 40) -> Dictionary:
-	## 清空当前弹匣：倾泻同步；连发窗尽量点；其它逐发。返回 {dealt, shots, ops, gold_spent, heal}
+	## 清空当前弹匣：逐发。返回 {dealt, shots, ops, gold_spent, heal}
 	var hp0 := _sum_hp(cs)
 	var gold0 := cs.gold
 	var hp_player0 := cs.player_hp
@@ -92,17 +91,7 @@ func _fire_empty_cylinder(cs: CombatState, max_ops: int = 40) -> Dictionary:
 		cs.player_fire_gate_remaining = 0.0
 		var results: Array = cs.fire_tap(true)
 		shots += maxi(results.size(), 1)
-		# 连发窗：窗口内继续点免费平庸
-		var burst_guard := 24
-		while cs.burst_window_remaining > 0.0 and burst_guard > 0:
-			burst_guard -= 1
-			cs.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
-			if cs.burst_window_remaining <= 0.0:
-				break
-			ops += 1
-			var br: Array = cs.fire_tap(true)
-			shots += maxi(br.size(), 1)
-		# 若匣未空且没倾泻/窗，继续
+		# 若匣未空，继续
 		if cs.magazine.is_empty():
 			break
 		if before_loaded == cs.magazine.loaded_count() and results.is_empty():
@@ -195,7 +184,7 @@ func _combat_ammo_ids() -> Array:
 	return out
 
 
-## ——— 数量阶梯：1/2/3/6 份同种弹药（余槽 EMPTY，倾泻/连发除外用白填）———
+## ——— 数量阶梯：1/2/3/6 份同种弹药（余槽 EMPTY）———
 func _run_count_ladder() -> void:
 	var ids: Array = _combat_ammo_ids()
 	for aid in ids:
@@ -203,17 +192,6 @@ func _run_count_ladder() -> void:
 			var slots: Array = []
 			for i in n:
 				slots.append(int(aid))
-			# dump：余槽填白，才能体现倾泻价值
-			if int(aid) == FireResolver.ID_DUMP:
-				while slots.size() < 6:
-					slots.append(WHITE)
-			# burst：只放 1 发连发（多发意义弱），n>1 时余槽白
-			elif int(aid) == FireResolver.ID_BURST:
-				slots = [FireResolver.ID_BURST]
-				for _i in (n - 1):
-					slots.append(WHITE)
-				while slots.size() < mini(n, 6):
-					slots.append(WHITE)
 			# tombstone：袋幽灵随 copies 增加
 			var seed_tag := "count_%d_x%d" % [int(aid), n]
 			var seed_v := int(hash(seed_tag) % 100000) + 60000
@@ -229,13 +207,8 @@ func _run_count_ladder() -> void:
 			_force_slots(cs, slots)
 			var res := _fire_empty_cylinder(cs)
 			var white_equiv := 0
-			# 基线：同样槽位数的白弹（倾泻特殊：整匣6白）
-			if int(aid) == FireResolver.ID_DUMP:
-				white_equiv = 3 * 6
-			elif int(aid) == FireResolver.ID_BURST:
-				white_equiv = 3 * slots.size()  # 粗略：不含窗免费
-			else:
-				white_equiv = 3 * n
+			# 基线：同样槽位数的白弹
+			white_equiv = 3 * n
 			var lift := int(res["dealt"]) - white_equiv
 			_counts.append({
 				"id": int(aid), "name": _ammo_name(int(aid)), "rarity": _rarity(int(aid)),
@@ -252,11 +225,6 @@ func _run_count_ladder() -> void:
 func _run_key_pairs() -> void:
 	_pair_row("平庸满匣基线", [WHITE, WHITE, WHITE, WHITE, WHITE, WHITE], {},
 		"6白同步逐发")
-	_pair_row("倾泻×5白", [FireResolver.ID_DUMP, WHITE, WHITE, WHITE, WHITE, WHITE], {},
-		"同步倾泻整匣")
-	_pair_row("倾泻×3愤怒×2白", [FireResolver.ID_DUMP, FireResolver.ID_WRATH, FireResolver.ID_WRATH, FireResolver.ID_WRATH, WHITE, WHITE], {},
-		"倾泻叠怒雪球")
-	_pair_row("连发窗×白载体", [FireResolver.ID_BURST], {}, "窗内尽量点射")
 	_pair_row("墓碑×袋4幽灵", [FireResolver.ID_TOMBSTONE], {"ghosts": 4}, "无回声")
 	_pair_row("墓碑×袋4幽灵×预挂回声", [FireResolver.ID_TOMBSTONE], {"ghosts": 4, "muzzle": {"echo": [1, 4.0]}}, "回声放大幽灵齐射")
 	_pair_row("回声×3白", [FireResolver.ID_ECHO, WHITE, WHITE, WHITE], {}, "挂回声后白弹双结算")
@@ -272,11 +240,7 @@ func _run_key_pairs() -> void:
 	_pair_row("散射×1(1桩)", [FireResolver.ID_SCATTER], {"dummies": 1}, "单体效率差")
 	_pair_row("石头×2", [FireResolver.ID_STONE, FireResolver.ID_STONE], {}, "碎石增生")
 	_pair_row("保险×3怒", [FireResolver.ID_INSURANCE, FireResolver.ID_WRATH, FireResolver.ID_WRATH, FireResolver.ID_WRATH], {}, "防爆工具不增伤")
-	_pair_row("连发窗×预挂怒3", [FireResolver.ID_BURST], {"muzzle": {"wrath": [3, 4.0]}}, "怒乘区下免费白弹")
-	_pair_row("倾泻×5白×预挂回声", [FireResolver.ID_DUMP, WHITE, WHITE, WHITE, WHITE, WHITE], {"muzzle": {"echo": [1, 4.0]}}, "倾泻每发双结算")
-	_pair_row("倾泻×5白×预挂怒3", [FireResolver.ID_DUMP, WHITE, WHITE, WHITE, WHITE, WHITE], {"muzzle": {"wrath": [3, 4.0]}}, "倾泻×怒乘")
 	_pair_row("墓碑×袋6幽灵×回声×怒2", [FireResolver.ID_TOMBSTONE], {"ghosts": 6, "muzzle": {"echo": [1, 4.0], "wrath": [2, 4.0]}}, "极端清场包")
-	_pair_row("暴食枪口×连发点杀", [FireResolver.ID_BURST], {"muzzle": {"gluttony": [3, 4.0]}, "low_hp_dummies": 4}, "击杀回血")
 	_pair_row("懒惰×3白", [FireResolver.ID_SLOTH, WHITE, WHITE, WHITE], {}, "挂慢不直接抬伤")
 	_pair_row("色欲×3白", [FireResolver.ID_LUST, WHITE, WHITE, WHITE], {}, "混乱控场")
 	_pair_row("嫉妒×白", [FireResolver.ID_ENVY, WHITE], {}, "复制看概率")
@@ -350,7 +314,7 @@ func _run_mixed_bags() -> void:
 		{
 			"name": "厨槽A·爆发核",
 			"bag": [
-				FireResolver.ID_TOMBSTONE, FireResolver.ID_ECHO, FireResolver.ID_DUMP,
+				FireResolver.ID_TOMBSTONE, FireResolver.ID_ECHO, FireResolver.ID_FLAME,
 				FireResolver.ID_WRATH, FireResolver.ID_WRATH, FireResolver.ID_FLAME,
 				FireResolver.ID_EXPLOSIVE, WHITE, WHITE, WHITE, WHITE, WHITE,
 			],
@@ -359,7 +323,7 @@ func _run_mixed_bags() -> void:
 		{
 			"name": "厨槽B·窗与怒",
 			"bag": [
-				FireResolver.ID_BURST, FireResolver.ID_BURST, FireResolver.ID_WRATH,
+				FireResolver.ID_SCATTER, FireResolver.ID_SCATTER, FireResolver.ID_WRATH,
 				FireResolver.ID_WRATH, FireResolver.ID_WRATH, FireResolver.ID_LIFESTEAL,
 				WHITE, WHITE, WHITE, WHITE, WHITE, WHITE,
 			],

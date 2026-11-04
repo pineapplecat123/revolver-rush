@@ -15,8 +15,6 @@ class_name CombatHooks
 ##   on_gold_pickup       — 金币碰到玩家入账；amount, drop_id, cell
 ##   on_xp_gain           — 击杀经验已入账（粒子只是表现）；amount, cell
 ##   on_shop_enter        — 地图商店触碰打开；shop_cell
-##   on_dump_start/end    — 倾泻开始/结束（interrupted=是否被逻辑中断；v0.4.22 连射中再按开火不打断）
-##   on_burst_window      — 连发窗开启或刷新；remaining
 ##   on_temp_sin_spawn    — 临时罪孽入袋；sin_id, source ("load33"=装入几率触发，v0.4.20 起 20%，id 沿用|"penalty_legacy")
 ##   on_dot_tick          — DoT 跳（燃烧/流血）；kind
 ##   on_insurance_swap    — 保险挡住第3罪孽装填；sin_id

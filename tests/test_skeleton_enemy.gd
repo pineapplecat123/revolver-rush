@@ -90,7 +90,10 @@ func test_combat_ui_mounts_animals_on_enemy_cells() -> void:
 			900: dummy = sk
 	assert_not_null(rabbit)
 	assert_eq(rabbit.species, "rabbit")
-	assert_eq(rabbit.get_parent(), ui.board_row.get_child(4).get_node("UnitBody"))
+	# v0.4.28 自由行走：小动物统一挂在 EnemyLayer，按连续位置摆在第 4 格附近
+	assert_eq(rabbit.get_parent(), ui._enemy_layer)
+	var slot4: Control = ui.board_row.get_child(4)
+	assert_almost_eq(rabbit.global_position.x, slot4.get_global_rect().get_center().x, 40.0)
 	assert_not_null(pig)
 	assert_true(pig.is_boss)
 	assert_not_null(dummy)

@@ -11,6 +11,10 @@ const TIER_COMMON := 0
 const TIER_UNCOMMON := 1
 const TIER_RARE := 2
 const TIER_EPIC := 3
+## v0.4.28 罪孽弹统一「危险」特效（盖过稀有度）：暗红/黑色锯齿光环抽动、红色警示描边忽闪、黑红余烬往上飘、字体暗红描边。
+const TIER_SIN := 10
+const SIN_RED := Color(0.86, 0.06, 0.1)
+const SIN_DARK := Color(0.16, 0.0, 0.02)
 const NODE_NAME := "RarityFx"
 
 var tier: int = 0
@@ -26,6 +30,8 @@ static func tier_for_ammo(ammo_id: int) -> int:
 	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
 	if def.is_empty():
 		return TIER_COMMON
+	if DataRegistry.is_sin_ammo(ammo_id):
+		return TIER_SIN
 	match DataRegistry.get_ammo_rarity(ammo_id):
 		"epic":
 			return TIER_EPIC
@@ -68,7 +74,7 @@ static func attach(host: Control, ammo_id: int, col: Color = Color(-1, -1, -1), 
 
 func _collect_text_targets(host: Control) -> void:
 	_text_targets.clear()
-	if tier != TIER_EPIC:
+	if tier != TIER_EPIC and tier != TIER_SIN:
 		return
 	if host is Button or host is Label:
 		_text_targets.append(host)
@@ -89,9 +95,11 @@ func _process(_delta: float) -> void:
 	if tier == TIER_COMMON or not is_visible_in_tree():
 		return
 	queue_redraw()
-	if tier == TIER_EPIC:
+	if tier == TIER_EPIC or tier == TIER_SIN:
 		var tt: float = Time.get_ticks_msec() * 0.001
 		var hc := Color.from_hsv(fposmod(tt * 0.35 + seed_f, 1.0), 0.55, 1.0, 0.95)
+		if tier == TIER_SIN:
+			hc = sin_text_outline(tt, seed_f)
 		for n in _text_targets:
 			if is_instance_valid(n):
 				(n as Control).add_theme_color_override("font_outline_color", hc)
@@ -155,7 +163,80 @@ static func _surface_shimmer(ci: CanvasItem, shape: PackedVector2Array, bounds: 
 		_draw_star(ci, p, minf(bounds.size.x, bounds.size.y) * 0.16 * tw, Color(1, 1, 0.92, 0.85 * tw))
 
 
+static func sin_flicker(t: float, seed: float) -> float:
+	## 不规则忽闪：大部分时间亮，偶尔猛地暗一下。
+	var a: float = 0.78 + 0.22 * sin(t * 9.0 + seed * 5.0)
+	var h: float = fposmod(sin(floor(t * 14.0) * 12.9898 + seed * 78.233) * 43758.5453, 1.0)
+	if h < 0.12:
+		a *= 0.35
+	return a
+
+
+static func sin_text_outline(t: float, seed: float) -> Color:
+	var f: float = sin_flicker(t, seed)
+	return Color(0.75 * f + 0.1, 0.02, 0.05, 0.95)
+
+
+static func _jagged_ring(center: Vector2, rx: float, ry: float, t: float, seed: float, n: int = 28, amp: float = 0.22) -> PackedVector2Array:
+	## 锯齿光环：每个顶点半径跟时间乱跳（像噼啪的电/火舌）。
+	var pts := PackedVector2Array()
+	var step: float = floor(t * 18.0)
+	for k in n:
+		var a: float = TAU * float(k) / float(n)
+		var hsh: float = fposmod(sin(float(k) * 91.7 + step * 13.1 + seed * 7.3) * 43758.5453, 1.0)
+		var spike: float = (1.0 + amp * (hsh * 2.0 - 0.4)) if k % 2 == 0 else (1.0 - amp * 0.3 * hsh)
+		pts.append(center + Vector2(cos(a) * rx, sin(a) * ry) * spike)
+	return pts
+
+
+static func _sin_embers(ci: CanvasItem, center: Vector2, rx: float, ry: float, t: float, seed: float, n: int = 6) -> void:
+	## 黑红余烬：从边缘往上飘、变暗消失。
+	for k in n:
+		var life: float = 1.1
+		var ph: float = fposmod(t / life + float(k) / float(n) + seed * 0.37, 1.0)
+		var ang: float = TAU * fposmod(float(k) * 0.618 + seed * 0.21 + floor(t / life + float(k) / float(n)) * 0.37, 1.0)
+		var start: Vector2 = center + Vector2(cos(ang) * rx, sin(ang) * ry)
+		var p: Vector2 = start + Vector2(sin(ph * 6.0 + float(k)) * 3.0, -ph * ry * 1.2)
+		var c: Color = SIN_RED.lerp(Color(0.05, 0.0, 0.0), ph)
+		c.a = (1.0 - ph) * 0.9
+		var sz: float = 2.6 * (1.0 - 0.5 * ph)
+		ci.draw_rect(Rect2(p - Vector2(sz, sz) * 0.5, Vector2(sz, sz)), c, true)
+
+
+static func draw_sin_aura(ci: CanvasItem, center: Vector2, rx: float, ry: float, t: float, seed: float) -> void:
+	## 外层：黑红锯齿光环（两层，抽动）+ 余烬。
+	var f: float = sin_flicker(t, seed)
+	var outer := _jagged_ring(center, rx + 9.0, ry + 9.0, t, seed, 30, 0.2)
+	var inner := _jagged_ring(center, rx + 4.5, ry + 4.5, t + 0.37, seed + 1.0, 30, 0.16)
+	ci.draw_colored_polygon(outer, Color(SIN_DARK.r, SIN_DARK.g, SIN_DARK.b, 0.55 * f))
+	ci.draw_colored_polygon(inner, Color(0.55, 0.0, 0.05, 0.6 * f))
+	var ol := outer.duplicate()
+	ol.append(outer[0])
+	ci.draw_polyline(ol, Color(SIN_RED.r, SIN_RED.g, SIN_RED.b, 0.85 * f), 1.6, true)
+	_sin_embers(ci, center, rx + 4.0, ry + 4.0, t, seed)
+
+
+static func draw_sin_front(ci: CanvasItem, shape: PackedVector2Array, t: float, seed: float) -> void:
+	## 内沿：红色警示描边忽闪。
+	var f: float = sin_flicker(t, seed)
+	var pts := shape.duplicate()
+	if pts.size() > 0 and pts[0] != pts[pts.size() - 1]:
+		pts.append(pts[0])
+	ci.draw_polyline(pts, Color(1.0, 0.12, 0.12, 0.95 * f), 2.0, true)
+
+
 static func draw_rect_fx(ci: CanvasItem, rect: Rect2, col: Color, tier: int, t: float, seed: float, corner: float = 6.0) -> void:
+	if tier == TIER_SIN:
+		# 外层光环在宿主背后画不了（覆盖层在前），所以只画在宿主外沿以外：光环中心镂空用宿主本身遮住大半
+		var c: Vector2 = rect.get_center()
+		var hx: float = rect.size.x * 0.5
+		var hy: float = rect.size.y * 0.5
+		if corner >= minf(hx, hy):
+			draw_sin_ring_only(ci, c, hx, hy, t, seed)
+		else:
+			draw_sin_rect_ring(ci, rect, corner, t, seed)
+		draw_sin_front(ci, rounded_rect_points(rect.grow(-1.0), corner), t, seed)
+		return
 	if tier == TIER_UNCOMMON:
 		_surface_shimmer(ci, rounded_rect_points(rect, corner), rect, t, seed)
 	elif tier == TIER_RARE:
@@ -186,8 +267,64 @@ static func _circle_pts(pos: Vector2, r: float, n: int = 24) -> PackedVector2Arr
 	return pts
 
 
+static func draw_sin_ring_only(ci: CanvasItem, center: Vector2, rx: float, ry: float, t: float, seed: float) -> void:
+	## 覆盖层用：只画宿主外面那一圈（锯齿环带 + 描边 + 余烬），不盖住弹药本体。
+	var f: float = sin_flicker(t, seed)
+	var outer := _jagged_ring(center, rx + 9.0, ry + 9.0, t, seed, 30, 0.2)
+	var inner_hole := _jagged_ring(center, rx + 0.5, ry + 0.5, 0.0, 0.0, 30, 0.0)
+	_draw_band(ci, outer, inner_hole, Color(0.32, 0.0, 0.03, 0.75 * f))
+	var mid := _jagged_ring(center, rx + 4.5, ry + 4.5, t + 0.37, seed + 1.0, 30, 0.16)
+	mid.append(mid[0])
+	ci.draw_polyline(mid, Color(0.6, 0.0, 0.06, 0.8 * f), 2.0, true)
+	var ol := outer.duplicate()
+	ol.append(outer[0])
+	ci.draw_polyline(ol, Color(SIN_RED.r, SIN_RED.g, SIN_RED.b, 0.9 * f), 1.6, true)
+	_sin_embers(ci, center, rx + 4.0, ry + 4.0, t, seed)
+
+
+static func _draw_band(ci: CanvasItem, outer: PackedVector2Array, inner: PackedVector2Array, col: Color) -> void:
+	## 两条同点数闭合折线之间填环带（逐段四边形，不会把中间也填上）。
+	var n: int = mini(outer.size(), inner.size())
+	for k in n:
+		var k2: int = (k + 1) % n
+		var cols := PackedColorArray([col, col, col])
+		ci.draw_primitive(PackedVector2Array([outer[k], outer[k2], inner[k2]]), cols, PackedVector2Array())
+		ci.draw_primitive(PackedVector2Array([outer[k], inner[k2], inner[k]]), cols, PackedVector2Array())
+
+
+static func _jag_outward(pts: PackedVector2Array, center: Vector2, amp: float, t: float, seed: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	var step: float = floor(t * 18.0)
+	for k in pts.size():
+		var v: Vector2 = pts[k]
+		var d: Vector2 = (v - center).normalized()
+		var hsh: float = fposmod(sin(float(k) * 91.7 + step * 13.1 + seed * 7.3) * 43758.5453, 1.0)
+		var push: float = amp * hsh if k % 2 == 0 else amp * 0.15 * hsh
+		out.append(v + d * push)
+	return out
+
+
+static func draw_sin_rect_ring(ci: CanvasItem, rect: Rect2, corner: float, t: float, seed: float) -> void:
+	## 方形宿主（三选一卡片等）：沿边一圈锯齿暗红环带 + 红描边 + 余烬。
+	var f: float = sin_flicker(t, seed)
+	var c: Vector2 = rect.get_center()
+	var base := rounded_rect_points(rect.grow(4.0), corner + 4.0, 3)
+	base.remove_at(base.size() - 1)
+	var outer := _jag_outward(base, c, 8.0, t, seed)
+	var hole := rounded_rect_points(rect.grow(0.5), corner, 3)
+	hole.remove_at(hole.size() - 1)
+	_draw_band(ci, outer, hole, Color(0.32, 0.0, 0.03, 0.72 * f))
+	var ol := outer.duplicate()
+	ol.append(outer[0])
+	ci.draw_polyline(ol, Color(SIN_RED.r, SIN_RED.g, SIN_RED.b, 0.9 * f), 1.6, true)
+	_sin_embers(ci, c, rect.size.x * 0.5, rect.size.y * 0.5, t, seed, 8)
+
+
 static func draw_ball_back(ci: CanvasItem, pos: Vector2, r: float, col: Color, tier: int, t: float, seed: float) -> void:
 	## 球体之前画（外辉光）。
+	if tier == TIER_SIN:
+		draw_sin_aura(ci, pos, r, r, t, seed)
+		return
 	if tier == TIER_RARE:
 		var pulse: float = 0.75 + 0.25 * sin(t * 3.2 + seed)
 		var gc: Color = col.lightened(0.25)
@@ -208,6 +345,9 @@ static func draw_ball_back(ci: CanvasItem, pos: Vector2, r: float, col: Color, t
 
 static func draw_ball_front(ci: CanvasItem, pos: Vector2, r: float, tier: int, t: float, seed: float) -> void:
 	## 球体之后画（表面流光）。
+	if tier == TIER_SIN:
+		draw_sin_front(ci, _circle_pts(pos, r - 0.5), t, seed)
+		return
 	if tier == TIER_UNCOMMON:
 		_surface_shimmer(ci, _circle_pts(pos, r * 0.96), Rect2(pos - Vector2(r, r), Vector2(r, r) * 2.0), t, seed)
 	elif tier == TIER_EPIC:

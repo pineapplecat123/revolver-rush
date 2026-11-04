@@ -24,9 +24,7 @@ func test_rarity_remap_snapshot() -> void:
 		17: "rare",
 		18: "rare",
 		19: "epic",
-		21: "rare",
 		22: "uncommon",
-		23: "epic",
 		24: "epic",
 		25: "uncommon",
 		26: "rare",
@@ -54,10 +52,8 @@ func test_remapped_prices_follow_rarity() -> void:
 	var shop := ShopState.new()
 	assert_eq(shop.ammo_price(29), int(ShopConstants.RARITY_PRICE["common"]))  # 保险
 	assert_eq(shop.ammo_price(28), int(ShopConstants.RARITY_PRICE["uncommon"]))  # 散射
-	assert_eq(shop.ammo_price(21), int(ShopConstants.RARITY_PRICE["rare"]))  # 连发
 	assert_eq(shop.ammo_price(26), int(ShopConstants.RARITY_PRICE["rare"]))  # 火焰
 	assert_eq(shop.ammo_price(24), int(ShopConstants.RARITY_PRICE["epic"]))  # 回声
-	assert_eq(shop.ammo_price(23), int(ShopConstants.RARITY_PRICE["epic"]))  # 倾泻
 	assert_eq(shop.ammo_price(16), int(ShopConstants.RARITY_PRICE["epic"]))  # 愤怒
 	assert_eq(shop.ammo_price(27), int(ShopConstants.RARITY_PRICE["epic"]))  # 炸药
 	assert_eq(shop.ammo_price(19), 22)  # 墓碑仍史诗

@@ -582,12 +582,12 @@ func test_fire_consumes_fire_port_chamber() -> void:
 	var cs := CombatState.new(13)
 	cs.start_rush(13)
 	cs.dev_force_load([
-		FireResolver.ID_GOLD, FireResolver.ID_ECHO, FireResolver.ID_DUMP,
-		FireResolver.ID_TOMBSTONE, FireResolver.ID_BURST, FireResolver.ID_WHITE,
+		FireResolver.ID_GOLD, FireResolver.ID_ECHO, FireResolver.ID_FLAME,
+		FireResolver.ID_TOMBSTONE, FireResolver.ID_SCATTER, FireResolver.ID_WHITE,
 	])
 	cs.magazine.set_start(4)
 	assert_eq(cs.magazine.chamber_at_fire_port(), 4)
-	assert_eq(cs.magazine.slots[4], FireResolver.ID_BURST)
+	assert_eq(cs.magazine.slots[4], FireResolver.ID_SCATTER)
 	_shot_one(cs)
 	if cs.has_paced_shot_pending():
 		cs.finalize_paced_shot()

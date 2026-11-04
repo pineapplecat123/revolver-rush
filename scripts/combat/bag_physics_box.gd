@@ -323,23 +323,14 @@ func _draw() -> void:
 		if is_temp_ball:
 			bg.a *= 0.45
 			fg.a *= 0.55
-		# 超级回合：保留专属软金辉光；其余按稀有度（v0.4.27）：稀有表面流光 / 更稀有同色辉光 / 最稀有七彩辉光
-		var tier: int = 0 if aid == FireResolver.ID_SUPER_ROUND else RarityFx.tier_for_ammo(aid)
+		# 按稀有度（v0.4.27）：稀有表面流光 / 更稀有同色辉光 / 最稀有七彩辉光
+		var tier: int = RarityFx.tier_for_ammo(aid)
 		var tsec: float = Time.get_ticks_msec() * 0.001
 		var seedv: float = float(aid) * 0.37 + float(b.get("seed", 0.0))
-		if aid == FireResolver.ID_SUPER_ROUND:
-			var pulse := 0.72 + 0.28 * sin(Time.get_ticks_msec() * 0.0055)
-			draw_circle(pos, r * 1.72, Color(1.0, 0.78, 0.15, 0.14 * pulse))
-			draw_circle(pos, r * 1.38, Color(1.0, 0.88, 0.28, 0.28 * pulse))
-			draw_circle(pos, r * 1.12, Color(1.0, 0.95, 0.55, 0.38 * pulse))
-		else:
-			RarityFx.draw_ball_back(self, pos, r, bg, tier, tsec, seedv)
+		RarityFx.draw_ball_back(self, pos, r, bg, tier, tsec, seedv)
 		draw_circle(pos, r, bg)
-		if aid == FireResolver.ID_SUPER_ROUND:
-			draw_arc(pos, r, 0.0, TAU, 24, Color(1.0, 0.9, 0.35, 0.85), 2.0, true)
-		else:
-			draw_arc(pos, r, 0.0, TAU, 24, Color(0.1, 0.1, 0.12, 0.75), 1.5, true)
-			RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
+		draw_arc(pos, r, 0.0, TAU, 24, Color(0.1, 0.1, 0.12, 0.75), 1.5, true)
+		RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
 		# v0.3.8 临时罪孽寿命环：从 12 点顺时针缩短；≤25% 变红
 		if is_temp_ball:
 			var life: float = float(b.get("life", temp_full_life))
@@ -359,6 +350,8 @@ func _draw() -> void:
 			var text_pos := Vector2(pos.x - ts.x * 0.5, pos.y - ts.y * 0.5 + ascent)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
+			elif tier == RarityFx.TIER_SIN:
+				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.sin_text_outline(tsec, seedv))
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
 	# 临时罪孽消失特效：扩散淡出圈
 	for pp in _pops:

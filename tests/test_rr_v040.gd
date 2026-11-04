@@ -40,89 +40,9 @@ func test_changelog_has_0_4_0_entry() -> void:
 	assert_true('"version": "0.4.0"' in text or '"version":"0.4.0"' in text)
 
 
-func test_ammo_defs_burst_and_dump() -> void:
-	var burst: Dictionary = DataRegistry.get_ammo(FireResolver.ID_BURST)
-	var dump: Dictionary = DataRegistry.get_ammo(FireResolver.ID_DUMP)
-	assert_eq(str(burst.get("name", "")), "连发子弹")
-	assert_eq(str(dump.get("name", "")), "倾泻")
-	assert_true(bool(burst.get("enabled_in_combat", false)))
-	assert_true(bool(dump.get("enabled_in_combat", false)))
-	assert_true(DataRegistry.is_ammo_reward_eligible(FireResolver.ID_BURST))
-	assert_true(DataRegistry.is_ammo_reward_eligible(FireResolver.ID_DUMP))
-	assert_true(bool(DataRegistry.get_ammo(FireResolver.ID_GOLD).get("enabled_in_combat", false)))
 
 
-func test_burst_window_opens_and_free_shot_no_chamber() -> void:
-	var cs := _rush(4010)
-	cs.bag.clear()
-	cs.bag_temp.clear()
-	cs.dev_force_load([
-		FireResolver.ID_BURST,
-		WHITE, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	var loaded0: int = cs.magazine.loaded_count()
-	_shot(cs)
-	assert_almost_eq(cs.burst_window_remaining, CombatConstants.BURST_WINDOW_SEC, 0.001)
-	assert_eq(cs.magazine.loaded_count(), 0, "连射把连发后面的白弹也打掉")
-	assert_lt(cs.magazine.loaded_count(), loaded0)
-	cs.player_fire_gate_remaining = 0.0
-	cs.magazine.set_slot(0, WHITE)
-	cs.magazine.start_index = 0
-	var bag0: int = cs.bag.size()
-	var disc0: int = cs.discard.size()
-	var hp0: int = cs.enemies[0].hp
-	# 窗内点射：不耗仓、不进弃牌
-	var shots: Array = _shot(cs)
-	assert_gt(shots.size(), 0)
-	assert_true(bool(shots[0].get("burst_free", false)) or bool(shots[0].get("virtual", false)))
-	assert_eq(cs.magazine.loaded_count(), 1, "free shot must not spend chamber")
-	assert_eq(cs.discard.size(), disc0, "free shot must not pollute discard")
-	assert_eq(cs.bag.size(), bag0)
-	assert_lt(cs.enemies[0].hp, hp0)
 
-
-func test_burst_window_refresh_not_stack() -> void:
-	var cs := _rush(4011)
-	cs.dev_force_load([
-		FireResolver.ID_BURST,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	_shot(cs)
-	cs.burst_window_remaining = 0.3
-	cs.player_fire_gate_remaining = 0.0
-	cs.burst_window_remaining = 0.0  # 窗关才能打仓内弹
-	cs.magazine.set_slot(0, FireResolver.ID_BURST)
-	cs.magazine.start_index = 0
-	_shot(cs)
-	assert_almost_eq(cs.burst_window_remaining, CombatConstants.BURST_WINDOW_SEC, 0.001)
-
-
-func test_dump_auto_fires_remaining_chambers() -> void:
-	var cs := _rush(4020)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP, WHITE, WHITE, WHITE,
-		Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	var hp0: int = cs.enemies[0].hp
-	var shots: Array = _shot(cs)
-	# 倾泻本发 + 3 白
-	assert_gte(shots.size(), 4)
-	assert_eq(cs.magazine.loaded_count(), 0)
-	assert_eq(hp0 - cs.enemies[0].hp, 2 + 3 + 3 + 3, "dump 2 + three whites 3")
-
-
-func test_dump_interrupt_stops_remaining() -> void:
-	var cs := _rush(4021)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP, WHITE, WHITE, WHITE, WHITE, WHITE,
-	] as Array[int])
-	# 异步倾泻：先打本发，不 resolve 完
-	var shots: Array = cs.fire_tap(false)
-	assert_true(cs.is_dump_pending())
-	assert_eq(shots.size(), 1)
-	assert_true(cs.interrupt_dump())
-	assert_false(cs.is_dump_pending())
-	assert_gt(cs.magazine.loaded_count(), 0, "remaining chambers kept after interrupt")
 
 
 func test_three_sin_penalty_no_longer_adds_temp() -> void:

@@ -31,7 +31,6 @@ const POST_FIRE_STATUS_DELAY := 0.45
 const FIRE_ROT_SEC := 0.06
 ## v0.4.26：实弹出膛后在红圈下停一下再转走（看清打的是哪一仓）。连射 / 倾泻。
 const VOLLEY_FIRE_HOLD_SEC := 0.05
-const DUMP_FIRE_HOLD_SEC := 0.01
 const EXTRA_SHOT_STAGGER_SEC := 0.05
 ## v0.4.20 墓碑：袋里幽灵先飞到转轮（手枪）再一起射出，这段聚拢时长（短，不卡操作）
 const GHOST_GATHER_SEC := 0.16
@@ -75,7 +74,9 @@ const SHOT_TIP_LEN := 10.0
 const SHOT_TIP_LEAD := 0.0
 const SHOT_STREAK_HALO := 5.0
 ## 火药屑：每发粒子数 / 全场同时最多几条
-const POWDER_PARTICLES := 34
+const POWDER_PARTICLES := 56
+const POWDER_EMBERS := 16
+const SIN_STREAK_EXTRA := 9.0
 const POWDER_MAX_EMITTERS := 10
 const SHOT_TRAVEL_SEC := 0.14
 const SHOT_TRAVEL_SEC_PER_CELL := 0.032
@@ -156,9 +157,6 @@ var _fire_flash_slot: int = -1
 var _disk_tween: Tween
 var _fire_disk_tweening: bool = false
 var _fire_disk_target: float = 0.0
-## v0.4.16：倾泻 UI 步进（约 DUMP_SHOT_INTERVAL_SEC/发）；gen 用于点射中断取消协程。
-var _dump_ui_running: bool = false
-var _dump_ui_gen: int = 0
 var _in_flight_shots: int = 0
 var _fire_ring: Panel = null
 var _load_marker: Label = null
@@ -284,6 +282,7 @@ var _btn_shop_leave: Button = null
 
 func _ready() -> void:
 	state = CombatState.new()
+	state.free_walk = true  # v0.4.28 实战：视野外刷怪走进来、个体速度差、可重叠
 	state.phase_changed.connect(func(_p): _refresh())
 	state.state_changed.connect(_refresh)
 	state.enemy_damaged.connect(_on_enemy_damaged)
@@ -1109,12 +1108,6 @@ func _ammo_colors(ammo_id: int) -> Dictionary:
 			return {"bg": Color(0.42, 0.4, 0.38), "fg": Color(0.95, 0.93, 0.88)}
 		FireResolver.ID_GHOST:
 			return {"bg": Color(0.72, 0.88, 0.95, 0.85), "fg": Color(0.08, 0.18, 0.28)}
-		FireResolver.ID_SUPER_ROUND, FireResolver.ID_BURST:
-			# 连发：金黄光
-			return {"bg": Color(1.0, 0.86, 0.22), "fg": Color(0.18, 0.1, 0.02)}
-		FireResolver.ID_DUMP:
-			# 倾泻：橙红急促感
-			return {"bg": Color(1.0, 0.45, 0.18), "fg": Color(0.15, 0.05, 0.0)}
 		FireResolver.ID_ARMOR_PIERCE:
 			# 钢青银光：与旧穿透浅蓝区分，强调穿甲枪线
 			return {"bg": Color(0.55, 0.78, 0.92), "fg": Color(0.04, 0.12, 0.2)}
@@ -1214,6 +1207,8 @@ func _process(delta: float) -> void:
 		_refresh()
 	else:
 		_update_enemy_glide_visuals()
+	if has_hp_hold() and _in_flight_shots <= 0 and not is_shooting():
+		release_all_hp_holds()  # 保险：没有子弹在飞就不该再留着旧血量
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
 	_update_sandbox_stats_hud()
@@ -1272,10 +1267,10 @@ func _busy() -> bool:
 
 
 func is_shooting() -> bool:
-	## v0.4.26：开火中（预转 + 整轮连射 + 倾泻 + 转轮补间）。这段时间禁止装弹。
-	if _volley_ui_running or _dump_ui_running:
+	## v0.4.26：开火中（预转 + 整轮连射 + 转轮补间）。这段时间禁止装弹。
+	if _volley_ui_running:
 		return true
-	return state != null and (state.is_volley_pending() or state.is_dump_pending())
+	return state != null and state.is_volley_pending()
 
 
 func _on_manual_load() -> void:
@@ -1393,10 +1388,10 @@ func _fire_blocked() -> bool:
 func _on_fire() -> void:
 	if _fire_blocked():
 		return
-	## 连射/倾泻进行中再按开火：忽略（不 interrupt_dump）。
+	## 连射进行中再按开火：忽略。
 	if _volley_ui_running:
 		return
-	if state != null and (state.is_volley_pending() or state.is_dump_pending()):
+	if state != null and state.is_volley_pending():
 		return
 	if state != null and state.player_fire_gate_remaining > 0.0:
 		return
@@ -1413,7 +1408,6 @@ func _run_fire_press() -> void:
 	var spin_steps := 0
 	if (
 		state != null
-		and state.burst_window_remaining <= 0.0
 		and state.magazine != null
 		and state.magazine.loaded_count() > 1
 		and state.can_fire()
@@ -1431,10 +1425,6 @@ func _run_fire_press() -> void:
 	await _present_resolved_fire_async(pack)
 	if state != null and state.is_volley_pending():
 		await _run_volley_autofire()
-	var guard := 0
-	while _dump_ui_running and guard < 2000:
-		guard += 1
-		await _pwait(0.02)
 	_display_hold.clear()
 	_volley_ui_running = false
 	_snap_disk_to_logic()
@@ -1470,13 +1460,15 @@ func _resolve_fire_logic() -> Dictionary:
 	if state == null or not state.can_fire():
 		_refresh()
 		return {}
-	if state.player_fire_gate_remaining > 0.0 and not state.is_dump_pending():
+	if state.player_fire_gate_remaining > 0.0:
 		return {}
 	_snap_fire_disk()
 	_pending_hit_vfx.clear()
 	_defer_hit_vfx = true
 	_ghost_gather_from = _capture_bag_ghost_globals()
+	var hp_before: Dictionary = _snapshot_enemy_hp()
 	var shots: Array = state.fire_tap(false)
+	_hold_hp_changes(hp_before)
 	_defer_hit_vfx = false
 	var hit_events: Array = _pending_hit_vfx.duplicate()
 	_pending_hit_vfx.clear()
@@ -1513,8 +1505,6 @@ func _present_resolved_fire_async(pack: Dictionary) -> void:
 		float(pack.get("visual_before", _wheel_visual_steps)),
 		int(pack.get("start_before", 0))
 	)
-	if state != null and state.is_dump_pending():
-		_run_dump_autofire()
 
 
 func _run_fire_tap() -> void:
@@ -1558,7 +1548,7 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 		if is_chamber_shot(rec):
 			lead = rec
 			break
-	var volley_like: bool = state != null and not state.is_dump_pending() and (state.is_volley_pending() or _volley_stepping or _volley_ui_running)
+	var volley_like: bool = state != null and (state.is_volley_pending() or _volley_stepping or _volley_ui_running)
 	var n := CombatConstants.MAGAZINE_SIZE
 	var slot := -1
 	if not lead.is_empty():
@@ -1588,10 +1578,10 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 	for i in group.size():
 		_play_tap_shot(group[i], hit_events if i == 0 else [], i, batch_delay)
 	if lead.is_empty():
-		# 连发窗免费弹 / 纯虚拟：不动转轮
+		# 纯虚拟：不动转轮
 		return
 	# 等首发真正出膛（幽灵聚拢有延迟）+ 短暂停留让玩家看清是这一仓
-	var hold_s: float = batch_delay + _paced(VOLLEY_FIRE_HOLD_SEC if volley_like else DUMP_FIRE_HOLD_SEC)
+	var hold_s: float = batch_delay + _paced(VOLLEY_FIRE_HOLD_SEC)
 	if hold_s > 0.0:
 		await _pwait(hold_s)
 	_display_hold.erase(slot)
@@ -1620,35 +1610,6 @@ func _set_disk_mod(target_mod: float) -> void:
 		_apply_disk_rotation(cur + d)
 
 
-func _run_dump_autofire() -> void:
-	## 倾泻剩余仓：逻辑+表现按 CombatConstants.DUMP_SHOT_INTERVAL_SEC（约 0.06s）步进；点射可中断。
-	if _dump_ui_running:
-		return
-	_dump_ui_running = true
-	var gen: int = _dump_ui_gen
-	while state != null and state.is_dump_pending() and gen == _dump_ui_gen:
-		await _pwait(_paced(CombatConstants.DUMP_SHOT_INTERVAL_SEC))
-		if state == null or not state.is_dump_pending() or gen != _dump_ui_gen:
-			break
-		_snap_fire_disk()
-		var visual_before: float = _wheel_visual_steps
-		var start_before: int = state.magazine.start_index if state.magazine != null else 0
-		_pending_hit_vfx.clear()
-		_defer_hit_vfx = true
-		_ghost_gather_from = _capture_bag_ghost_globals()
-		var more: Array = state.take_dump_shot()
-		_defer_hit_vfx = false
-		var hit_events: Array = _pending_hit_vfx.duplicate()
-		_pending_hit_vfx.clear()
-		if more.is_empty():
-			for ev in hit_events:
-				_spawn_hit_event(ev)
-			_refresh()
-			break
-		await _present_tap_shots(more, hit_events, visual_before, start_before)
-	_dump_ui_running = false
-
-
 func _run_volley_autofire() -> void:
 	## v0.4.25：打一发 → 转一格 →（空仓快跳到有弹）→ 等间隔 → 下一发。
 	## 等待前先 advance_empty_chambers，红圈停在下一发实弹上。
@@ -1671,7 +1632,9 @@ func _run_volley_autofire() -> void:
 		_pending_hit_vfx.clear()
 		_defer_hit_vfx = true
 		_ghost_gather_from = _capture_bag_ghost_globals()
+		var hp_before: Dictionary = _snapshot_enemy_hp()
 		var more: Array = state.take_volley_shot()
+		_hold_hp_changes(hp_before)
 		_defer_hit_vfx = false
 		var hit_events: Array = _pending_hit_vfx.duplicate()
 		_pending_hit_vfx.clear()
@@ -1681,10 +1644,6 @@ func _run_volley_autofire() -> void:
 			_refresh()
 			break
 		await _present_tap_shots(more, hit_events, visual_before, start_before)
-		if state != null and state.is_dump_pending():
-			_volley_stepping = false
-			_run_dump_autofire()
-			break
 	_volley_stepping = false
 
 
@@ -1716,12 +1675,11 @@ func displayed_ammo_at(slot_i: int) -> int:
 
 
 static func is_chamber_shot(rec: Dictionary) -> bool:
-	## 真从转轮里打出的那一发（非连发窗免费弹 / 幽灵虚拟 / 回声第二下）。
+	## 真从转轮里打出的那一发（非幽灵虚拟 / 回声第二下）。
 	return (
 		int(rec.get("slot", -1)) >= 0
 		and not bool(rec.get("virtual", false))
 		and not bool(rec.get("echo", false))
-		and not bool(rec.get("burst_free", false))
 	)
 
 
@@ -1783,7 +1741,7 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 		})
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder: bool = shot_has_powder(ammo_id, rec.get("muzzle_outline_ids", []))
-	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder)
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder, DataRegistry.is_sin_ammo(ammo_id))
 	# 非命中格的伤害（雷链等）在落地时播
 	for ev in remaining:
 		_spawn_hit_event(ev)
@@ -1839,6 +1797,8 @@ func _play_ghost_gather(n: int) -> void:
 
 func _on_tap_shot_landed() -> void:
 	_in_flight_shots = maxi(0, _in_flight_shots - 1)
+	if _in_flight_shots == 0:
+		release_all_hp_holds()
 	if state != null and state.has_corpse_enemies():
 		state.flush_dead_enemies()
 	_refresh()
@@ -2013,16 +1973,74 @@ func _play_enemy_hurt_visual(cell: int) -> void:
 			return
 
 
+var _enemy_layer: Control = null
+
+
+func _ensure_enemy_layer() -> Control:
+	## v0.4.28 自由行走：小动物不再挂在格子里，统一放一层，按连续位置每帧摆（可重叠、可在视野外）。
+	if _enemy_layer != null and is_instance_valid(_enemy_layer):
+		return _enemy_layer
+	_enemy_layer = Control.new()
+	_enemy_layer.name = "EnemyLayer"
+	_enemy_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_enemy_layer.z_index = 1
+	add_child(_enemy_layer)
+	return _enemy_layer
+
+
+func _enemy_foot_global(e: EnemyInstance) -> Vector2:
+	## 连续位置 → 脚底全局坐标（格中心按格距线性外推，视野外也能算）。
+	if board_row == null or board_row.get_child_count() < 2:
+		return Vector2.ZERO
+	var s0: Control = board_row.get_child(0) as Control
+	var s1: Control = board_row.get_child(1) as Control
+	var pitch: float = s1.global_position.x - s0.global_position.x
+	var base: Vector2 = s0.global_position + _unit_rest_position() + Vector2(UNIT_W * 0.5, UNIT_H)
+	return base + Vector2(pitch * state.enemy_continuous_x(e), 0.0)
+
+
+func _front_enemy_at_cell(cell: int) -> EnemyInstance:
+	var best: EnemyInstance = null
+	for e in state.enemies:
+		if e == null or int(e.cell) != cell or state.is_entering(e):
+			continue
+		if best == null or (best.is_alive() == e.is_alive() and state.enemy_continuous_x(e) < state.enemy_continuous_x(best)) or (e.is_alive() and not best.is_alive()):
+			best = e
+	return best
+
+
+func _position_enemy_skeletons() -> void:
+	if state == null or not state.free_walk:
+		return
+	for e in state.enemies:
+		if e == null:
+			continue
+		var sk: SkeletonEnemy = _skel_enemies.get(e.get_instance_id()) as SkeletonEnemy
+		if sk == null or not is_instance_valid(sk):
+			continue
+		var g: Vector2 = _enemy_foot_global(e)
+		if g != Vector2.ZERO:
+			sk.global_position = g
+			sk.z_index = clampi(int(round(10.0 - state.enemy_continuous_x(e))), 0, 9)
+
+
 func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 	## 按场上敌人增删/换格同步小动物；木桩也挂（布偶造型）。
 	var live_ids: Dictionary = {}
-	for cell in by_cell.keys():
-		var e: EnemyInstance = by_cell[cell]
+	var list: Array = []
+	if state != null and state.free_walk:
+		for e0 in state.enemies:
+			if e0 != null:
+				list.append(e0)
+	else:
+		list = by_cell.values()
+	for e in list:
 		if e == null:
 			continue
+		var cell: int = int(e.cell)
 		var eid: int = e.get_instance_id()
 		live_ids[eid] = true
-		var unit: Control = board_row.get_child(int(cell)).get_node_or_null("UnitBody") as Control
+		var unit: Control = board_row.get_child(cell).get_node_or_null("UnitBody") as Control
 		if unit == null:
 			continue
 		var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
@@ -2030,13 +2048,16 @@ func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 			sk = (load("res://scenes/enemy/skeleton_enemy.tscn") as PackedScene).instantiate() as SkeletonEnemy
 			sk.setup(int(e.def_id))
 			_skel_enemies[eid] = sk
-		if sk.get_parent() != unit:
+		var want_parent: Node = _ensure_enemy_layer() if state.free_walk else unit
+		if sk.get_parent() != want_parent:
 			if sk.get_parent() != null:
 				sk.get_parent().remove_child(sk)
-			unit.add_child(sk)
-			sk.position = Vector2(UNIT_W * 0.5, UNIT_H)
-		sk.set_hp(e.hp, e.max_hp)
-		if e.hp <= 0 and not sk.is_dead:
+			want_parent.add_child(sk)
+			if not state.free_walk:
+				sk.position = Vector2(UNIT_W * 0.5, UNIT_H)
+		var shown_hp: int = display_hp(e)
+		sk.set_hp(shown_hp, e.max_hp)
+		if shown_hp <= 0 and not sk.is_dead:
 			sk.play_death()
 		elif e.hp > 0 and sk.is_dead:
 			# 理论上不会复活；保险起见重建
@@ -2052,6 +2073,7 @@ func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 		if oldsk != null and is_instance_valid(oldsk):
 			oldsk.queue_free()
 		_skel_enemies.erase(eid3)
+	_position_enemy_skeletons()
 
 
 func _update_enemy_animal_motion() -> void:
@@ -2065,8 +2087,12 @@ func _update_enemy_animal_motion() -> void:
 		if sk == null or not is_instance_valid(sk) or sk.is_dead:
 			continue
 		var moving: bool = (not e.is_dummy) and state.enemy_glide_fraction(e) > 0.02 and e.is_alive()
-		# 走路动画播放速度跟滑行速度同比（v0.4.26 减速 50% 后脚不打滑）
-		sk.set_walk_rate(_enemy_glide_cells_per_sec() * CombatConstants.ENEMY_WALK_ANIM_REF_STEP_SEC)
+		var rate_mul: float = 1.0
+		if state.free_walk:
+			moving = e.walking and e.is_alive() and not e.is_dummy
+			rate_mul = e.speed_mul / float(1 + e.slow_stacks())
+		# 走路动画播放速度跟滑行速度同比（v0.4.26 减速 50% 后脚不打滑；v0.4.28 乘个体速度）
+		sk.set_walk_rate(_enemy_glide_cells_per_sec() * CombatConstants.ENEMY_WALK_ANIM_REF_STEP_SEC * rate_mul)
 		# 朝向：按连续 x 的变化（行进方向）；不动时保持；攻击时面向玩家（SkeletonEnemy 内处理）
 		var eid: int = e.get_instance_id()
 		var cx: float = state.enemy_continuous_x(e)
@@ -2078,6 +2104,7 @@ func _update_enemy_animal_motion() -> void:
 				sk.set_facing(1)
 		_enemy_last_x[eid] = cx
 		sk.set_moving(moving)
+	_position_enemy_skeletons()
 
 
 func _player_shot_origin_global() -> Vector2:
@@ -2103,6 +2130,10 @@ func _cell_unit_global_center(cell: int) -> Vector2:
 	var slot: Control = board_row.get_child(cell) as Control
 	if slot == null:
 		return Vector2.ZERO
+	if state != null and state.free_walk and cell != CombatConstants.PLAYER_CELL:
+		var fe: EnemyInstance = _front_enemy_at_cell(cell)
+		if fe != null:
+			return _enemy_foot_global(fe) - Vector2(0.0, UNIT_H * 0.5)
 	var unit: Control = slot.get_node_or_null("UnitBody") as Control
 	if unit != null and unit.visible:
 		return unit.get_global_rect().get_center()
@@ -2146,7 +2177,7 @@ func _play_shot_beam_and_impact() -> void:
 		waypoints.append({"g": g, "amount": amt, "cell": c, "hit_index": i})
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder2: bool = shot_has_powder(ammo_id, state.last_shot_muzzle_outline_ids)
-	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder2)
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder2, DataRegistry.is_sin_ammo(ammo_id))
 	_blood_shot_dir_active = false
 	_blood_spray_dir = Vector2.ZERO
 
@@ -2163,7 +2194,7 @@ static func shot_has_powder(ammo_id: int, muzzle_ids) -> bool:
 
 func _animate_shot_projectile(
 	from_g: Vector2, to_g: Vector2, core_col: Color, outline_cols: Array[Color],
-	waypoints: Array, travel_sec: float, powder: bool = false
+	waypoints: Array, travel_sec: float, powder: bool = false, sin_shot: bool = false
 ) -> void:
 	## v0.4.27 一体弹道：弹头就是枪线最前端，和枪线同宽；圆钝亮头 → 同宽一段 → 往后变细变淡。
 	## 不再有比枪线粗一圈的大圆球。每种弹药仍按自己的颜色上色；枪口描边色是同形状的外层。
@@ -2181,6 +2212,11 @@ func _animate_shot_projectile(
 	if n_out > 0:
 		glow_col = outline_cols[0]
 	var trail_lines: Array = []
+	if sin_shot:
+		# v0.4.28 罪孽弹：外面一圈黑红「危险」光带（比普通光晕宽、暗、会抽动）
+		var danger := _make_shot_streak(SHOT_TRAIL_THICK + SIN_STREAK_EXTRA, RarityFx.SIN_DARK.lerp(RarityFx.SIN_RED, 0.35), 0.85, 0.0)
+		danger.name = "SinDanger"
+		trail_lines.append(danger)
 	# 淡光晕：同形状、略宽、很淡（不是圆球）
 	trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK + SHOT_STREAK_HALO, _shot_head_display_color(glow_col, 0.2, 1.0), 0.30, 0.0))
 	for oi in n_out:
@@ -2207,6 +2243,8 @@ func _animate_shot_projectile(
 	host.add_child(tip)
 	if powder:
 		_attach_powder_trail(host)
+	if sin_shot:
+		_attach_sin_trail(host)
 	var ctx := {
 		"host": host,
 		"from": from_g,
@@ -2263,53 +2301,98 @@ var _powder_emitters: int = 0
 
 
 func _attach_powder_trail(host: Node) -> void:
-	## 火药附着：弹头沿途撒黑灰火药屑（世界坐标，留在原地慢慢飘散变淡）。全局并发上限防卡。
+	## 火药附着（v0.4.28 加亮）：深灰火药屑（偏大、浅灰收尾，深色背景也看得清）+ 橙色火星闪点。
+	## 世界坐标，留在原地飘落淡出。全场并发上限防卡。
 	if _powder_emitters >= POWDER_MAX_EMITTERS:
 		return
 	_powder_emitters += 1
+	var soot := _powder_emitter("PowderTrail", POWDER_PARTICLES, 1.05, 2.8, 5.6, 70.0)
+	var ramp := Gradient.new()
+	ramp.set_color(0, Color(0.16, 0.15, 0.15, 1.0))
+	ramp.add_point(0.35, Color(0.42, 0.41, 0.4, 0.95))
+	ramp.add_point(0.7, Color(0.62, 0.6, 0.58, 0.6))
+	ramp.set_color(ramp.get_point_count() - 1, Color(0.7, 0.68, 0.66, 0.0))
+	soot.color_ramp = ramp
+	host.add_child(soot)
+	var ember := _powder_emitter("PowderEmbers", POWDER_EMBERS, 0.6, 1.8, 3.4, 110.0)
+	var er := Gradient.new()
+	er.set_color(0, Color(1.0, 0.92, 0.55, 1.0))
+	er.add_point(0.4, Color(1.0, 0.55, 0.12, 0.95))
+	er.set_color(er.get_point_count() - 1, Color(0.85, 0.2, 0.05, 0.0))
+	ember.color_ramp = er
+	host.add_child(ember)
+
+
+func _attach_sin_trail(host: Node) -> void:
+	## 罪孽弹：黑烟 + 暗红余烬沿路飘起（和火药的灰屑区分：更黑、往上飘、带红）。共用并发上限。
+	if _powder_emitters >= POWDER_MAX_EMITTERS:
+		return
+	_powder_emitters += 1
+	var smoke := _powder_emitter("SinSmoke", 30, 0.8, 3.0, 6.5, 80.0)
+	smoke.gravity = Vector2(0, -60)
+	var sr := Gradient.new()
+	sr.set_color(0, Color(0.25, 0.0, 0.03, 0.9))
+	sr.add_point(0.5, Color(0.08, 0.0, 0.01, 0.7))
+	sr.set_color(sr.get_point_count() - 1, Color(0.0, 0.0, 0.0, 0.0))
+	smoke.color_ramp = sr
+	host.add_child(smoke)
+	var em := _powder_emitter("SinEmbers", 14, 0.55, 1.6, 3.0, 120.0)
+	em.gravity = Vector2(0, -90)
+	var er := Gradient.new()
+	er.set_color(0, Color(1.0, 0.2, 0.15, 1.0))
+	er.set_color(1, Color(0.4, 0.0, 0.02, 0.0))
+	em.color_ramp = er
+	host.add_child(em)
+
+
+func _powder_emitter(nm: String, amount: int, life: float, s_min: float, s_max: float, spread: float) -> CPUParticles2D:
 	var p := CPUParticles2D.new()
-	p.name = "PowderTrail"
+	p.name = nm
 	p.local_coords = false
-	p.amount = POWDER_PARTICLES
-	p.lifetime = 0.7
-	p.explosiveness = 0.0
+	p.amount = amount
+	p.lifetime = life
 	p.emitting = true
 	p.direction = Vector2(-1, 0)
-	p.spread = 70.0
-	p.initial_velocity_min = 8.0
-	p.initial_velocity_max = 40.0
-	p.gravity = Vector2(0, 26)
-	p.damping_min = 10.0
-	p.damping_max = 30.0
-	p.scale_amount_min = 2.4
-	p.scale_amount_max = 4.6
+	p.spread = spread
+	p.initial_velocity_min = 10.0
+	p.initial_velocity_max = 55.0
+	p.gravity = Vector2(0, 30)
+	p.damping_min = 8.0
+	p.damping_max = 26.0
+	p.scale_amount_min = s_min
+	p.scale_amount_max = s_max
 	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
-	p.emission_sphere_radius = SHOT_TRAIL_THICK * 0.5
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(0.10, 0.10, 0.11, 0.95))
-	ramp.set_color(1, Color(0.36, 0.35, 0.34, 0.0))
-	ramp.add_point(0.45, Color(0.24, 0.23, 0.23, 0.85))
-	p.color_ramp = ramp
+	p.emission_sphere_radius = SHOT_TRAIL_THICK * 0.7
 	p.z_index = -1
-	host.add_child(p)
+	return p
 
 
 func _detach_powder_trail(host: Node) -> void:
-	var p: CPUParticles2D = host.get_node_or_null("PowderTrail") as CPUParticles2D
-	if p == null:
+	var any := false
+	var max_life := 0.0
+	for nm in ["PowderTrail", "PowderEmbers", "SinSmoke", "SinEmbers"]:
+		var p: CPUParticles2D = host.get_node_or_null(nm) as CPUParticles2D
+		if p == null:
+			continue
+		any = true
+		var g: Vector2 = p.global_position
+		host.remove_child(p)
+		add_child(p)
+		p.global_position = g
+		p.z_index = Z_SHOT_VFX - 1
+		p.emitting = false
+		max_life = maxf(max_life, p.lifetime)
+		var tw0 := create_tween()
+		tw0.tween_interval(p.lifetime + 0.1)
+		tw0.tween_callback(func() -> void:
+			if is_instance_valid(p):
+				p.queue_free())
+	if not any:
 		return
-	var g: Vector2 = p.global_position
-	host.remove_child(p)
-	add_child(p)
-	p.global_position = g
-	p.z_index = Z_SHOT_VFX - 1
-	p.emitting = false
 	var tw := create_tween()
-	tw.tween_interval(p.lifetime + 0.1)
+	tw.tween_interval(max_life + 0.1)
 	tw.tween_callback(func() -> void:
-		_powder_emitters = maxi(_powder_emitters - 1, 0)
-		if is_instance_valid(p):
-			p.queue_free())
+		_powder_emitters = maxi(_powder_emitters - 1, 0))
 
 
 func _make_shot_trail_line(
@@ -2395,6 +2478,8 @@ func _shot_projectile_step(t: float, ctx: Dictionary) -> void:
 			for k in 13:
 				pts.append(Vector2(-visible_len * float(k) / 12.0, 0.0))
 			line.points = pts
+			if line.name == "SinDanger":
+				line.modulate.a = RarityFx.sin_flicker(Time.get_ticks_msec() * 0.001, 0.0)
 	var waypoints: Array = ctx.get("waypoints", [])
 	var fired: Dictionary = ctx.get("fired", {})
 	var path_len: float = maxf(from_g.distance_to(to_g), 1.0)
@@ -2410,6 +2495,7 @@ func _shot_projectile_step(t: float, ctx: Dictionary) -> void:
 			if hi >= 0 and state != null and state.has_paced_shot_pending():
 				# 视觉命中瞬间结算伤害（飘字由 enemy_damaged 触发）
 				state.resolve_paced_hit(hi)
+			_release_hp_hold_at_cell(int(wp.get("cell", -1)))
 			for ev in wp.get("events", []):
 				_spawn_hit_event(ev)
 			# 飙血改由 enemy_damaged 统一触发
@@ -2972,7 +3058,76 @@ func _tick_screen_punch(delta: float) -> void:
 		board_row.rotation = 0.0
 
 
+## v0.4.28 命中才掉血：逻辑照旧当场结算（确定性/测试不变），画面上的血量、死亡、金币、经验球
+## 先「留住」开火前的样子，子弹飞到那一格（命中帧）才放开。
+var _hp_hold: Dictionary = {}  # enemy instance id → {"hp": int, "e": EnemyInstance, "t": msec}
+
+
+func _snapshot_enemy_hp() -> Dictionary:
+	var out: Dictionary = {}
+	if state == null:
+		return out
+	for e in state.enemies:
+		if e != null:
+			out[e.get_instance_id()] = [e, int(e.hp)]
+	return out
+
+
+func _hold_hp_changes(before: Dictionary) -> void:
+	var now: int = Time.get_ticks_msec()
+	for eid in before.keys():
+		var pair: Array = before[eid]
+		var e: EnemyInstance = pair[0]
+		if e == null or not is_instance_valid(e):
+			continue
+		if int(e.hp) < int(pair[1]) and not _hp_hold.has(eid):
+			_hp_hold[eid] = {"hp": int(pair[1]), "e": e, "t": now}
+	if not _hp_hold.is_empty():
+		_refresh_board()
+
+
+func display_hp(e: EnemyInstance) -> int:
+	## 画面上该显示的血量（命中前仍是开火前的血）。
+	if e == null:
+		return 0
+	var h = _hp_hold.get(e.get_instance_id())
+	if h == null:
+		return int(e.hp)
+	return maxi(int(h["hp"]), int(e.hp))
+
+
+func has_hp_hold() -> bool:
+	return not _hp_hold.is_empty()
+
+
+func _release_hp_hold_at_cell(cell: int) -> void:
+	if _hp_hold.is_empty():
+		return
+	var hit := false
+	for eid in _hp_hold.keys():
+		var e: EnemyInstance = _hp_hold[eid]["e"]
+		if e == null or not is_instance_valid(e) or int(e.cell) == cell or cell < 0:
+			_hp_hold.erase(eid)
+			hit = true
+	if hit:
+		_refresh_board()
+
+
+func release_all_hp_holds() -> void:
+	if _hp_hold.is_empty():
+		return
+	_hp_hold.clear()
+	_refresh_board()
+
+
 func _spawn_hit_event(ev: Dictionary) -> void:
+	_release_hp_hold_at_cell(int(ev.get("cell", -1)))
+	if ev.has("gold_drop"):
+		_spawn_gold_drop_now(int(ev["gold_drop"]), int(ev.get("cell", -1)), int(ev.get("amount", 0)))
+		return
+	if ev.has("xp_orb"):
+		_spawn_xp_orb_now(int(ev.get("cell", -1)), int(ev.get("amount", 0)))
+		return
 	if bool(ev.get("boom", false)):
 		_spawn_explosion_vfx(int(ev.get("cell", -1)), int(ev.get("n_side", 1)))
 	var cell: int = int(ev.get("cell", -1))
@@ -3106,6 +3261,16 @@ func _xp_target_global() -> Vector2:
 
 func _on_gold_drop_spawned(drop_id: int, cell: int, amount: int) -> void:
 	## 金币爆出落地，再加速飞向玩家；碰到才入账。波次结束不删，战败可以丢。
+	## v0.4.28 射击结算中：等子弹画面上打到那一格再爆金币。
+	if amount <= 0:
+		return
+	if _defer_hit_vfx:
+		_pending_hit_vfx.append({"cell": cell, "amount": amount, "gold_drop": drop_id})
+		return
+	_spawn_gold_drop_now(drop_id, cell, amount)
+
+
+func _spawn_gold_drop_now(drop_id: int, cell: int, amount: int) -> void:
 	if amount <= 0:
 		return
 	var layer := _ensure_pickup_layer()
@@ -3160,6 +3325,15 @@ func _spawn_pickup_sparkle(at: Vector2) -> void:
 
 func _on_xp_orb_spawned(cell: int, amount: int) -> void:
 	## 经验已经入账（升级三选一不会等粒子）。这里只飞向经验条。
+	if amount <= 0:
+		return
+	if _defer_hit_vfx:
+		_pending_hit_vfx.append({"cell": cell, "amount": amount, "xp_orb": true})
+		return
+	_spawn_xp_orb_now(cell, amount)
+
+
+func _spawn_xp_orb_now(cell: int, amount: int) -> void:
 	if amount <= 0:
 		return
 	var layer := _ensure_pickup_layer()
@@ -4661,7 +4835,7 @@ func _sb_build_status(inner: VBoxContainer) -> void:
 		_refresh()
 	, 76.0)
 	_sb_section(inner, "玩家计时（秒）")
-	for pair2 in [["连发窗", "burst"], ["自混乱", "confuse"], ["懒惰惩罚", "sloth_penalty"], ["射击锁", "fire_lock"], ["暴食自伤", "gluttony_dot"]]:
+	for pair2 in [["自混乱", "confuse"], ["懒惰惩罚", "sloth_penalty"], ["射击锁", "fire_lock"], ["暴食自伤", "gluttony_dot"]]:
 		var pk: String = str(pair2[1])
 		var prow := _sb_row(inner)
 		_sb_label(prow, str(pair2[0]), 0.0, true)
@@ -5168,6 +5342,13 @@ func _refresh_board() -> void:
 	for e in state.enemies:
 		if e == null:
 			continue
+		if state.free_walk:
+			if state.is_entering(e):
+				continue
+			var fe: EnemyInstance = _front_enemy_at_cell(int(e.cell))
+			if fe != null:
+				by_cell[e.cell] = fe
+			continue
 		by_cell[e.cell] = e
 	for i in CombatConstants.BOARD_SIZE:
 		var slot: Control = board_row.get_child(i) as Control
@@ -5322,17 +5503,10 @@ func _paint_mag_chambers() -> void:
 			style.border_color = Color(0.12, 0.12, 0.14)
 			if ammo_id == CombatConstants.INVALID_AMMO_ID:
 				style.border_color = Color(0.95, 0.4, 0.4)
-			elif ammo_id == FireResolver.ID_SUPER_ROUND:
-				# 金黄辉光：StyleBox shadow + 暖金边（击发/装填高亮仍可盖边色）
-				style.border_color = Color(1.0, 0.88, 0.32)
-				style.set_border_width_all(3)
-				style.shadow_color = Color(1.0, 0.82, 0.2, 0.72)
-				style.shadow_size = 10
-				style.shadow_offset = Vector2.ZERO
 			info.text = short
 			info.add_theme_color_override("font_color", colors["fg"])
 		# v0.4.27 稀有度特效（超级回合保留专属金辉，不叠）
-		if ammo_id == Magazine.EMPTY or ammo_id == FireResolver.ID_SUPER_ROUND or ammo_id == CombatConstants.INVALID_AMMO_ID:
+		if ammo_id == Magazine.EMPTY or ammo_id == CombatConstants.INVALID_AMMO_ID:
 			RarityFx.attach(panel, -1)
 		else:
 			RarityFx.attach(panel, ammo_id, _ammo_colors(ammo_id).get("bg", Color.WHITE), 999.0)

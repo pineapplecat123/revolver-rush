@@ -104,8 +104,6 @@ func test_sandbox_enemy_status_and_player_timer() -> void:
 	assert_eq(e.burn_stacks, 4)
 	assert_eq(e.confuse_remaining, 2.5)
 	assert_eq(e.slow_stacks(), 2)
-	assert_true(cs.sandbox_set_player_timer("burst", 1.25))
-	assert_eq(cs.burst_window_remaining, 1.25)
 
 
 func test_dummy_enemy_def_registered() -> void:

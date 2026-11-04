@@ -30,6 +30,10 @@ var slow_skip: int = 0
 var attack_range: int = 1
 ## 沙盒木桩：不移动、不攻击。
 var is_dummy: bool = false
+## v0.4.28 自由行走（UI 实战）：连续位置（格为单位）、个体速度倍率、本帧是否在走。
+var pos_x: float = -999.0
+var speed_mul: float = 1.0
+var walking: bool = false
 ## v0.4.20 沙盒统计：本个体累计挨了多少伤害（清零时归 0）。
 var dmg_taken_total: int = 0
 

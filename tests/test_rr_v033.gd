@@ -80,7 +80,7 @@ func test_reload_after_partial_fire_never_overwrites() -> void:
 	cs.magazine.clear()
 	cs.magazine.set_slot(0, FireResolver.ID_GOLD)
 	cs.magazine.set_slot(2, FireResolver.ID_ECHO)
-	cs.magazine.set_slot(3, FireResolver.ID_DUMP)
+	cs.magazine.set_slot(3, FireResolver.ID_ECHO)
 	cs.magazine.start_index = 0
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	for k in 3:
@@ -89,7 +89,7 @@ func test_reload_after_partial_fire_never_overwrites() -> void:
 		_assert_only_empties_filled(before, _snapshot(cs), "手装%d" % (k + 1))
 	assert_eq(cs.magazine.slots[0], FireResolver.ID_GOLD)
 	assert_eq(cs.magazine.slots[2], FireResolver.ID_ECHO)
-	assert_eq(cs.magazine.slots[3], FireResolver.ID_DUMP)
+	assert_eq(cs.magazine.slots[3], FireResolver.ID_ECHO)
 	assert_eq(cs.magazine.loaded_count(), 6)
 
 

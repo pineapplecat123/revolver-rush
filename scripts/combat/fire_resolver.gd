@@ -8,10 +8,7 @@ const ID_PRIDE := 17  ## 傲慢
 const ID_GREED := 18  ## 贪婪
 const ID_TOMBSTONE := 19  ## 墓碑（设计表编号9）
 const ID_GHOST := 20  ## 幽灵（设计表编号10，墓碑衍生物）
-const ID_SUPER_ROUND := 21  ## 兼容旧名；v0.4.0 起为「连发子弹」
-const ID_BURST := 21  ## 连发子弹（原超级回合）
 const ID_ARMOR_PIERCE := 22  ## 穿甲（设计表编号12）
-const ID_DUMP := 23  ## 倾泻
 const ID_ECHO := 24  ## 回声（设计表编号21）
 const ID_LIFESTEAL := 25  ## 吸血（设计表编号22）
 const ID_FLAME := 26  ## 火焰（设计表编号17）
@@ -46,10 +43,6 @@ static func base_damage_for(ammo_id: int, _order: Array[int], _index: int) -> in
 		ID_PRIDE, ID_GREED:
 			return 2
 		ID_TOMBSTONE, ID_GHOST:
-			return 2
-		ID_SUPER_ROUND, ID_BURST:
-			return 1
-		ID_DUMP:
 			return 2
 		ID_ARMOR_PIERCE:
 			return 3

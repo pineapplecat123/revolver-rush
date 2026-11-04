@@ -142,20 +142,6 @@ func test_greed_takes_gold_on_third_insert() -> void:
 	assert_eq(cs.gold, 44)
 
 
-func test_super_round_extra_load_bringing_third_sin_triggers() -> void:
-	## v0.4.0：连发不再额外补弹；保留用例，断言开窗。
-	var cs := CombatState.new(3501)
-	cs.start_rush(3501, FireResolver.ID_WRATH)
-	cs.dev_force_load([
-		FireResolver.ID_BURST,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	assert_true(cs.begin_fire())
-	cs.fire_next_shot()
-	if cs.has_paced_shot_pending():
-		cs.finalize_paced_shot()
-	assert_gt(cs.burst_window_remaining, 0.0)
-
 
 func test_muzzle_entries_countdown_and_pride_timed() -> void:
 	## v0.3.7：傲慢也显示秒数（不再 ∞）；多层显示最短剩余。
@@ -245,20 +231,6 @@ func test_rapid_taps_skip_empty_chambers() -> void:
 	assert_gte(int(shots[0].get("blank_skip", 0)), 1)
 	assert_true(cs.magazine.is_empty())
 
-
-func test_rapid_tap_super_round_extras_still_run() -> void:
-	## v0.4.0：连发不再额外补弹；保留用例，断言开窗。
-	var cs := CombatState.new(3501)
-	cs.start_rush(3501, FireResolver.ID_WRATH)
-	cs.dev_force_load([
-		FireResolver.ID_BURST,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	assert_true(cs.begin_fire())
-	cs.fire_next_shot()
-	if cs.has_paced_shot_pending():
-		cs.finalize_paced_shot()
-	assert_gt(cs.burst_window_remaining, 0.0)
 
 
 func test_rapid_tap_muzzle_mounts() -> void:

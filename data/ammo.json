@@ -100,21 +100,6 @@
       "blurb": "墓碑衍生物；TTL临时"
     },
     {
-      "id": 21,
-      "name": "连发子弹",
-      "rarity": "rare",
-      "base_damage": 1,
-      "base_damage_mode": "fixed",
-      "special": "基础伤害1。击发后开启1秒连发窗（再次击发连发则刷新，不叠多窗）。窗内每次点射击出1发免费平庸伤害弹（享受当前枪口，不耗仓、不转轮）。",
-      "tags": [
-        "连发"
-      ],
-      "enabled_in_combat": true,
-      "ephemeral": false,
-      "in_reward_pool": true,
-      "blurb": "击发开1秒连发窗"
-    },
-    {
       "id": 22,
       "name": "穿甲弹药",
       "rarity": "uncommon",
@@ -129,21 +114,6 @@
       "ephemeral": false,
       "in_reward_pool": true,
       "blurb": "枪口穿甲，递减穿怪"
-    },
-    {
-      "id": 23,
-      "name": "倾泻",
-      "rarity": "epic",
-      "base_damage": 2,
-      "base_damage_mode": "fixed",
-      "special": "基础伤害2。击发后自动连续打出转轮内剩余已装填弹药（约0.06秒/发）；期间再点射击可中断倾泻。",
-      "tags": [
-        "倾泻"
-      ],
-      "enabled_in_combat": true,
-      "ephemeral": false,
-      "in_reward_pool": true,
-      "blurb": "击发后倾泻剩余仓；可中断"
     },
     {
       "id": 24,

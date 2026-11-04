@@ -238,6 +238,8 @@ func gore_pieces() -> Array:
 		var straw := Color(0.95, 0.85, 0.45)
 		for _i in 3:
 			out.append(_gore([[_rect(Vector2(-6, -1), Vector2(6, 1)), straw]]))
+		for pc in out:
+			pc["trail"] = Color(0.86, 0.72, 0.46, 0.9)  # 木屑
 		return out
 	# 耳朵 ×2
 	for _i in 2:

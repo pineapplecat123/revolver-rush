@@ -97,8 +97,6 @@ func _isfinite_hp(cs: CombatState) -> bool:
 
 func test_stress_mechanisms_and_ammo() -> void:
 	_run_mech_sandbox_flags()
-	_run_mech_dump_interrupt()
-	_run_mech_burst_window()
 	_run_mech_dot_tick()
 	_run_mech_load_temp_sin()
 	_run_mech_three_sin_wrath()
@@ -131,70 +129,7 @@ func _run_mech_sandbox_flags() -> void:
 		"is_dummy=%s mobility=%d atk=%d" % [d.is_dummy, d.mobility, d.atk])
 
 
-func _run_mech_dump_interrupt() -> void:
-	var cs := _fresh_sandbox(41792)
-	_dummy(cs, 9999, 3)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	# 异步倾泻：先主发，再 take 一发，再 interrupt
-	var shots: Array = cs.fire_tap(false)
-	var dump_started: bool = cs._dump_pending
-	var after_one: Array = cs.take_dump_shot()
-	var mid_loaded: int = cs.magazine.loaded_count()
-	var interrupted: bool = cs.interrupt_dump()
-	var still_pending: bool = cs._dump_pending
-	var ok: bool = dump_started and not after_one.is_empty() and interrupted and not still_pending and mid_loaded >= 1
-	_row_mech("倾泻步进+中断", "pass" if ok else "fail",
-		"主发shots=%d pending_after_start=%s take=%d mid_loaded=%d interrupted=%s interval=%.2f" % [
-			shots.size(), dump_started, after_one.size(), mid_loaded, interrupted,
-			CombatConstants.DUMP_SHOT_INTERVAL_SEC
-		])
-	# 同步倾泻打完
-	cs2_sync_dump()
 
-
-func cs2_sync_dump() -> void:
-	var cs := _fresh_sandbox(41793)
-	_dummy(cs, 9999, 3)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var hp0: int = cs.enemies[0].hp
-	var shots: Array = cs.fire_tap(true)
-	var dealt: int = hp0 - cs.enemies[0].hp
-	# dump2 + white3 + white3 = 8
-	var ok: bool = shots.size() >= 3 and dealt == 8 and cs.magazine.loaded_count() == 0
-	_row_mech("倾泻同步打完", "pass" if ok else "fail",
-		"shots=%d dealt=%d (expect 8) left=%d" % [shots.size(), dealt, cs.magazine.loaded_count()])
-
-
-func _run_mech_burst_window() -> void:
-	var cs := _fresh_sandbox(41794)
-	_dummy(cs, 9999, 3)
-	_force_one(cs, FireResolver.ID_BURST)
-	var hp0: int = cs.enemies[0].hp
-	cs.fire_tap(true)
-	var after_main: int = hp0 - cs.enemies[0].hp
-	var win: float = cs.burst_window_remaining
-	hp0 = cs.enemies[0].hp
-	cs.player_fire_gate_remaining = 0.0
-	cs.fire_tap(true)  # free white in window
-	var free_dealt: int = hp0 - cs.enemies[0].hp
-	var ok: bool = after_main == 1 and win > 0.0 and free_dealt == 3 and cs.magazine.loaded_count() == 0
-	_row_mech("连发窗免费平庸", "pass" if ok else "fail",
-		"主发dealt=%d win=%.2f 免费dealt=%d BURST_WINDOW=%.1f" % [
-			after_main, win, free_dealt, CombatConstants.BURST_WINDOW_SEC
-		])
 
 
 func _run_mech_dot_tick() -> void:
@@ -300,8 +235,6 @@ func _run_mech_muzzle_timers() -> void:
 
 func _run_ammo_suite() -> void:
 	_ammo_white()
-	_ammo_burst()
-	_ammo_dump()
 	_ammo_tomb_ghost()
 	_ammo_echo()
 	_ammo_lifesteal()
@@ -326,32 +259,6 @@ func _ammo_white() -> void:
 	_row_ammo("平庸", "ok" if dealt == 3 else "broken", "单发固定3", dealt)
 
 
-func _ammo_burst() -> void:
-	var cs := _fresh_sandbox(42002)
-	_dummy(cs)
-	_force_one(cs, FireResolver.ID_BURST)
-	cs.fire_tap(true)
-	var ok: bool = cs.burst_window_remaining > 0.9 and int(_hook_counts.get("on_burst_window", 0)) >= 1
-	_row_ammo("连发窗", "ok" if ok else "fragile",
-		"window=%.2f on_burst_window=%d" % [cs.burst_window_remaining, int(_hook_counts.get("on_burst_window", 0))], 1)
-
-
-func _ammo_dump() -> void:
-	var cs := _fresh_sandbox(42003)
-	_dummy(cs)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP, CombatConstants.WHITE_AMMO_ID, Magazine.EMPTY,
-		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var hp0: int = cs.enemies[0].hp
-	cs.fire_tap(true)
-	var dealt: int = hp0 - cs.enemies[0].hp
-	var ok: bool = dealt == 5 and int(_hook_counts.get("on_dump_start", 0)) >= 1 and int(_hook_counts.get("on_dump_end", 0)) >= 1
-	_row_ammo("倾泻", "ok" if ok else "broken",
-		"dump2+white3 dealt=%d dump_hooks start/end=%d/%d" % [
-			dealt, int(_hook_counts.get("on_dump_start", 0)), int(_hook_counts.get("on_dump_end", 0))
-		], dealt)
 
 
 func _ammo_tomb_ghost() -> void:
@@ -767,49 +674,6 @@ func _run_emergent_combos() -> void:
 		"works": true,
 	})
 
-	# 4 burst + gluttony
-	var cs4 := _fresh_sandbox(43004)
-	cs4.player_hp = 10
-	cs4.sandbox_set_muzzle("gluttony", 3, 4.0)
-	cs4.sandbox_spawn_dummy(1, 3)
-	_force_one(cs4, FireResolver.ID_BURST)
-	cs4.fire_tap(true)
-	# kill with free burst shots
-	var guard := 8
-	while cs4.enemies.size() > 0 and cs4.burst_window_remaining > 0.0 and guard > 0:
-		guard -= 1
-		cs4.player_fire_gate_remaining = 0.0
-		cs4.fire_tap(true)
-	_combo_rows.append({
-		"name": "连发窗 × 暴食击杀回血",
-		"power": "中",
-		"dealt": cs4.player_hp - 10,
-		"note": "窗内点杀后 hpΔ=%d（暴食+1/杀）enemies_left=%d" % [cs4.player_hp - 10, cs4.enemies.size()],
-		"works": cs4.player_hp >= 10,
-	})
-
-	# 5 dump + wrath stacks
-	var cs5 := _fresh_sandbox(43005)
-	_dummy(cs5, 99999, 3)
-	cs5.dev_force_load([
-		FireResolver.ID_DUMP,
-		FireResolver.ID_WRATH,
-		FireResolver.ID_WRATH,
-		FireResolver.ID_WRATH,
-		Magazine.EMPTY, Magazine.EMPTY,
-	] as Array[int])
-	cs5.magazine.set_start(0)
-	var h0: int = cs5.enemies[0].hp
-	cs5.fire_tap(true)
-	var dump_wrath_dealt: int = h0 - cs5.enemies[0].hp
-	_combo_rows.append({
-		"name": "倾泻 × 愤怒叠层",
-		"power": "高",
-		"dealt": dump_wrath_dealt,
-		"note": "倾泻打出多发愤怒，枪口层滚雪球；总伤=%d wrath_stacks=%d" % [dump_wrath_dealt, cs5._muzzle_wrath],
-		"works": dump_wrath_dealt > 20,
-	})
-
 	# 6 justice + sins farm
 	var cs6 := _fresh_sandbox(43006)
 	_dummy(cs6)
@@ -831,57 +695,19 @@ func _run_emergent_combos() -> void:
 		"name": "保险（纯防爆）",
 		"power": "低（工具）",
 		"dealt": 0,
-		"note": "不增伤；挡三罪。与懒惰/倾泻无自然增伤联动（除非另写订阅）",
+		"note": "不增伤；挡三罪。与懒惰无自然增伤联动（除非另写订阅）",
 		"works": true,
 	})
 
 
 func _run_balance_sims() -> void:
-	# dump full mag whites vs burst+clicks DPS proxy (damage per "action")
-	var cs := _fresh_sandbox(44001)
-	_dummy(cs, 99999, 3)
-	cs.dev_force_load([
-		FireResolver.ID_DUMP,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-		CombatConstants.WHITE_AMMO_ID,
-	] as Array[int])
-	cs.magazine.set_start(0)
-	var h0: int = cs.enemies[0].hp
-	cs.fire_tap(true)
-	var dump_total: int = h0 - cs.enemies[0].hp
-	# 2 + 5*3 = 17 in one tap chain; wall time ~5*0.06 if async
-	_balance_notes.append("倾泻满匣(倾泻+5白)：总伤=%d，同步1次操作；异步约%.2fs" % [
-		dump_total, 5.0 * CombatConstants.DUMP_SHOT_INTERVAL_SEC
-	])
-
-	var cs2 := _fresh_sandbox(44002)
-	_dummy(cs2, 99999, 3)
-	_force_one(cs2, FireResolver.ID_BURST)
-	h0 = cs2.enemies[0].hp
-	cs2.fire_tap(true)
-	var clicks := 1
-	var guard := 20
-	while cs2.burst_window_remaining > 0.0 and guard > 0:
-		guard -= 1
-		# simulate time drain between clicks
-		cs2.tick_combat_time(CombatConstants.MIN_FIRE_INTERVAL_SEC)
-		if cs2.burst_window_remaining <= 0.0:
-			break
-		cs2.fire_tap(true)
-		clicks += 1
-	var burst_total: int = h0 - cs2.enemies[0].hp
-	_balance_notes.append("连发窗：1秒内点射×%d 总伤=%d（主发1+免费平庸×n）" % [clicks, burst_total])
-
 	# tombstone echo risk
 	var cs3 := _fresh_sandbox(44003)
 	_dummy(cs3, 99999, 3)
 	cs3.sandbox_set_muzzle("echo", 1, 4.0)
 	cs3.sandbox_add_ammo(FireResolver.ID_GHOST, 5, CombatConstants.GHOST_TTL_SEC)
 	_force_one(cs3, FireResolver.ID_TOMBSTONE)
-	h0 = cs3.enemies[0].hp
+	var h0: int = cs3.enemies[0].hp
 	_shot_one(cs3)
 	var te: int = h0 - cs3.enemies[0].hp
 	_balance_notes.append("墓碑+袋5幽灵+预挂回声：单次点射总伤=%d（清场风险高）" % te)
@@ -916,7 +742,7 @@ func _write_report() -> void:
 		"hook_docs_events": [
 			"on_fire", "on_shot", "on_chamber_loaded", "on_bag_enter", "on_bag_leave",
 			"on_three_sin", "on_muzzle_apply", "on_kill", "on_shop_enter",
-			"on_dump_start", "on_dump_end", "on_burst_window", "on_temp_sin_spawn", "on_dot_tick",
+			"on_temp_sin_spawn", "on_dot_tick",
 			"on_insurance_swap", "on_stone_shatter", "on_pebble_fuse", "on_justice_strip",
 			"on_gold_ammo_spend", "on_confuse", "on_confuse_attack", "on_player_confuse",
 			"on_self_hit", "on_envy_copy", "on_envy_discard", "on_gluttony_heal",
@@ -952,8 +778,6 @@ func _kitchen_sink_hooks() -> Dictionary:
 	cs.sandbox_add_ammo(FireResolver.ID_EXPLOSIVE, 1, 0.0)
 	cs.sandbox_add_ammo(FireResolver.ID_ECHO, 1, 0.0)
 	cs.sandbox_add_ammo(FireResolver.ID_TOMBSTONE, 1, 0.0)
-	cs.sandbox_add_ammo(FireResolver.ID_BURST, 1, 0.0)
-	cs.sandbox_add_ammo(FireResolver.ID_DUMP, 1, 0.0)
 	cs.sandbox_add_ammo(FireResolver.ID_GOLD, 1, 0.0)
 	cs.sandbox_add_ammo(FireResolver.ID_LIFESTEAL, 2, 0.0)
 	cs.sandbox_add_ammo(FireResolver.ID_SCATTER, 1, 0.0)
