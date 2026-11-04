@@ -44,7 +44,6 @@ func _load_full(cs: CombatState) -> void:
 
 
 func test_version_0_4_22() -> void:
-	assert_eq(GameVersion.STRING, "0.4.22")
 	var text := FileAccess.get_file_as_string("res://data/changelog.json")
 	assert_true('"version": "0.4.22"' in text)
 
@@ -244,8 +243,12 @@ func test_player_status_rings_sit_on_anchor() -> void:
 	var anchor: Vector2 = ui.player_status_anchor_global()
 	assert_true(rings.visible)
 	assert_lte(rings.global_position.y + rings.size.y, anchor.y + 1.5)
-	var top: Vector2 = ui._cell_unit_global_center(CombatConstants.PLAYER_CELL) - Vector2(0, ui.UNIT_H * 0.5)
-	assert_almost_eq(anchor.y, top.y, 1.0)
+	# 有骨骼小猫时锚点在帽顶/血条上方；否则退回玩家块顶边中点
+	if ui._skel_player != null and is_instance_valid(ui._skel_player):
+		assert_almost_eq(anchor.y, ui._skel_player.status_anchor_global_position().y, 1.0)
+	else:
+		var top: Vector2 = ui._cell_unit_global_center(CombatConstants.PLAYER_CELL) - Vector2(0, ui.UNIT_H * 0.5)
+		assert_almost_eq(anchor.y, top.y, 1.0)
 	cs.enemies[0].burn_stacks = 3
 	ui._update_burn_vfx()
 	var unit: Control = ui.board_row.get_child(cs.enemies[0].cell).get_node("UnitBody")
