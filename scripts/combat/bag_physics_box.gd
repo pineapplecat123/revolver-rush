@@ -34,6 +34,17 @@ var temp_full_life: float = 18.0
 var temp_full_life_by_id: Dictionary = {}
 var _pops: Array = []  # {pos, r, t, color}
 const POP_SEC := 0.45
+## v0.4.29 性能基准用：累计 _draw / _physics_process 耗时（微秒），基准脚本读取后清零。
+static var prof_draw_usec: int = 0
+static var prof_phys_usec: int = 0
+static var prof_draw_calls: int = 0
+## v0.4.29 性能：每种弹的颜色/字/稀有度缓存（不再每帧每球调 Callable / 查表）；字形尺寸缓存；
+## 重绘只在 _process 里每帧最多一次，且只有「有球在动 / 有动态稀有度特效 / 有啵圈」时才重绘。
+var _style_cache: Dictionary = {}  # aid -> {bg, fg, tier, glyph}
+var _text_off_cache: Dictionary = {}  # "glyph|fsize" -> Vector2(半宽, 基线偏移)
+var _dirty: bool = true
+var _animated_balls: int = 0  # 有动态特效（稀有度/罪孽）的球数；>0 则每帧重绘
+var _order_keys := PackedInt64Array()
 
 
 func _ready() -> void:
@@ -57,6 +68,8 @@ func ball_count() -> int:
 
 func clear_balls() -> void:
 	_balls.clear()
+	_animated_balls = 0
+	_dirty = true
 	_hover_ammo = -1
 	_pressed_ammo = -1
 	queue_redraw()
@@ -88,7 +101,49 @@ func sync_ammo_ids(ammo_ids: Array, temps: Array = []) -> void:
 		for _i in miss:
 			_spawn_ball(aid4, t4)
 	_update_radii_for_count()
+	_recount_animated()
+	_dirty = true
 	queue_redraw()
+
+
+func _style_for(aid: int) -> Dictionary:
+	var st = _style_cache.get(aid)
+	if st != null:
+		return st
+	var colors: Dictionary = {"bg": Color(0.85, 0.85, 0.88), "fg": Color(0.1, 0.1, 0.1)}
+	if color_lookup.is_valid():
+		var looked = color_lookup.call(aid)
+		if typeof(looked) == TYPE_DICTIONARY:
+			colors = looked
+	var glyph := "?"
+	if name_lookup.is_valid():
+		glyph = str(name_lookup.call(aid))
+	st = {
+		"bg": colors.get("bg", Color(0.85, 0.85, 0.88)),
+		"fg": colors.get("fg", Color(0.1, 0.1, 0.1)),
+		"tier": RarityFx.tier_for_ammo(aid),
+		"glyph": glyph,
+	}
+	_style_cache[aid] = st
+	return st
+
+
+func invalidate_style_cache() -> void:
+	_style_cache.clear()
+	_text_off_cache.clear()
+	_recount_animated()
+	_dirty = true
+
+
+func _recount_animated() -> void:
+	_animated_balls = 0
+	for b in _balls:
+		if int(_style_for(int(b["id"]))["tier"]) != RarityFx.TIER_COMMON:
+			_animated_balls += 1
+
+
+func needs_redraw_every_frame() -> bool:
+	return _animated_balls > 0 or not _pops.is_empty()
 
 
 func _update_radii_for_count() -> void:
@@ -135,7 +190,7 @@ func set_temp_lifetimes(by_id: Dictionary) -> void:
 		var idx: int = int(used.get(aid, 0))
 		b["life"] = float(arr2[idx]) if idx < arr2.size() else 0.0
 		used[aid] = idx + 1
-	queue_redraw()
+	_dirty = true
 
 
 func has_animation() -> bool:
@@ -143,15 +198,20 @@ func has_animation() -> bool:
 
 
 func _process(delta: float) -> void:
-	if _pops.is_empty():
+	if not _pops.is_empty():
+		var i := _pops.size() - 1
+		while i >= 0:
+			_pops[i]["t"] = float(_pops[i]["t"]) + delta
+			if float(_pops[i]["t"]) >= POP_SEC:
+				_pops.remove_at(i)
+			i -= 1
+		_dirty = true
+	if not is_visible_in_tree():
 		return
-	var i := _pops.size() - 1
-	while i >= 0:
-		_pops[i]["t"] = float(_pops[i]["t"]) + delta
-		if float(_pops[i]["t"]) >= POP_SEC:
-			_pops.remove_at(i)
-		i -= 1
-	queue_redraw()
+	# 每个渲染帧最多重绘一次（物理步里不再 queue_redraw：低帧率时一帧跑多步物理会重复画 N 次）
+	if _dirty or _animated_balls > 0:
+		_dirty = false
+		queue_redraw()
 
 
 func _remove_one_ball(ammo_id: int, temporary: bool = false) -> void:
@@ -178,9 +238,16 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false) -> void:
 					col = looked.get("bg", col)
 			_pops.append({"pos": gone["pos"], "r": float(gone["r"]), "t": 0.0, "color": col})
 		_balls.remove_at(best_i)
+		_dirty = true
 
 
 func _physics_process(delta: float) -> void:
+	var _pt0: int = Time.get_ticks_usec()
+	_physics_step(delta)
+	prof_phys_usec += Time.get_ticks_usec() - _pt0
+
+
+func _physics_step(delta: float) -> void:
 	if not visible or _balls.is_empty():
 		return
 	var sz := size
@@ -196,6 +263,7 @@ func _physics_process(delta: float) -> void:
 	for tb in _balls:
 		if int(tb.get("id", -1)) == FireResolver.ID_TOMBSTONE:
 			tomb_anchors.append(tb["pos"])
+	var any_awake := false
 	for b in _balls:
 		if bool(b["asleep"]):
 			# 幽灵不睡死在底：轻推回漂浮
@@ -204,6 +272,7 @@ func _physics_process(delta: float) -> void:
 				b["freeze"] = 0
 			else:
 				continue
+		any_awake = true
 		var vel: Vector2 = b["vel"]
 		var aid: int = int(b.get("id", -1))
 		if aid == FireResolver.ID_GHOST:
@@ -262,11 +331,30 @@ func _physics_process(delta: float) -> void:
 		b["pos"] = pos
 		b["vel"] = vel
 	# ball-ball (simple positional correction + bounce)
+	# v0.4.29：按 x 排序扫掠（原生 PackedInt64Array.sort），x 距离超过两倍最大半径就停；两颗都睡着的跳过。
 	var n: int = _balls.size()
-	for i in n:
+	if any_awake:
+		_dirty = true
+	else:
+		return
+	var max_r: float = 0.0
+	_order_keys.resize(n)
+	for k in n:
+		var bk: Dictionary = _balls[k]
+		max_r = maxf(max_r, float(bk["r"]))
+		_order_keys[k] = (int(floor(float(bk["pos"].x) * 16.0)) + 1048576) * 4096 + k
+	_order_keys.sort()
+	for oi in n:
+		var i: int = int(_order_keys[oi] % 4096)
 		var a: Dictionary = _balls[i]
-		for j in range(i + 1, n):
+		var ax: float = float(a["pos"].x)
+		for oj in range(oi + 1, n):
+			var j: int = int(_order_keys[oj] % 4096)
 			var c: Dictionary = _balls[j]
+			if float(c["pos"].x) - ax > max_r * 2.0 + 1.0:
+				break
+			if bool(a["asleep"]) and bool(c["asleep"]):
+				continue
 			var pa: Vector2 = a["pos"]
 			var pc: Vector2 = c["pos"]
 			var delta_p: Vector2 = pc - pa
@@ -293,10 +381,16 @@ func _physics_process(delta: float) -> void:
 			c["asleep"] = false
 			a["freeze"] = 0
 			c["freeze"] = 0
-	queue_redraw()
 
 
 func _draw() -> void:
+	var _dt0: int = Time.get_ticks_usec()
+	_draw_box()
+	prof_draw_usec += Time.get_ticks_usec() - _dt0
+	prof_draw_calls += 1
+
+
+func _draw_box() -> void:
 	var sz := size
 	# box interior
 	draw_rect(Rect2(Vector2.ZERO, sz), _bg_color, true)
@@ -308,46 +402,46 @@ func _draw() -> void:
 	draw_rect(Rect2(0, 0, sz.x, t * 0.6), _wall_color, true)
 	draw_rect(Rect2(Vector2.ZERO, sz), _rim_color, false, 2.0)
 	# balls
+	var tsec: float = Time.get_ticks_msec() * 0.001
+	var font := get_theme_default_font()
 	for b in _balls:
 		var aid: int = int(b["id"])
 		var pos: Vector2 = b["pos"]
 		var r: float = float(b["r"])
-		var colors: Dictionary = {"bg": Color(0.85, 0.85, 0.88), "fg": Color(0.1, 0.1, 0.1)}
-		if color_lookup.is_valid():
-			var looked = color_lookup.call(aid)
-			if typeof(looked) == TYPE_DICTIONARY:
-				colors = looked
-		var bg: Color = colors.get("bg", Color(0.85, 0.85, 0.88))
-		var fg: Color = colors.get("fg", Color(0.1, 0.1, 0.1))
+		var st: Dictionary = _style_for(aid)
+		var bg: Color = st["bg"]
+		var fg: Color = st["fg"]
 		var is_temp_ball: bool = bool(b.get("temp", false))
 		if is_temp_ball:
 			bg.a *= 0.45
 			fg.a *= 0.55
 		# 按稀有度（v0.4.27）：稀有表面流光 / 更稀有同色辉光 / 最稀有七彩辉光
-		var tier: int = RarityFx.tier_for_ammo(aid)
-		var tsec: float = Time.get_ticks_msec() * 0.001
+		var tier: int = int(st["tier"])
 		var seedv: float = float(aid) * 0.37 + float(b.get("seed", 0.0))
-		RarityFx.draw_ball_back(self, pos, r, bg, tier, tsec, seedv)
+		if tier != RarityFx.TIER_COMMON:
+			RarityFx.draw_ball_back(self, pos, r, bg, tier, tsec, seedv)
 		draw_circle(pos, r, bg)
 		draw_arc(pos, r, 0.0, TAU, 24, Color(0.1, 0.1, 0.12, 0.75), 1.5, true)
-		RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
+		if tier != RarityFx.TIER_COMMON:
+			RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
 		# v0.3.8 临时罪孽寿命环：从 12 点顺时针缩短；≤25% 变红
 		if is_temp_ball:
 			var life: float = float(b.get("life", temp_full_life))
-			var full: float = float(temp_full_life_by_id.get(int(b.get("id", -1)), temp_full_life))
+			var full: float = float(temp_full_life_by_id.get(aid, temp_full_life))
 			var frac: float = clampf(life / maxf(full, 0.01), 0.0, 1.0)
 			var ring_col: Color = Color(1.0, 0.3, 0.25, 0.95) if frac <= 0.25 else Color(1.0, 0.95, 0.8, 0.9)
 			draw_arc(pos, r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, true)
-		var glyph := "?"
-		if name_lookup.is_valid():
-			glyph = str(name_lookup.call(aid))
-		var font := get_theme_default_font()
+		var glyph: String = st["glyph"]
 		var fsize := int(maxi(9, int(r * 0.95)))
 		if font != null:
-			# draw_string 的 y 是基线：用 ascent 把单字框中心对齐球心
-			var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
-			var ascent := font.get_ascent(fsize)
-			var text_pos := Vector2(pos.x - ts.x * 0.5, pos.y - ts.y * 0.5 + ascent)
+			# draw_string 的 y 是基线：用 ascent 把单字框中心对齐球心（尺寸按 字+字号 缓存）
+			var tkey: String = "%s|%d" % [glyph, fsize]
+			var off = _text_off_cache.get(tkey)
+			if off == null:
+				var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+				off = Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
+				_text_off_cache[tkey] = off
+			var text_pos: Vector2 = pos + (off as Vector2)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
 			elif tier == RarityFx.TIER_SIN:

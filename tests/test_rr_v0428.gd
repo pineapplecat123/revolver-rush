@@ -33,7 +33,7 @@ func _ui_sandbox():
 
 
 func test_version_0_4_28() -> void:
-	assert_eq(GameVersion.STRING, "0.4.28")
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.28") >= 0)
 	assert_true('"version": "0.4.28"' in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 

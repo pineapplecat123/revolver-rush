@@ -146,10 +146,9 @@ const MIN_FIRE_INTERVAL_SEC := 0.1
 
 ## v0.4.24 一键连射节奏：打一发 → 转轮转一格（动画）→ 下一发 …… 直到已装弹打完。
 ## 间隔吃战斗速度；不会快过 MIN_FIRE_INTERVAL_SEC。转一格动画 VOLLEY_ROTATE_SEC 放在间隔之内。
-## 空仓不单独等一整格间隔：并进下一发的转动里，每个空仓只多 VOLLEY_EMPTY_SKIP_SEC。
+## v0.4.29：空仓也算正常一拍（同样等间隔、停留、转一格），不再快跳；连射打完最后一颗已装弹即结束。
 const VOLLEY_SHOT_INTERVAL_SEC := 0.25
 const VOLLEY_ROTATE_SEC := 0.18
-const VOLLEY_EMPTY_SKIP_SEC := 0.04
 ## v0.4.24：装满后、开火前都不再随机转轮；从当前击发仓直接开打。
 const LOAD_FULL_RANDOM_SPIN := false
 

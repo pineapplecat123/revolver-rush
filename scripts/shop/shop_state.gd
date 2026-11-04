@@ -8,6 +8,8 @@ var open: bool = false
 var node_id: int = -1
 var gold: int = 0
 var bag: Array[int] = []
+## v0.4.29：弃牌堆也能在店里删（与袋同列显示）；离店随 payload 写回。
+var discard: Array[int] = []
 ## 货架上的弹药 id；与 sold 等长
 var stock: Array[int] = []
 var sold: Array[bool] = []
@@ -17,11 +19,12 @@ var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_message: String = ""
 
 
-func begin(from_gold: int, from_bag: Array, shop_node_id: int, seed_value: int = 0) -> void:
+func begin(from_gold: int, from_bag: Array, shop_node_id: int, seed_value: int = 0, from_discard: Array = []) -> void:
 	open = true
 	node_id = shop_node_id
 	gold = from_gold
 	bag = _copy_ints(from_bag)
+	discard = _copy_ints(from_discard)
 	removes_done = 0
 	free_rerolls_left = ShopConstants.FREE_REROLLS
 	last_message = ""
@@ -37,6 +40,7 @@ func end_session() -> Dictionary:
 	var payload := {
 		"gold": gold,
 		"bag": bag.duplicate(),
+		"discard": discard.duplicate(),
 		"node_id": node_id,
 	}
 	open = false
@@ -111,6 +115,40 @@ func remove_at(bag_index: int) -> bool:
 	bag.remove_at(bag_index)
 	removes_done += 1
 	last_message = "移除 %s，-%d 金（本店第 %d 次）。" % [_ammo_name(ammo_id), cost, removes_done]
+	return true
+
+
+func pile_array(pile: String) -> Array[int]:
+	return discard if pile == "discard" else bag
+
+
+func can_remove_from(pile: String, index: int) -> bool:
+	if not open:
+		return false
+	var arr: Array[int] = pile_array(pile)
+	if index < 0 or index >= arr.size():
+		return false
+	if DataRegistry.is_sin_ammo(int(arr[index])):
+		return false
+	return gold >= next_remove_cost()
+
+
+func remove_from(pile: String, index: int) -> bool:
+	## v0.4.29：pile = "bag" / "discard"。从对应那一堆删那一发。
+	if pile != "discard":
+		return remove_at(index)
+	if index >= 0 and index < discard.size() and DataRegistry.is_sin_ammo(int(discard[index])):
+		last_message = "罪孽弹药不可去除。"
+		return false
+	if not can_remove_from(pile, index):
+		last_message = "无法移除（索引无效或金币不足）。"
+		return false
+	var cost: int = next_remove_cost()
+	var ammo_id: int = discard[index]
+	gold -= cost
+	discard.remove_at(index)
+	removes_done += 1
+	last_message = "移除弃牌堆里的 %s，-%d 金（本店第 %d 次）。" % [_ammo_name(ammo_id), cost, removes_done]
 	return true
 
 

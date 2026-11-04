@@ -396,6 +396,9 @@ var _focus_shots_fired: int = 0
 var _pebble_fuse_count: int = 0
 ## v0.4.22：一次开火打光已装弹。异步时剩余仓由 take_volley_shot 步进。
 var _volley_pending: bool = false
+## v0.4.29：enemy_damaged 发出瞬间被打的那只（发完清空）+ 这一下是否致死
+var last_damaged_enemy: EnemyInstance = null
+var last_damage_lethal: bool = false
 var _volley_followup_pending: bool = false
 ## 地图商店打开：逻辑时钟（怪、枪口、TTL、刷怪、射速帽）全部停。
 var shop_hold: bool = false
@@ -1137,15 +1140,23 @@ func count_permanent_owned() -> int:
 	return n
 
 
-func apply_shop_session(new_ids: Array, new_temps: Array, new_gold: int) -> void:
+func apply_shop_session(new_ids: Array, new_temps: Array, new_gold: int, new_discard = null, new_discard_temps: Array = []) -> void:
 	## 离店写回：按商店袋的顺序还原，临时 TTL 跟着原下标走；新买的是永久弹。
-	## 膛和弃牌不动。基线重拍成「袋+膛+弃」里的全部永久弹，避免重置时丢掉没在袋里的那部分。
+	## v0.4.29：传了 new_discard 就按它重建弃牌堆（店里可删弃牌）；不传则弃牌不动。膛不动。
+	## 基线重拍成「袋+膛+弃」里的全部永久弹，避免重置时丢掉没在袋里的那部分。
 	gold = new_gold
 	bag.clear()
 	bag_temp.clear()
 	for i in new_ids.size():
 		var tv = new_temps[i] if i < new_temps.size() else 0.0
 		_bag_append(int(new_ids[i]), tv)
+	if new_discard != null:
+		discard.clear()
+		discard_temp.clear()
+		for i in (new_discard as Array).size():
+			discard.append(int(new_discard[i]))
+			discard_temp.append(new_discard_temps[i] if i < new_discard_temps.size() else 0.0)
+	_sync_temp_arrays()
 	_snapshot_combat_bag_baseline()
 	_log("离开地图商店（金 %d，袋 %d 发，永久合计 %d）。" % [gold, bag.size(), count_permanent_owned()])
 	_emit()
@@ -1795,7 +1806,11 @@ func _notify_enemy_damage(e: EnemyInstance, amount: int, kind: String = "") -> v
 	if e == null or amount <= 0:
 		return
 	_record_damage_stat(e, amount)
+	# v0.4.29：UI 把飘字/飙血绑到这只敌人本身（不是格子），命中时它已死/已走开就不在空中喷血
+	last_damaged_enemy = e
+	last_damage_lethal = not e.is_alive()
 	enemy_damaged.emit(e.cell, amount, kind)
+	last_damaged_enemy = null
 
 
 # ——— v0.4.20 伤害统计（所有对敌伤害都经 _notify_enemy_damage：直击/穿透/散射/爆炸/汽油/燃烧/流血/混乱/幽灵/倾泻…）———
@@ -3805,6 +3820,13 @@ func fire_tap(resolve_sync: bool = true) -> Array:
 		fire_lock_remaining = maxf(fire_lock_remaining, CombatConstants.SLOTH_FIRE_LOCK_SEC)
 	if not can_fire():
 		return shots
+	if not resolve_sync and volley_port_empty():
+		# v0.4.29：一键连射从空仓开始 = 第一拍空响，不快跳到下一颗；由 UI 逐拍 take_volley_blank_beat。
+		commit_load_session_if_active()
+		_volley_pending = true
+		_volley_followup_pending = true
+		player_fire_gate_remaining = CombatConstants.MIN_FIRE_INTERVAL_SEC
+		return shots
 	if not begin_fire():
 		return shots
 	_fire_tap_one(shots)
@@ -3857,6 +3879,23 @@ func _fire_volley_rest(shots: Array) -> void:
 		for g in _consume_pending_tombstone_ghost_shots():
 			shots.append(g)
 			_append_echo_twin_from_rec(shots, g)
+
+
+func volley_port_empty() -> bool:
+	## 击发位是空仓（且转轮里还有弹）。
+	if magazine == null or magazine.is_empty():
+		return false
+	return magazine.slots[magazine.chamber_at_fire_port()] == Magazine.EMPTY
+
+
+func take_volley_blank_beat() -> bool:
+	## v0.4.29：连射里击发位是空仓 = 正常的一拍：不出弹、不结算，只把转轮转一格（UI 按整拍间隔播）。
+	if not _volley_pending or not volley_port_empty():
+		return false
+	_advance_cylinder_one_step()
+	_log("空仓空响一拍（转到槽 %d）。" % magazine.start_index)
+	_emit()
+	return true
 
 
 func take_volley_shot() -> Array:

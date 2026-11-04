@@ -34,7 +34,7 @@ func test_volley_interval_constants() -> void:
 	assert_gte(CombatState.volley_shot_interval_sec(), CombatConstants.MIN_FIRE_INTERVAL_SEC, "射速帽是下限")
 	assert_gt(CombatState.volley_rotate_sec(), 0.1, "转一格要看得清")
 	assert_lte(CombatState.volley_rotate_sec(), CombatState.volley_shot_interval_sec(), "转一格放在间隔内")
-	assert_lt(CombatConstants.VOLLEY_EMPTY_SKIP_SEC, CombatState.volley_shot_interval_sec(), "空仓快转，不等整格")
+	assert_false((load("res://scripts/combat/combat_constants.gd") as GDScript).get_script_constant_map().has("VOLLEY_EMPTY_SKIP_SEC"), "v0.4.29 空仓不再快转")
 	assert_false(CombatConstants.LOAD_FULL_RANDOM_SPIN)
 
 

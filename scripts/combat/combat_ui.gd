@@ -223,6 +223,7 @@ var _ammo_detail_body: RichTextLabel = null
 var _shop: ShopState = ShopState.new()
 var _shop_open: bool = false
 var _shop_temps: Array = []
+var _shop_disc_temps: Array = []  ## v0.4.29 店里弃牌堆的临时寿命（与 _shop.discard 同序）
 var _volley_ui_running: bool = false
 ## v0.4.24：连射步进中（用慢一点、看得清的转一格动画）；上一发转盘动画时长（未乘速度）。
 var _volley_stepping: bool = false
@@ -1209,6 +1210,12 @@ func _process(delta: float) -> void:
 		_update_enemy_glide_visuals()
 	if has_hp_hold() and _in_flight_shots <= 0 and not is_shooting():
 		release_all_hp_holds()  # 保险：没有子弹在飞就不该再留着旧血量
+	if not _dying_until.is_empty():
+		var now_ms: int = Time.get_ticks_msec()
+		for deid in _dying_until.keys():
+			if now_ms >= int(_dying_until[deid]):
+				_refresh_board()  # 死亡动画播完：清掉小动物
+				break
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
 	_update_sandbox_stats_hud()
@@ -1424,7 +1431,8 @@ func _run_fire_press() -> void:
 		await _play_roll_spin_visual(spin_steps)
 	await _present_resolved_fire_async(pack)
 	if state != null and state.is_volley_pending():
-		await _run_volley_autofire()
+		# 第一拍就是空仓（逻辑没出弹）：立刻空响这一拍，不先等间隔
+		await _run_volley_autofire(pack.get("shots", []).is_empty())
 	_display_hold.clear()
 	_volley_ui_running = false
 	_snap_disk_to_logic()
@@ -1558,7 +1566,7 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 		_set_disk_mod(float(sb))
 		if skip > 0:
 			_wheel_animating = true
-			await _animate_disk_to(_wheel_visual_steps + float(skip), maxf(_paced(CombatConstants.VOLLEY_EMPTY_SKIP_SEC) * float(skip), 0.02))
+			await _animate_disk_to(_wheel_visual_steps + float(skip), maxf(_paced(CombatState.volley_rotate_sec()) * float(skip), 0.02))
 		# 保险：红圈下必须就是本发仓（FIRE_PORT_OFFSET=0 → 盘面步数=仓号）
 		if ring_slot_from_disk() != slot:
 			_set_disk_mod(float(posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)))
@@ -1610,23 +1618,22 @@ func _set_disk_mod(target_mod: float) -> void:
 		_apply_disk_rotation(cur + d)
 
 
-func _run_volley_autofire() -> void:
-	## v0.4.25：打一发 → 转一格 →（空仓快跳到有弹）→ 等间隔 → 下一发。
-	## 等待前先 advance_empty_chambers，红圈停在下一发实弹上。
+func _run_volley_autofire(immediate_first: bool = false) -> void:
+	## v0.4.29：每一拍 = 等间隔 →（有弹）闪 → 出膛 → 转一格；（空仓）同样停留 → 转一格，什么也不发生。
+	## 空仓绝不快跳。打完最后一颗已装弹即结束（后面的空仓不再空转）。
 	_volley_stepping = true
+	var skip_wait: bool = immediate_first
 	while state != null and state.is_volley_pending():
-		# 先把锤位/红圈对准下一发实弹，再进入间隔等待
-		var skip_n: int = state.advance_empty_chambers()
-		if skip_n > 0:
-			_snap_fire_disk()
-			var skip_dur: float = _paced(CombatConstants.VOLLEY_EMPTY_SKIP_SEC) * float(skip_n)
-			await _animate_disk_to(_wheel_visual_steps + float(skip_n), maxf(skip_dur, 0.02))
-			_refresh_mag_contents()
-		var wait_s: float = maxf(state.volley_wait_before_next_sec(), 0.02)
-		await _pwait(_paced(wait_s))
+		if not skip_wait:
+			var wait_s: float = maxf(state.volley_wait_before_next_sec(), 0.02)
+			await _pwait(_paced(wait_s))
+		skip_wait = false
 		if state == null or not state.is_volley_pending():
 			break
 		_snap_fire_disk()
+		if state.volley_port_empty():
+			await _present_blank_beat()
+			continue
 		var visual_before: float = _wheel_visual_steps
 		var start_before: int = state.magazine.start_index if state.magazine != null else 0
 		_pending_hit_vfx.clear()
@@ -1645,6 +1652,32 @@ func _run_volley_autofire() -> void:
 			break
 		await _present_tap_shots(more, hit_events, visual_before, start_before)
 	_volley_stepping = false
+
+
+## 空拍审计：[{ring, slot, ms}]（测试/演示核对红圈 = 空响的那一仓、拍长与实弹一致）
+var blank_audit: Array = []
+
+
+func _present_blank_beat() -> void:
+	## 空仓一拍：红圈对准这一空仓 → 停留（与实弹出膛停留同长）→ 转一格（与实弹同长）。
+	if state == null or state.magazine == null:
+		return
+	var n := CombatConstants.MAGAZINE_SIZE
+	var slot: int = state.magazine.chamber_at_fire_port()
+	_set_disk_mod(float(posmod(state.magazine.start_index, n)))
+	if ring_slot_from_disk() != slot:
+		_set_disk_mod(float(posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)))
+	blank_audit.append({"ring": ring_slot_from_disk(), "slot": slot, "ms": Time.get_ticks_msec()})
+	if blank_audit.size() > 200:
+		blank_audit.pop_front()
+	if not state.take_volley_blank_beat():
+		return
+	await _pwait(_paced(VOLLEY_FIRE_HOLD_SEC))
+	var rot_sec: float = CombatState.volley_rotate_sec()
+	_last_fire_rot_sec = rot_sec
+	_wheel_animating = true
+	await _animate_disk_to(_wheel_visual_steps + 1.0, _paced(rot_sec))
+	_refresh_mag_contents()
 
 
 func _on_fire_disk_tween_done(tw: Tween) -> void:
@@ -1734,11 +1767,20 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 			if int(ev.get("cell", -2)) == c:
 				evs.append(ev)
 				remaining.erase(ev)
+		var wg: Vector2 = _cell_unit_global_center(c)
+		for ev2 in evs:
+			if ev2.has("enemy"):
+				var eg: Vector2 = _enemy_hit_global(ev2["enemy"])
+				if eg != Vector2.ZERO:
+					wg = eg
+				break
 		waypoints.append({
-			"g": _cell_unit_global_center(c), "cell": c,
+			"g": wg, "cell": c,
 			"amount": int(hit_amts[i]) if i < hit_amts.size() else 0,
 			"hit_index": -1, "events": evs,
 		})
+	if not waypoints.is_empty() and Vector2(waypoints[waypoints.size() - 1]["g"]) != Vector2.ZERO:
+		to_g = waypoints[waypoints.size() - 1]["g"]  # v0.4.29：飞向那只敌人此刻的位置，不是格子中心
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder: bool = shot_has_powder(ammo_id, rec.get("muzzle_outline_ids", []))
 	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder, DataRegistry.is_sin_ammo(ammo_id))
@@ -2063,11 +2105,20 @@ func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 			# 理论上不会复活；保险起见重建
 			sk.queue_free()
 			_skel_enemies.erase(eid)
-	# 清掉已离场的
+	# 清掉已离场的（子弹还没打到 / 正在播死亡的先留着）
 	var drop: Array = []
 	for eid2 in _skel_enemies.keys():
-		if not live_ids.has(eid2):
-			drop.append(eid2)
+		if live_ids.has(eid2):
+			continue
+		if _hp_resolving:
+			continue  # 开火逻辑结算中：先别清，等 hold 记好
+		if _skel_keep_offstate(int(eid2)):
+			var ksk: SkeletonEnemy = _skel_enemies[eid2] as SkeletonEnemy
+			if ksk != null and is_instance_valid(ksk) and not _hp_hold.has(eid2) and not ksk.is_dead:
+				ksk.set_hp(0, 1)
+				ksk.play_death()
+			continue
+		drop.append(eid2)
 	for eid3 in drop:
 		var oldsk: SkeletonEnemy = _skel_enemies[eid3] as SkeletonEnemy
 		if oldsk != null and is_instance_valid(oldsk):
@@ -3063,10 +3114,15 @@ func _tick_screen_punch(delta: float) -> void:
 var _hp_hold: Dictionary = {}  # enemy instance id → {"hp": int, "e": EnemyInstance, "t": msec}
 
 
+## v0.4.29：开火逻辑结算中（snapshot → hold 之间）不清走小动物；结算完按「留住的血」再同步。
+var _hp_resolving: bool = false
+
+
 func _snapshot_enemy_hp() -> Dictionary:
 	var out: Dictionary = {}
 	if state == null:
 		return out
+	_hp_resolving = true
 	for e in state.enemies:
 		if e != null:
 			out[e.get_instance_id()] = [e, int(e.hp)]
@@ -3082,8 +3138,8 @@ func _hold_hp_changes(before: Dictionary) -> void:
 			continue
 		if int(e.hp) < int(pair[1]) and not _hp_hold.has(eid):
 			_hp_hold[eid] = {"hp": int(pair[1]), "e": e, "t": now}
-	if not _hp_hold.is_empty():
-		_refresh_board()
+	_hp_resolving = false
+	_refresh_board()
 
 
 func display_hp(e: EnemyInstance) -> int:
@@ -3108,6 +3164,7 @@ func _release_hp_hold_at_cell(cell: int) -> void:
 		var e: EnemyInstance = _hp_hold[eid]["e"]
 		if e == null or not is_instance_valid(e) or int(e.cell) == cell or cell < 0:
 			_hp_hold.erase(eid)
+			_note_hold_released(e)
 			hit = true
 	if hit:
 		_refresh_board()
@@ -3116,11 +3173,41 @@ func _release_hp_hold_at_cell(cell: int) -> void:
 func release_all_hp_holds() -> void:
 	if _hp_hold.is_empty():
 		return
+	for eid in _hp_hold.keys():
+		_note_hold_released(_hp_hold[eid]["e"])
 	_hp_hold.clear()
 	_refresh_board()
 
 
+## v0.4.29：逻辑里已被清掉（死了）的敌人，小动物要留到子弹画面上打到它那一刻，
+## 然后播死亡再淡出——不能开火当帧就消失（否则子弹飞到一块空地上喷血）。
+const DYING_SKEL_SEC := 0.9
+var _dying_until: Dictionary = {}  # enemy instance id → 保留到的 ticks_msec
+
+
+func _note_hold_released(e) -> void:
+	if e == null or not is_instance_valid(e) or state == null:
+		return
+	var en: EnemyInstance = e as EnemyInstance
+	if state.enemies.has(en) and en.is_alive():
+		return
+	_dying_until[en.get_instance_id()] = Time.get_ticks_msec() + int(DYING_SKEL_SEC * 1000.0)
+
+
+func _skel_keep_offstate(eid: int) -> bool:
+	## 不在逻辑敌人表里，但画面上还要留着：血量还被「留住」（子弹没到），或正在播死亡。
+	if _hp_hold.has(eid):
+		return true
+	if _dying_until.has(eid):
+		if Time.get_ticks_msec() < int(_dying_until[eid]):
+			return true
+		_dying_until.erase(eid)
+	return false
+
+
 func _spawn_hit_event(ev: Dictionary) -> void:
+	if ev.has("enemy"):
+		_release_hp_hold_for(ev.get("enemy"))
 	_release_hp_hold_at_cell(int(ev.get("cell", -1)))
 	if ev.has("gold_drop"):
 		_spawn_gold_drop_now(int(ev["gold_drop"]), int(ev.get("cell", -1)), int(ev.get("amount", 0)))
@@ -3132,14 +3219,107 @@ func _spawn_hit_event(ev: Dictionary) -> void:
 		_spawn_explosion_vfx(int(ev.get("cell", -1)), int(ev.get("n_side", 1)))
 	var cell: int = int(ev.get("cell", -1))
 	var amount: int = int(ev.get("amount", 0))
+	if ev.has("enemy"):
+		_spawn_enemy_hit_fx(ev.get("enemy"), cell, amount, str(ev.get("kind", "")), bool(ev.get("lethal", false)))
+		return
+	# 旧事件（无敌人绑定）：该格没有敌人（活的或刚死的尸体）就不喷，避免空中飙血
+	if _front_enemy_at_cell(cell) == null and not _enemy_corpse_at_cell(cell):
+		air_blood_skipped += 1
+		return
 	_play_enemy_hurt_visual(cell)
 	_spawn_damage_float(cell, amount, str(ev.get("kind", "")))
 	_spawn_blood_at_cell(cell, amount, _enemy_corpse_at_cell(cell))
 
 
+## v0.4.29 命中特效只认「这一发打中的那只」：它在本发命中前已经（画面上）死掉/消失 → 不飙血不飘字（哑火穿过）。
+var _visual_dead: Dictionary = {}  # enemy instance id → true（致死那一下已播）
+var _enemy_last_hit_g: Dictionary = {}  # enemy instance id → 最后可见位置（敌人已被清掉时兜底）
+var air_blood_skipped: int = 0  # 测试/演示：被拦下的「空中飙血」次数
+var hit_fx_log: Array = []  # 测试：[{eid, g, lethal}] 每次真的喷了血的位置
+
+
+func _release_hp_hold_for(e) -> void:
+	if e == null or not is_instance_valid(e):
+		return
+	var eid: int = (e as EnemyInstance).get_instance_id()
+	if _hp_hold.has(eid):
+		_hp_hold.erase(eid)
+		_note_hold_released(e)
+		_refresh_board()
+
+
+func _enemy_hit_global(e: EnemyInstance) -> Vector2:
+	## 这只敌人此刻的受击点（身体中心）。小动物在就用小动物；不在场返回 ZERO。
+	if e == null or not is_instance_valid(e):
+		return Vector2.ZERO
+	var eid: int = e.get_instance_id()
+	var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+	if sk != null and is_instance_valid(sk) and sk.is_inside_tree() and sk.visible:
+		var g: Vector2 = sk.global_position - Vector2(0.0, UNIT_H * 0.5)
+		_enemy_last_hit_g[eid] = g
+		return g
+	if state != null and state.enemies.has(e):
+		var g2: Vector2 = Vector2.ZERO
+		if state.free_walk:
+			g2 = _enemy_foot_global(e) - Vector2(0.0, UNIT_H * 0.5)
+		else:
+			var slot: Control = board_row.get_child(int(e.cell)) as Control if board_row != null and int(e.cell) >= 0 and int(e.cell) < board_row.get_child_count() else null
+			if slot != null:
+				g2 = slot.get_global_rect().get_center()
+		if g2 != Vector2.ZERO:
+			_enemy_last_hit_g[eid] = g2
+		return g2
+	return Vector2.ZERO
+
+
+func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) -> void:
+	if e == null or not is_instance_valid(e):
+		air_blood_skipped += 1
+		return
+	var en: EnemyInstance = e as EnemyInstance
+	var eid: int = en.get_instance_id()
+	if _visual_dead.has(eid):
+		# 目标已在之前某一下的命中里死掉/炸开：这发哑火，不在空气里喷血
+		air_blood_skipped += 1
+		return
+	var at_g: Vector2 = _enemy_hit_global(en)
+	if at_g == Vector2.ZERO:
+		air_blood_skipped += 1
+		return
+	if lethal:
+		_visual_dead[eid] = true
+		if _visual_dead.size() > 512:
+			_visual_dead.clear()
+			_visual_dead[eid] = true
+	var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+	if sk != null and is_instance_valid(sk) and not sk.is_dead:
+		sk.play_hurt()
+	_spawn_damage_float(cell, amount, kind, at_g)
+	if amount <= 0:
+		return
+	var dir := Vector2.ZERO
+	if (not lethal) and _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
+		dir = _blood_spray_dir
+	_spawn_blood_burst(at_g, amount, dir, lethal)
+	hit_fx_log.append({"eid": eid, "g": at_g, "lethal": lethal})
+	if hit_fx_log.size() > 200:
+		hit_fx_log.pop_front()
+	if lethal:
+		_spawn_gore_for_enemy(en, at_g)
+
+
 func _on_enemy_damaged(cell: int, amount: int, kind: String = "") -> void:
+	var e: EnemyInstance = state.last_damaged_enemy if state != null else null
+	var lethal: bool = state.last_damage_lethal if state != null else false
 	if _defer_hit_vfx:
-		_pending_hit_vfx.append({"cell": cell, "amount": amount, "kind": kind})
+		var ev := {"cell": cell, "amount": amount, "kind": kind}
+		if e != null:
+			ev["enemy"] = e
+			ev["lethal"] = lethal
+		_pending_hit_vfx.append(ev)
+		return
+	if e != null:
+		_spawn_enemy_hit_fx(e, cell, amount, kind, lethal)
 		return
 	_play_enemy_hurt_visual(cell)
 	_spawn_damage_float(cell, amount, kind)
@@ -3195,6 +3375,26 @@ func _ensure_gore_layer() -> GoreLayer:
 	_gore_layer.z_index = Z_SHOT_VFX - 2
 	add_child(_gore_layer)
 	return _gore_layer
+
+
+func _spawn_gore_for_enemy(e: EnemyInstance, at_g: Vector2) -> int:
+	if e == null or not is_instance_valid(e):
+		return 0
+	var eid: int = e.get_instance_id()
+	if _gore_done.has(eid):
+		return 0
+	_gore_done[eid] = true
+	if _gore_done.size() > 256:
+		_gore_done.clear()
+		_gore_done[eid] = true
+	var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+	if sk == null or not is_instance_valid(sk):
+		sk = (load("res://scenes/enemy/skeleton_enemy.tscn") as PackedScene).instantiate() as SkeletonEnemy
+		sk.setup(int(e.def_id))
+		var pcs0: Array = sk.gore_pieces()
+		sk.free()
+		return _ensure_gore_layer().spawn(pcs0, at_g, _board_ground_global_y(), _gore_bias())
+	return _ensure_gore_layer().spawn(sk.gore_pieces(), at_g, _board_ground_global_y(), _gore_bias())
 
 
 func _spawn_gore_for_cell(cell: int, at_g: Vector2) -> int:
@@ -3347,8 +3547,9 @@ func _spawn_xp_orb_now(cell: int, amount: int) -> void:
 		orb.setup(origin + Vector2(randf_range(-12, 12), randf_range(-10, 8)), Callable(self, "_xp_target_global"))
 
 
-func _spawn_damage_float(cell: int, amount: int, kind: String = "") -> void:
+func _spawn_damage_float(cell: int, amount: int, kind: String = "", at_g: Vector2 = Vector2.ZERO) -> void:
 	## 从敌人格弹出 -N；状态伤（流血/燃烧/导电/汽油）带状态名。二次贝塞尔弧线上升并淡出。
+	## v0.4.29：at_g 给定 = 从那只敌人身上弹（自由行走时敌人不在格中心）。
 	if amount <= 0 or board_row == null:
 		return
 	if cell < 0 or cell >= board_row.get_child_count():
@@ -3359,7 +3560,7 @@ func _spawn_damage_float(cell: int, amount: int, kind: String = "") -> void:
 	var anchor: Control = panel.get_node_or_null("UnitBody") as Control
 	if anchor == null or not anchor.visible:
 		anchor = panel
-	var start_g: Vector2 = anchor.get_global_rect().get_center()
+	var start_g: Vector2 = at_g if at_g != Vector2.ZERO else anchor.get_global_rect().get_center()
 	start_g.x += randf_range(-28.0, 28.0)
 	start_g.y += randf_range(-18.0, 10.0)
 	var lab := Label.new()
@@ -3601,7 +3802,10 @@ func _open_rush_shop() -> void:
 	state._sync_temp_arrays()
 	for i in state.bag.size():
 		_shop_temps.append(state.bag_temp[i] if i < state.bag_temp.size() else 0.0)
-	_shop.begin(state.gold, state.bag.duplicate(), state.shop_spawn_count, seed_v)
+	_shop_disc_temps.clear()
+	for i in state.discard.size():
+		_shop_disc_temps.append(state.discard_temp[i] if i < state.discard_temp.size() else 0.0)
+	_shop.begin(state.gold, state.bag.duplicate(), state.shop_spawn_count, seed_v, state.discard.duplicate())
 	_shop_open = true
 	state.shop_hold = true
 	_shop_panel.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -3674,49 +3878,72 @@ func _refresh_rush_shop_stock() -> void:
 
 
 func _refresh_rush_shop_bag() -> void:
+	## v0.4.29：袋内 + 弃牌堆一起列出，各自一行、各自删（删哪堆就从哪堆扣）。
 	for c in _shop_bag_list.get_children():
 		c.queue_free()
 	var title := Label.new()
-	title.text = "袋内可删（下次移除 %d 金 · 本店已删 %d 次）· 共 %d 发" % [
-		_shop.next_remove_cost(), _shop.removes_done, _shop.bag.size()
+	title.name = "ShopRemoveTitle"
+	title.text = "可删（袋内 + 弃牌堆 · 下次移除 %d 金 · 本店已删 %d 次）· 袋 %d 发 · 弃 %d 发" % [
+		_shop.next_remove_cost(), _shop.removes_done, _shop.bag.size(), _shop.discard.size()
 	]
 	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_shop_bag_list.add_child(title)
-	if _shop.bag.is_empty():
+	if _shop.bag.is_empty() and _shop.discard.is_empty():
 		var empty := Label.new()
 		empty.text = "（空）"
 		_shop_bag_list.add_child(empty)
 		return
-	var counts: Dictionary = {}
-	var order: Array = []
-	for ammo_id in _shop.bag:
-		var idv: int = int(ammo_id)
-		if not counts.has(idv):
-			order.append(idv)
-			counts[idv] = 0
-		counts[idv] = int(counts[idv]) + 1
-	for ammo_id in order:
-		var def: Dictionary = DataRegistry.get_ammo(int(ammo_id))
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		row.add_child(make_ammo_chip(int(ammo_id)))
-		var info := Label.new()
-		info.text = "%s ×%d" % [str(def.get("name", ammo_id)), int(counts[ammo_id])]
-		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		row.add_child(info)
-		var btn := Button.new()
-		var aid: int = int(ammo_id)
-		var idx := _shop.bag.find(aid)
-		if DataRegistry.is_sin_ammo(aid):
-			btn.text = "不可去除"
-			btn.disabled = true
-		else:
-			btn.text = "移除 %d 金" % _shop.next_remove_cost()
-			btn.disabled = not _shop.can_remove_at(idx)
-			btn.pressed.connect(func(): _on_rush_shop_remove(aid))
-		btn.custom_minimum_size = Vector2(120, 36)
-		row.add_child(btn)
-		_shop_bag_list.add_child(row)
+	for pile in ["bag", "discard"]:
+		var arr: Array[int] = _shop.pile_array(pile)
+		if arr.is_empty():
+			continue
+		var counts: Dictionary = {}
+		var order: Array = []
+		for ammo_id in arr:
+			var idv: int = int(ammo_id)
+			if not counts.has(idv):
+				order.append(idv)
+				counts[idv] = 0
+			counts[idv] = int(counts[idv]) + 1
+		for ammo_id in order:
+			var def: Dictionary = DataRegistry.get_ammo(int(ammo_id))
+			var row := HBoxContainer.new()
+			row.name = "RemoveRow_%s_%d" % [pile, int(ammo_id)]
+			row.add_theme_constant_override("separation", 8)
+			row.add_child(make_ammo_chip(int(ammo_id)))
+			var info := Label.new()
+			info.text = "[%s] %s ×%d" % ["袋" if pile == "bag" else "弃", str(def.get("name", ammo_id)), int(counts[ammo_id])]
+			if pile == "discard":
+				info.add_theme_color_override("font_color", Color(0.78, 0.8, 0.88))
+			info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			row.add_child(info)
+			var btn := Button.new()
+			var aid: int = int(ammo_id)
+			var idx := arr.find(aid)
+			var pl: String = pile
+			if DataRegistry.is_sin_ammo(aid):
+				btn.text = "不可去除"
+				btn.disabled = true
+			else:
+				btn.text = "移除 %d 金" % _shop.next_remove_cost()
+				btn.disabled = not _shop.can_remove_from(pl, idx)
+				btn.pressed.connect(func(): _on_rush_shop_remove(aid, pl))
+			btn.custom_minimum_size = Vector2(120, 36)
+			row.add_child(btn)
+			_shop_bag_list.add_child(row)
+
+
+func shop_remove_rows() -> Array:
+	## 测试/演示：当前商店删除列表 [{pile, id, count}]。
+	var out: Array = []
+	if _shop_bag_list == null:
+		return out
+	for row in _shop_bag_list.get_children():
+		if row.is_queued_for_deletion() or not str(row.name).begins_with("RemoveRow_"):
+			continue
+		var parts: PackedStringArray = str(row.name).split("_")
+		out.append({"pile": parts[1], "id": int(parts[2])})
+	return out
 
 
 func _on_rush_shop_buy(slot: int) -> void:
@@ -3725,13 +3952,15 @@ func _on_rush_shop_buy(slot: int) -> void:
 		_refresh_rush_shop_panel()
 
 
-func _on_rush_shop_remove(ammo_id: int) -> void:
-	var idx := _shop.bag.find(ammo_id)
+func _on_rush_shop_remove(ammo_id: int, pile: String = "bag") -> void:
+	var arr: Array[int] = _shop.pile_array(pile)
+	var idx := arr.find(ammo_id)
 	if idx < 0:
 		return
-	if _shop.remove_at(idx):
-		if idx >= 0 and idx < _shop_temps.size():
-			_shop_temps.remove_at(idx)
+	if _shop.remove_from(pile, idx):
+		var temps: Array = _shop_disc_temps if pile == "discard" else _shop_temps
+		if idx < temps.size():
+			temps.remove_at(idx)
 		_refresh_rush_shop_panel()
 
 
@@ -3748,8 +3977,12 @@ func _on_rush_shop_leave() -> void:
 		get_tree().paused = false
 	if state != null:
 		state.shop_hold = false
-		state.apply_shop_session(payload.get("bag", []), _shop_temps, int(payload.get("gold", state.gold)))
+		state.apply_shop_session(
+			payload.get("bag", []), _shop_temps, int(payload.get("gold", state.gold)),
+			payload.get("discard", []), _shop_disc_temps
+		)
 	_shop_temps.clear()
+	_shop_disc_temps.clear()
 	_shop_open = false
 	if dimmer != null and not _reward_open:
 		dimmer.process_mode = Node.PROCESS_MODE_INHERIT

@@ -192,7 +192,8 @@ func _start_ui_and_kill(levels: int):
 	await wait_seconds(0.5)  # 滑到半格
 	var target = cs.enemies[0]
 	for e in cs.enemies:
-		if e.cell < target.cell:
+		# v0.4.29：自由行走同格可能有两只，子弹打最靠前（pos_x 最小）的那只
+		if e.cell < target.cell or (e.cell == target.cell and e.pos_x < target.pos_x):
 			target = e
 	target.hp = 1
 	var need := 0
@@ -202,6 +203,11 @@ func _start_ui_and_kill(levels: int):
 	cs.xp = need - 1
 	ui._on_fire()
 	await wait_process_frames(3)
+	# v0.4.29：击发位是空仓时先空响整拍（不再快跳），等到真正打出那一发
+	var w := 0
+	while not cs.reward_pending and (ui._volley_ui_running or cs.is_volley_pending()) and w < 120:
+		w += 1
+		await wait_seconds(0.03)
 	return ui
 
 

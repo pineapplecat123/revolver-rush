@@ -1,3 +1,11 @@
+## 2026-11-04 — v0.4.29 不在空中喷血 / 空仓算一拍 / 袋内小球性能 / 商店删弃牌
+- 空中飙血根因：逻辑开火当帧就把打死的敌人从 enemies 里清掉 → 下一次刷新小动物立刻消失，子弹飞到时按「格子」找位置 → 空地喷血（自由行走时格子中心本来也不在敌人身上）。修法：`_notify_enemy_damage` 记 `last_damaged_enemy/last_damage_lethal`，UI 延后事件带上 `enemy/lethal`；命中时按那只敌人的小动物位置喷（`_enemy_hit_global`），它已在之前某下致死（`_visual_dead`）或已离场 → 哑火（`air_blood_skipped`）。开火结算期间（`_hp_resolving`）不清小动物；被「留血」的死敌小动物留到命中，再播死亡 `DYING_SKEL_SEC` 0.9s 后清。弹道终点/航点改为敌人当前位置。旧的纯格子事件：该格没敌人就不喷。
+- 空仓一拍：`fire_tap(false)` 击发位空 → 不开火、直接挂连射；UI `_run_volley_autofire` 每拍：等间隔 →（空）`_present_blank_beat`：红圈对准空仓、停 VOLLEY_FIRE_HOLD_SEC、转一格 volley_rotate_sec（与实弹拍同长）、`take_volley_blank_beat()` 逻辑转一格。删 VOLLEY_EMPTY_SKIP_SEC。结束规则：打完最后一颗已装弹就结束（`_volley_should_continue` 匣空即停），不空转剩余空仓。同步结算（测试/resolve_sync）仍一次跳过空仓（无时间概念，结果一致）。`blank_audit` 记录空拍。
+- 袋内性能：`_style_cache`（颜色/字/稀有度每种只查一次）、字形偏移缓存；queue_redraw 从 _physics_process 挪到 _process 且只在有球动/有动态特效/有啵圈时（以前低帧率一帧多次物理步→重复 _draw）；碰撞按 x 排序扫掠（PackedInt64Array 原生排序）+ 双睡跳过；RarityFx：锯齿环按原点缓存后平移、同帧同种流光/七彩色只算一次、单位圆点缓存、环带与星形填充改一次三角形数组（`_fill_star`/`_fill_convex`，修掉每帧「Invalid polygon data, triangulation failed」刷屏）。基准 `tools/rr_bag_bench.gd`（xvfb/llvmpipe，72 混合球）：袋绘制 3.4→2.65 ms/帧、物理 0.68→0.20 ms/帧、帧时 ~14.6→~12.9 ms；150 球：帧时 65.5→~24 ms（15→42 fps），绘制 30→5.3 ms/帧、物理 11.7→1.0 ms/帧。
+- 商店：ShopState 带 `discard`、`remove_from(pile, idx)`；UI 删除列表 [袋]/[弃] 分行；离店 `apply_shop_session(..., discard, discard_temps)` 重建弃牌并按 袋+膛+弃 重拍基线。
+- 顺手：v0.4.28 changelog 删掉「升级面板也等子弹落地再弹」（实际没做）。v039 测试改为按最靠前那只选目标、等空拍打完。
+- GUT 432/432；`test_rr_v0429`。演示 /workspace/rr-demo-vids/v429_batch.mp4（19s）。
+
 ## 2026-11-04 — v0.4.28 命中才掉血 / 罪孽危险特效 / 视野外走进+速度差+重叠 / 删连发倾泻 / 火药加亮 / 肢体更远+血迹
 - 命中才掉血：逻辑仍在开火当帧结算（确定性、测试、升级时机不变）。UI 在 fire_tap / take_volley_shot 前后对比敌人血量，把掉了血的敌人「留住」开火前血量（`_hp_hold` / `display_hp`），子弹飞到该格（航点命中或命中事件）才放开；骷髅血条与死亡动画读 display_hp。金币爆出/经验球在射击结算中改为挂进命中事件，命中帧才生成。无子弹在飞时兜底全部放开。升级面板仍立即弹（期间全场冻结，飞行中子弹也停）。
 - 罪孽危险特效：`RarityFx.TIER_SIN`（DataRegistry.is_sin_ammo，含临时罪孽）盖过稀有度：黑红锯齿环带（每 1/18 秒抽动）+ 红描边 + 不规则忽闪 + 黑红余烬上飘 + 字体暗红描边；弹仓/袋/商店/三选一/沙盒。飞行：外层黑红光带（忽闪）+ SinSmoke 黑烟 + SinEmbers 红火星（与火药共用并发上限 10）。
