@@ -249,8 +249,16 @@ func test_player_status_rings_sit_on_anchor() -> void:
 		assert_almost_eq(anchor.y, top.y, 1.0)
 	cs.enemies[0].burn_stacks = 3
 	ui._update_burn_vfx()
-	var unit: Control = ui.board_row.get_child(cs.enemies[0].cell).get_node("UnitBody")
-	assert_not_null(unit.get_node_or_null("BurnVfx"))
+	# v0.4.34：BurnVfx 挂在 SkeletonEnemy（自由走）或 UnitBody 上
+	var burn_host: Node = null
+	var eid_b: int = cs.enemies[0].get_instance_id()
+	var sk_b: SkeletonEnemy = ui._skel_enemies.get(eid_b) as SkeletonEnemy
+	if sk_b != null and is_instance_valid(sk_b):
+		burn_host = sk_b.get_node_or_null("BurnVfx")
+	if burn_host == null:
+		var unit: Control = ui.board_row.get_child(cs.enemies[0].cell).get_node("UnitBody")
+		burn_host = unit.get_node_or_null("BurnVfx") if unit != null else null
+	assert_not_null(burn_host)
 	ui._spawn_explosion_vfx(cs.enemies[0].cell, 2)
 	var vfx = ui.find_child("ExplosionVfx", true, false)
 	assert_not_null(vfx)

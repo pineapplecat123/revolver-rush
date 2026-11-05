@@ -231,14 +231,14 @@
       "rarity": "uncommon",
       "base_damage": 3,
       "base_damage_mode": "fixed",
-      "special": "基础伤害3。命中后按本次实际造成伤害数，向袋内加入等量小石头弹药（TTL，战后/到期消失）。",
+      "special": "基础伤害3。命中后按本次实际造成伤害数，向袋内加入等量小石头弹药（TTL，战后/到期消失）。也可由相邻小石头在开火时逐步合成得到。",
       "tags": [
         "弹药增生"
       ],
       "enabled_in_combat": true,
       "ephemeral": false,
       "in_reward_pool": true,
-      "blurb": "命中产等量小石头入袋"
+      "blurb": "命中产小石头；亦可由小石头合成"
     },
     {
       "id": 32,
@@ -246,7 +246,7 @@
       "rarity": "common",
       "base_damage": 1,
       "base_damage_mode": "fixed",
-      "special": "基础伤害1。由石头命中生成（TTL）。点射时若锤位起相邻≥2颗小石头，则该段融合成1发射击，伤害=段长，并清空该段各仓。",
+      "special": "基础伤害1。由石头命中生成（TTL）。开火时若锤位是小石头且顺时针右侧相邻也是小石头，则逐颗飞入合成石头（每步可见动画）；连续段耗尽后打出该石头，伤害=max(石头基础3, 段长)。被合并清空的仓留空，之后按空仓规则处理（连射空响 / 点射跳过）。",
       "tags": [
         "衍生物",
         "合体"
@@ -254,7 +254,7 @@
       "enabled_in_combat": true,
       "ephemeral": true,
       "in_reward_pool": false,
-      "blurb": "相邻小石头点射融合"
+      "blurb": "相邻小石头逐步合成石头"
     },
     {
       "id": 33,

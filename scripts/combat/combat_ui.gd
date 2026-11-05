@@ -197,6 +197,10 @@ var _cell_shake_tweens: Dictionary = {}
 var _skel_player: SkeletonPlayer = null
 ## 小动物怪（纯表现）：EnemyInstance.get_instance_id() → SkeletonEnemy
 var _skel_enemies: Dictionary = {}
+## v0.4.34 燃烧特效池（挂骨骼/UnitBody，回收复用）
+var _burn_vfx_by_eid: Dictionary = {}
+var _burn_vfx_pool: Array = []
+
 ## 开火结算时暂存飘字/抖动，等射线飞到再播
 var _defer_hit_vfx: bool = false
 var _pending_hit_vfx: Array = []
@@ -1404,6 +1408,7 @@ func _on_fire() -> void:
 func _run_fire_press() -> void:
 	## v0.4.26：盘面先对齐逻辑锤位 → 逻辑随机转 + 第一发当帧结算（被打仓画面上保留）→ 播预转动画
 	## → 红圈下出膛 → 打一发转一格。全程 is_shooting()：装弹键灰掉、_refresh 不按逻辑硬对齐盘面。
+	## v0.4.34：若锤位起连续小石头≥2，先播逐步合成石头，再结算开火（仍保留预转+枪花）。
 	_display_hold.clear()
 	_snap_disk_to_logic()
 	_refresh()
@@ -1415,19 +1420,36 @@ func _run_fire_press() -> void:
 		and state.can_fire()
 	):
 		spin_steps = state.spin_cylinder_for_volley()
-	# 第一发逻辑仍在按下当帧结算（升级三选一时机不变）；画面上先留住被打掉的仓，
-	# 预转动画从「转前锤位」转到「转后锤位」，红圈下正是第一发，然后才出膛。
-	var pack: Dictionary = _resolve_fire_logic()
-	for rec in pack.get("shots", []):
-		if is_chamber_shot(rec):
-			_display_hold[int(rec["slot"])] = int(rec.get("ammo_id", -1))
-	_refresh_mag_contents()
-	if spin_steps > 0:
-		await _play_roll_spin_visual(spin_steps)
-	await _present_resolved_fire_async(pack)
-	if state != null and state.is_volley_pending():
-		# 第一拍就是空仓（逻辑没出弹）：立刻空响这一拍，不先等间隔
-		await _run_volley_autofire(pack.get("shots", []).is_empty())
+	var merge_run: int = 0
+	if state != null and state.can_fire():
+		merge_run = state.peek_pebble_merge_run()
+	if merge_run >= 2:
+		# 先让玩家看清转后锤位，再逐步合并，最后才逻辑开火
+		if spin_steps > 0:
+			await _play_roll_spin_visual(spin_steps)
+		await _play_pebble_merge_sequence(merge_run)
+		var pack_m: Dictionary = _resolve_fire_logic()
+		for rec in pack_m.get("shots", []):
+			if is_chamber_shot(rec):
+				_display_hold[int(rec["slot"])] = int(rec.get("ammo_id", -1))
+		_refresh_mag_contents()
+		await _present_resolved_fire_async(pack_m)
+		if state != null and state.is_volley_pending():
+			await _run_volley_autofire(pack_m.get("shots", []).is_empty())
+	else:
+		# 第一发逻辑仍在按下当帧结算（升级三选一时机不变）；画面上先留住被打掉的仓，
+		# 预转动画从「转前锤位」转到「转后锤位」，红圈下正是第一发，然后才出膛。
+		var pack: Dictionary = _resolve_fire_logic()
+		for rec in pack.get("shots", []):
+			if is_chamber_shot(rec):
+				_display_hold[int(rec["slot"])] = int(rec.get("ammo_id", -1))
+		_refresh_mag_contents()
+		if spin_steps > 0:
+			await _play_roll_spin_visual(spin_steps)
+		await _present_resolved_fire_async(pack)
+		if state != null and state.is_volley_pending():
+			# 第一拍就是空仓（逻辑没出弹）：立刻空响这一拍，不先等间隔
+			await _run_volley_autofire(pack.get("shots", []).is_empty())
 	_display_hold.clear()
 	_volley_ui_running = false
 	_snap_disk_to_logic()
@@ -1629,6 +1651,9 @@ func _run_volley_autofire(immediate_first: bool = false) -> void:
 		if state.volley_port_empty():
 			await _present_blank_beat()
 			continue
+		var v_merge: int = state.peek_pebble_merge_run()
+		if v_merge >= 2:
+			await _play_pebble_merge_sequence(v_merge)
 		var visual_before: float = _wheel_visual_steps
 		var start_before: int = state.magazine.start_index if state.magazine != null else 0
 		_pending_hit_vfx.clear()
@@ -1647,6 +1672,83 @@ func _run_volley_autofire(immediate_first: bool = false) -> void:
 			break
 		await _present_tap_shots(more, hit_events, visual_before, start_before)
 	_volley_stepping = false
+
+
+
+const PEBBLE_MERGE_STEP_SEC := 0.38
+const PEBBLE_MERGE_POP_SEC := 0.12
+
+
+func _play_pebble_merge_sequence(run: int) -> void:
+	## v0.4.34：从锤位起，右侧第 1..run-1 颗小石头依次飞入锤位合成石头。
+	if state == null or run < 2:
+		return
+	_wheel_animating = true
+	_refresh_mag_contents()
+	for offset in range(1, run):
+		await _animate_one_pebble_merge(offset)
+		await _pwait(_paced(0.08))
+	state.mark_pebble_fuse_count(run)
+	_refresh_mag_contents()
+	_wheel_animating = false
+
+
+func _animate_one_pebble_merge(src_offset: int) -> void:
+	if state == null or state.magazine == null:
+		return
+	var hammer: int = state.magazine.chamber_at_fire_port()
+	var src: int = (hammer + src_offset) % CombatConstants.MAGAZINE_SIZE
+	if src < 0 or src >= _chamber_panels.size() or hammer < 0 or hammer >= _chamber_panels.size():
+		state.apply_pebble_merge_step(src_offset)
+		_refresh_mag_contents()
+		return
+	var from_p: Panel = _chamber_panels[src]
+	var to_p: Panel = _chamber_panels[hammer]
+	var fly := ColorRect.new()
+	fly.name = "PebbleMergeFly"
+	fly.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	fly.color = Color(0.72, 0.7, 0.62, 0.95)
+	fly.size = Vector2(18, 18)
+	fly.pivot_offset = fly.size * 0.5
+	# 放在 MagWheel 层，用全局坐标飞
+	var host: Control = mag_wheel if mag_wheel != null else self
+	host.add_child(fly)
+	fly.z_index = 20
+	var from_g: Vector2 = from_p.global_position + from_p.size * 0.5 - fly.size * 0.5
+	var to_g: Vector2 = to_p.global_position + to_p.size * 0.5 - fly.size * 0.5
+	fly.global_position = from_g
+	var tw := create_tween()
+	tw.set_parallel(true)
+	tw.tween_property(fly, "global_position", to_g, _paced(PEBBLE_MERGE_STEP_SEC)).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tw.tween_property(fly, "scale", Vector2(0.55, 0.55), _paced(PEBBLE_MERGE_STEP_SEC))
+	await tw.finished
+	if is_instance_valid(fly):
+		fly.queue_free()
+	# 逻辑合并 + 锤位爆闪
+	state.apply_pebble_merge_step(src_offset)
+	_refresh_mag_contents()
+	await _flash_chamber_merge_pop(hammer)
+
+
+func _flash_chamber_merge_pop(slot_i: int) -> void:
+	if slot_i < 0 or slot_i >= _chamber_panels.size():
+		await _pwait(_paced(PEBBLE_MERGE_POP_SEC))
+		return
+	var panel: Panel = _chamber_panels[slot_i]
+	var flash := ColorRect.new()
+	flash.name = "MergePop"
+	flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flash.color = Color(1.0, 0.92, 0.55, 0.85)
+	flash.size = panel.size * 1.15
+	flash.position = (panel.size - flash.size) * 0.5
+	flash.pivot_offset = flash.size * 0.5
+	panel.add_child(flash)
+	var tw := create_tween()
+	tw.tween_property(flash, "modulate:a", 0.0, _paced(PEBBLE_MERGE_POP_SEC)).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_OUT)
+	tw.parallel().tween_property(flash, "scale", Vector2(1.35, 1.35), _paced(PEBBLE_MERGE_POP_SEC))
+	await tw.finished
+	if is_instance_valid(flash):
+		flash.queue_free()
 
 
 ## 空拍审计：[{ring, slot, ms}]（测试/演示核对红圈 = 空响的那一仓、拍长与实弹一致）
@@ -5799,31 +5901,82 @@ func _position_map_shop() -> void:
 	ov.global_position = Vector2(gx, slot.global_position.y + _unit_rest_position().y)
 
 
-func _update_burn_vfx() -> void:
-	if board_row == null or state == null:
+func _acquire_burn_vfx() -> Node2D:
+	var fx: Node2D = null
+	while not _burn_vfx_pool.is_empty():
+		fx = _burn_vfx_pool.pop_back() as Node2D
+		if fx != null and is_instance_valid(fx):
+			break
+		fx = null
+	if fx == null:
+		fx = BurnVfxScript.new()
+		fx.name = "BurnVfx"
+	return fx
+
+
+func _release_burn_vfx(fx: Node2D) -> void:
+	if fx == null or not is_instance_valid(fx):
 		return
-	var burning := {}
+	if fx.get_parent() != null:
+		fx.get_parent().remove_child(fx)
+	if fx.has_method("set_burn_active"):
+		fx.call("set_burn_active", false)
+	fx.visible = false
+	if _burn_vfx_pool.size() < 12:
+		_burn_vfx_pool.append(fx)
+	else:
+		fx.queue_free()
+
+
+func _update_burn_vfx() -> void:
+	## v0.4.34：全身火+烟，优先挂 SkeletonEnemy，随走位；池化复用。
+	if state == null:
+		return
+	var live := {}
 	for e in state.enemies:
-		if e != null and e.is_alive() and e.burn_stacks > 0:
-			burning[e.cell] = true
-	for i in mini(CombatConstants.BOARD_SIZE, board_row.get_child_count()):
-		var slot: Control = board_row.get_child(i) as Control
-		if slot == null:
+		if e == null or not e.is_alive() or e.burn_stacks <= 0:
 			continue
-		var unit: Control = slot.get_node_or_null("UnitBody") as Control
-		if unit == null:
+		var eid: int = e.get_instance_id()
+		live[eid] = e
+		var fx: Node2D = _burn_vfx_by_eid.get(eid) as Node2D
+		var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+		var host: Node = null
+		var scale_mul := 1.0
+		if sk != null and is_instance_valid(sk) and not sk.is_dead:
+			host = sk
+			scale_mul = sk.scale.x if sk.scale.x > 0.01 else 1.0
+		elif board_row != null and e.cell >= 0 and e.cell < board_row.get_child_count():
+			var slot: Control = board_row.get_child(e.cell) as Control
+			if slot != null:
+				host = slot.get_node_or_null("UnitBody")
+		if host == null:
 			continue
-		var flames: Control = unit.get_node_or_null("BurnVfx") as Control
-		if burning.has(i):
-			if flames == null:
-				flames = BurnVfxScript.new()
-				flames.name = "BurnVfx"
-				unit.add_child(flames)
-			flames.visible = true
-			flames.position = Vector2(0, -4)
-			flames.size = unit.size
-		elif flames != null:
-			flames.visible = false
+		if fx == null or not is_instance_valid(fx):
+			fx = _acquire_burn_vfx()
+			_burn_vfx_by_eid[eid] = fx
+		if fx.get_parent() != host:
+			if fx.get_parent() != null:
+				fx.get_parent().remove_child(fx)
+			host.add_child(fx)
+		fx.visible = true
+		if fx.has_method("set_burn_active"):
+			fx.call("set_burn_active", true)
+		if fx.has_method("configure"):
+			var bw: float = UNIT_W if host is Control else 56.0
+			var bh: float = UNIT_H if host is Control else 100.0
+			if sk != null and is_instance_valid(sk):
+				bw = 56.0
+				bh = 110.0 if sk.is_boss else 96.0
+			fx.call("configure", bw, bh, scale_mul)
+		# 脚底对齐骨骼原点附近
+		fx.position = Vector2.ZERO
+	# 回收已熄灭/死亡的
+	for eid2 in _burn_vfx_by_eid.keys():
+		if live.has(eid2):
+			continue
+		var oldfx: Node2D = _burn_vfx_by_eid[eid2] as Node2D
+		_burn_vfx_by_eid.erase(eid2)
+		_release_burn_vfx(oldfx)
 
 
 func _update_player_status_rings() -> void:

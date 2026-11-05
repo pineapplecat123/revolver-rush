@@ -980,12 +980,12 @@
 		},
 		{
 			"copies": 2,
-			"dealt": 2,
-			"dps_proxy": 2.0,
+			"dealt": 3,
+			"dps_proxy": 3.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"id": 32,
-			"lift": -4,
+			"lift": -3,
 			"name": "小石头弹药",
 			"ops": 1,
 			"rarity": "common",
@@ -1645,8 +1645,8 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 196,
-			"dps_proxy": 65.3333333333333,
+			"dealt": 201,
+			"dps_proxy": 67.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#6",
@@ -1812,8 +1812,8 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 196,
-			"dps_proxy": 65.3333333333333,
+			"dealt": 201,
+			"dps_proxy": 67.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#6",
@@ -2949,5 +2949,5 @@
 			"shots": 1
 		}
 	],
-	"version": "0.4.33"
+	"version": "0.4.34"
 }

@@ -2651,6 +2651,67 @@ func _adjacent_pebble_run_from_hammer() -> int:
 	return n
 
 
+
+func peek_pebble_merge_run() -> int:
+	## 锤位起连续小石头段长；≥2 才需要逐步合并成石头。
+	return _adjacent_pebble_run_from_hammer()
+
+
+func apply_pebble_merge_step(src_offset: int = 1) -> Dictionary:
+	## v0.4.34：一步合并——锤位吸收顺时针第 src_offset 仓的小石头，锤位变为石头，源仓清空。
+	## src_offset 相对初始连续段（1=右侧第一颗）；不得跨原段空隙乱吞。
+	## 返回 {ok, from_slot, to_slot, stone_slot, src_offset}。
+	var out := {"ok": false, "from_slot": -1, "to_slot": -1, "stone_slot": -1, "src_offset": src_offset}
+	if magazine == null or src_offset < 1:
+		return out
+	var n: int = magazine.size()
+	var hammer: int = magazine.chamber_at_fire_port()
+	var at: int = magazine.slots[hammer]
+	if at != FireResolver.ID_PEBBLE and at != FireResolver.ID_STONE:
+		return out
+	var src: int = (hammer + src_offset) % n
+	if magazine.slots[src] != FireResolver.ID_PEBBLE:
+		return out
+	var src_temp: float = magazine.slot_temp_life(src)
+	# 锤位原小石头进弃牌；合成后仓内是石头，打出时 fuse 标记跳过再弃石头
+	if at == FireResolver.ID_PEBBLE:
+		var ham_temp: float = magazine.slot_temp_life(hammer)
+		_discard_append(FireResolver.ID_PEBBLE, ham_temp)
+	magazine.set_slot(src, Magazine.EMPTY, false)
+	_discard_append(FireResolver.ID_PEBBLE, src_temp)
+	magazine.set_slot(hammer, FireResolver.ID_STONE, false)
+	out["ok"] = true
+	out["from_slot"] = src
+	out["to_slot"] = hammer
+	out["stone_slot"] = hammer
+	hooks.emit_hook(&"on_pebble_fuse", {
+		"cs": self, "count": 1, "damage": 0, "step": true,
+		"from": src, "to": hammer, "offset": src_offset,
+	})
+	_emit()
+	return out
+
+
+func apply_all_pebble_merges_sync() -> int:
+	## 测试/无动画路径：一口气完成合并，返回段长（含锤位）。
+	var run0: int = peek_pebble_merge_run()
+	if run0 < 2:
+		_pebble_fuse_count = 0
+		return 0
+	for offset in range(1, run0):
+		var step: Dictionary = apply_pebble_merge_step(offset)
+		if not bool(step.get("ok", false)):
+			break
+	_pebble_fuse_count = run0
+	_log("小石头：相邻 ×%d 逐步合成石头（同步）。" % run0)
+	return run0
+
+
+func mark_pebble_fuse_count(run: int) -> void:
+	## UI 逐步合并后写入，供伤害加成与弃牌跳过。
+	_pebble_fuse_count = maxi(0, run)
+
+
 func _consume_pebble_fuse(count: int) -> void:
 	## 连续清空 count 个小石头仓并逐格推进转轮；全部进弃牌。
 	for _i in count:
@@ -2677,11 +2738,12 @@ func _maybe_spawn_pebbles_from_stone(ammo_id: int, dealt: int) -> void:
 
 
 func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -> void:
-	## 点射队列准备：聚能递增 / 小石头融合。写入 _fire_queue/_fire_damages/_pebble_fuse_count。
-	_pebble_fuse_count = 0
+	## 点射队列准备：聚能递增 / 小石头→石头合并伤害。保留已有 _pebble_fuse_count（UI/同步合并写入）。
+	var fuse_keep: int = _pebble_fuse_count
 	if full_order.is_empty():
 		_fire_queue = [] as Array[int]
 		_fire_damages = [] as Array[int]
+		_pebble_fuse_count = 0
 		return
 	var ammo0: int = int(full_order[0])
 	var dmg0: int = int(full_dmg[0])
@@ -2689,13 +2751,12 @@ func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -
 		dmg0 = _next_focus_damage()
 	elif ammo0 == FireResolver.ID_GOLD:
 		dmg0 = _gold_ammo_damage()
-	elif ammo0 == FireResolver.ID_PEBBLE:
-		var run: int = _adjacent_pebble_run_from_hammer()
-		if run >= 2:
-			_pebble_fuse_count = run
-			dmg0 = run
-			_log("小石头：相邻 ×%d 融合为 1 发（伤害 %d）。" % [run, dmg0])
-			hooks.emit_hook(&"on_pebble_fuse", {"cs": self, "count": run, "damage": dmg0})
+	elif ammo0 == FireResolver.ID_STONE and fuse_keep >= 2:
+		# v0.4.34：逐步合并完成后锤位是石头；伤害=max(石头基础, 段长)
+		_pebble_fuse_count = fuse_keep
+		dmg0 = maxi(dmg0, fuse_keep)
+	else:
+		_pebble_fuse_count = 0
 	_fire_queue = [ammo0] as Array[int]
 	_fire_damages = [dmg0] as Array[int]
 
@@ -2709,7 +2770,15 @@ func begin_fire() -> bool:
 	# 玩家主动开火开启新链；额外轮内的 begin_fire 保留累计授予数
 	if not _in_gold_extra_round:
 		_extra_autofires_granted_this_chain = 0
+	var ui_fuse: int = _pebble_fuse_count
 	_reset_fire_session()
+	# v0.4.34：无 UI 动画时同步合并；UI 已逐步合并则恢复 fuse 计数
+	if peek_pebble_merge_run() >= 2:
+		apply_all_pebble_merges_sync()
+	elif ui_fuse >= 2 and magazine != null:
+		var h: int = magazine.chamber_at_fire_port()
+		if magazine.slots[h] == FireResolver.ID_STONE:
+			_pebble_fuse_count = ui_fuse
 	var full_order: Array[int] = magazine.fire_order()
 	if full_order.is_empty():
 		return false
@@ -2794,13 +2863,10 @@ func fire_next_shot() -> bool:
 	var ammo_id: int = _fire_queue[_fire_index]
 	var base_dmg: int = _fire_damages[_fire_index]
 	var fuse_n: int = _pebble_fuse_count
-	if fuse_n >= 2 and ammo_id == FireResolver.ID_PEBBLE:
-		_consume_pebble_fuse(fuse_n)
+	# v0.4.34：合并已在开火前完成（锤位=石头，右侧已空）；这里只打出锤位，清 fuse 标记
+	if fuse_n >= 2:
 		_pebble_fuse_count = 0
-		shot_temp = 0.0  # 已在 fuse 内各自 discard
-		shot_envy = false
-	else:
-		_consume_hammer_chamber(ammo_id)
+	_consume_hammer_chamber(ammo_id)
 
 	var flags := FireResolver.inherits_from(ammo_id)
 	# 描边：开火前已在枪口的贡献色（不含本发刚挂上的罪孽）
