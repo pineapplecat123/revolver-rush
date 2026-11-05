@@ -473,6 +473,7 @@ func _part(parent: Node, pts: PackedVector2Array, col: Color, z: int) -> Polygon
 	var p := Polygon2D.new()
 	p.polygon = pts
 	p.color = col
+	p.antialiased = RrAa.poly()
 	p.z_index = z
 	parent.add_child(p)
 	return p

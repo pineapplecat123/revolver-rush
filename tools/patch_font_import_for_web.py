@@ -8,6 +8,7 @@ cs = ROOT.joinpath("tools/ui_charset.txt").read_text(encoding="utf-8")
 cs = "".join(ch for ch in cs if ch not in "\n\r")
 imp = ROOT / "assets/fonts/NotoSansSC-UI.ttf.import"
 t = imp.read_text(encoding="utf-8").replace("compress=true", "compress=false")
+t = re.sub(r"^antialiasing=\\d+", "antialiasing=0", t, flags=re.M)  # v0.4.31：字体无 AA
 esc = cs.replace("\\", "\\\\").replace('"', '\\"')
 # 预加载常用字号：主题默认 18，按钮/标题常见到 52；仅 16 时 Web 易缺光栅
 sizes = [12, 14, 16, 18, 20, 22, 26, 32, 52]

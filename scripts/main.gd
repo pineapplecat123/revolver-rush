@@ -7,6 +7,8 @@ var _changelog_open := false
 
 
 func _ready() -> void:
+	RrAa.apply_project_defaults()
+	RrAa.apply_to_viewport(get_viewport())
 	%VersionLabel.text = "v%s" % GameVersion.STRING
 	_style_menu()
 	_style_changelog_panel()

@@ -1,3 +1,9 @@
+## 2026-11-05 — v0.4.31 全局关 AA
+- `RrAa.ENABLED=false`：枪线/Tip Line2D、`gore_layer`/骨骼/`_make_shot_bullet_tip` Polygon2D、`project.godot` msaa_2d/3d + screen_space_aa + use_taa、主场景/战斗 Viewport 再钉一次、UI 字体 `antialiasing=0`（patch_font 持久化）。
+- 未动：火药/罪孽粒子数、拖尾并发、血雾/gore 数量。
+- GUT 445/445；演示 /workspace/rr-demo-vids/v431_aa_off.mp4。
+
+
 ## 2026-11-05 — v0.4.30 出膛必有姿势+弹道 / 致死即碎 / 嫉妒命中复制 / 图鉴 / 沙盒空袋 / 弹道池化
 - 出膛姿势+弹道：视觉生成时再 `play_shoot`；`hit_cells` 空也飞穿拉弹道（`fire_anim_log`/`tracer_log` 回归）。
 - 致死：命中 lethal 立刻卸小动物+gore，去掉 `DYING_SKEL_SEC` 滞留；远抛血线保留；穿过不喷空血。

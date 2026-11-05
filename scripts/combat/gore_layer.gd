@@ -38,7 +38,7 @@ func spawn(pieces: Array, at_g: Vector2, p_ground_y: float, bias_dir: Vector2 = 
 			var poly := Polygon2D.new()
 			poly.polygon = L[0]
 			poly.color = L[1]
-			poly.antialiased = true
+			poly.antialiased = RrAa.poly()
 			node.add_child(poly)
 		add_child(node)
 		node.global_position = at_g + Vector2(randf_range(-10, 10), randf_range(-26, 0))

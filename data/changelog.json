@@ -2,6 +2,14 @@
   "version": 1,
   "entries": [
     {
+      "version": "0.4.31",
+      "date": "2026-11-05",
+      "items": [
+        "全局抗锯齿关闭（可 RrAa.ENABLED 一键恢复）：工程 MSAA2D/3D、FXAA、TAA；枪线/弹道/弹头 Line2D；碎块与骨骼 Polygon2D；UI 字体 antialiasing=None",
+        "火药/罪孽粒子数量、拖尾上限、血雾量未改（仅关几何抗锯齿）"
+      ]
+    },
+    {
       "version": "0.4.30",
       "date": "2026-11-05",
       "items": [

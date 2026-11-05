@@ -282,6 +282,7 @@ var _btn_shop_leave: Button = null
 
 
 func _ready() -> void:
+	RrAa.apply_to_viewport(get_viewport())
 	state = CombatState.new()
 	state.free_walk = true  # v0.4.28 实战：视野外刷怪走进来、个体速度差、可重叠
 	state.phase_changed.connect(func(_p): _refresh())
@@ -2277,11 +2278,12 @@ func _animate_shot_projectile(
 	if tip == null:
 		tip = Line2D.new()
 		tip.name = "Tip"
-		tip.antialiased = true
+		tip.antialiased = RrAa.line()
 		tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
 		tip.end_cap_mode = Line2D.LINE_CAP_NONE
 		host.add_child(tip)
 	tip.width = SHOT_TRAIL_THICK
+	tip.antialiased = RrAa.line()
 	tip.default_color = _shot_head_display_color(core_col, 0.55, 1.0)
 	var hc0: Color = _shot_head_display_color(core_col, 0.7, 1.0)
 	var hc1: Color = _shot_head_display_color(core_col, 0.38, 1.0)
@@ -2334,7 +2336,7 @@ func _make_shot_streak(width: float, col: Color, head_a: float, tail_a: float) -
 	var line := Line2D.new()
 	line.width = width
 	line.default_color = Color(1, 1, 1, 1)
-	line.antialiased = true
+	line.antialiased = RrAa.line()
 	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
 	line.end_cap_mode = Line2D.LINE_CAP_NONE
 	line.joint_mode = Line2D.LINE_JOINT_ROUND
@@ -2425,7 +2427,7 @@ func _acquire_shot_host() -> Control:
 		var line := Line2D.new()
 		line.name = "Streak%d" % i
 		line.visible = false
-		line.antialiased = true
+		line.antialiased = RrAa.line()
 		line.begin_cap_mode = Line2D.LINE_CAP_ROUND
 		line.end_cap_mode = Line2D.LINE_CAP_NONE
 		line.joint_mode = Line2D.LINE_JOINT_ROUND
@@ -2434,7 +2436,7 @@ func _acquire_shot_host() -> Control:
 	var tip := Line2D.new()
 	tip.name = "Tip"
 	tip.visible = false
-	tip.antialiased = true
+	tip.antialiased = RrAa.line()
 	tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
 	tip.end_cap_mode = Line2D.LINE_CAP_NONE
 	tip.width = SHOT_TRAIL_THICK
@@ -2499,6 +2501,7 @@ func _checkout_streak(host: Control, idx: int, width: float, col: Color, head_a:
 			line.remove_meta("sin_danger")
 		line.width = width
 		line.default_color = Color(1, 1, 1, 1)
+		line.antialiased = RrAa.line()
 		line.width_curve = _shared_streak_width_curve()
 		line.gradient = _cached_gradient(col, head_a, head_a * 0.85, tail_a)
 		line.points = PackedVector2Array([Vector2.ZERO, Vector2(-1.0, 0.0)])
@@ -2706,7 +2709,7 @@ func _make_shot_trail_line(
 	var line := Line2D.new()
 	line.width = width
 	line.default_color = Color(1, 1, 1, 1)
-	line.antialiased = true
+	line.antialiased = RrAa.line()
 	line.begin_cap_mode = Line2D.LINE_CAP_NONE
 	line.end_cap_mode = Line2D.LINE_CAP_ROUND
 	line.joint_mode = Line2D.LINE_JOINT_ROUND
@@ -2733,6 +2736,7 @@ func _make_shot_bullet_tip(length: float, max_w: float, base_w: float, col: Colo
 	## 弹头形钝圆头：朝 +X（宿主已按飞行方向旋转）；鼻端折线近似圆弧（非针尖），尾部伸入 -X 与拖尾衔接。
 	var poly := Polygon2D.new()
 	poly.color = col
+	poly.antialiased = RrAa.poly()
 	var hw: float = max_w * 0.5
 	var bw: float = maxf(base_w * 0.5, 1.0)
 	# 鼻圆：半径≈半宽，圆心略靠后 → 最前端圆钝，肩部尽快满宽
