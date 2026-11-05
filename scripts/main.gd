@@ -6,11 +6,17 @@ const CHANGELOG_PATH := "res://data/changelog.json"
 var _changelog_open := false
 
 
-## v0.4.32 图鉴惯性滑动
+## v0.4.32/33 图鉴惯性滑动（方格上也能拖；轻点开详情）
 var _codex_dragging: bool = false
+var _codex_moved: bool = false
 var _codex_last_y: float = 0.0
 var _codex_vel: float = 0.0
 var _codex_detail_ammo: int = -1
+var _codex_press_ammo: int = -1
+var _codex_press_pos := Vector2.ZERO
+var _codex_press_ms: int = 0
+const CODEX_TAP_MAX_PX := 14.0
+const CODEX_TAP_MAX_MS := 450
 
 
 func _ready() -> void:
@@ -135,7 +141,7 @@ func _style_codex_panel() -> void:
 
 
 func _setup_codex_kinetic_scroll() -> void:
-	## 触摸拖拽 + 惯性（移动端 Web 的 ScrollContainer 惯性弱）。
+	## 触摸/鼠标拖拽 + 惯性。事件挂在 Scroll 与每个方格上（方格不再用 Button 吞触摸）。
 	var scroll: ScrollContainer = %CodexScroll
 	if scroll == null:
 		return
@@ -144,41 +150,98 @@ func _setup_codex_kinetic_scroll() -> void:
 	set_process(true)
 
 
-func _on_codex_scroll_gui_input(event: InputEvent) -> void:
+func _codex_begin_press(ammo_id: int, local_pos: Vector2) -> void:
+	_codex_dragging = true
+	_codex_moved = false
+	_codex_press_ammo = ammo_id
+	_codex_press_pos = local_pos
+	_codex_press_ms = Time.get_ticks_msec()
+	_codex_vel = 0.0
+	_codex_last_y = local_pos.y
+
+
+func _codex_apply_drag(dy: float) -> void:
 	var scroll: ScrollContainer = %CodexScroll
-	if scroll == null or not %CodexPanel.visible:
+	if scroll == null:
+		return
+	_codex_dragging = true
+	if absf(dy) >= 1.0:
+		_codex_moved = true
+	scroll.scroll_vertical = int(scroll.scroll_vertical - dy)
+	_codex_vel = dy
+
+
+func _codex_end_press() -> void:
+	var ammo: int = _codex_press_ammo
+	var moved: bool = _codex_moved
+	var held_ms: int = Time.get_ticks_msec() - _codex_press_ms
+	var dist: float = 0.0
+	# dist already reflected in _codex_moved; keep threshold gate for safety
+	_codex_dragging = false
+	_codex_press_ammo = -1
+	if ammo < 0:
+		return
+	if (not moved) and held_ms <= CODEX_TAP_MAX_MS:
+		_on_codex_cell_pressed(ammo)
+
+
+func _on_codex_scroll_gui_input(event: InputEvent) -> void:
+	## 缝隙/空白处的拖拽（无 ammo）；仍走同一套惯性。
+	if not %CodexPanel.visible:
+		return
+	_codex_handle_pointer_event(event, -1)
+
+
+func _on_codex_cell_gui_input(event: InputEvent, ammo_id: int) -> void:
+	if not %CodexPanel.visible:
+		return
+	_codex_handle_pointer_event(event, ammo_id)
+
+
+func _codex_handle_pointer_event(event: InputEvent, ammo_id: int) -> void:
+	var scroll: ScrollContainer = %CodexScroll
+	if scroll == null:
 		return
 	if event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if st.pressed:
-			_codex_dragging = true
-			_codex_last_y = st.position.y
-			_codex_vel = 0.0
+			_codex_begin_press(ammo_id, st.position)
 		else:
-			_codex_dragging = false
+			_codex_end_press()
+		accept_event()
 	elif event is InputEventScreenDrag:
 		var sd := event as InputEventScreenDrag
-		_codex_dragging = true
-		var dy: float = sd.relative.y
-		scroll.scroll_vertical = int(scroll.scroll_vertical - dy)
-		_codex_vel = dy
+		if absf(sd.position.distance_to(_codex_press_pos)) >= CODEX_TAP_MAX_PX:
+			_codex_moved = true
+		_codex_apply_drag(sd.relative.y)
 		_codex_last_y = sd.position.y
 		accept_event()
 	elif event is InputEventMouseButton:
 		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			scroll.scroll_vertical = int(scroll.scroll_vertical - 48)
+			_codex_vel = 0.0
+			accept_event()
+			return
+		if mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			scroll.scroll_vertical = int(scroll.scroll_vertical + 48)
+			_codex_vel = 0.0
+			accept_event()
+			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
-				_codex_dragging = true
-				_codex_last_y = mb.position.y
-				_codex_vel = 0.0
+				_codex_begin_press(ammo_id, mb.position)
 			else:
-				_codex_dragging = false
-	elif event is InputEventMouseMotion and _codex_dragging and (event as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT:
+				_codex_end_press()
+			accept_event()
+	elif event is InputEventMouseMotion:
 		var mm := event as InputEventMouseMotion
-		var dy2: float = mm.relative.y
-		scroll.scroll_vertical = int(scroll.scroll_vertical - dy2)
-		_codex_vel = dy2
-		accept_event()
+		if _codex_dragging and (mm.button_mask & MOUSE_BUTTON_MASK_LEFT):
+			if absf(mm.position.distance_to(_codex_press_pos)) >= CODEX_TAP_MAX_PX:
+				_codex_moved = true
+			_codex_apply_drag(mm.relative.y)
+			_codex_last_y = mm.position.y
+			accept_event()
 
 
 func _process(delta: float) -> void:
@@ -225,11 +288,13 @@ func _populate_codex() -> void:
 
 
 func _make_codex_cell(ammo_id: int, def: Dictionary, cell: float) -> Control:
-	var btn := Button.new()
-	btn.name = "CodexCell_%d" % ammo_id
-	btn.custom_minimum_size = Vector2(cell, cell)
-	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	btn.clip_contents = true
+	## v0.4.33：不用 Button（会吞触摸）；Panel 接 gui_input，拖=滚、点=详情。
+	var card := PanelContainer.new()
+	card.name = "CodexCell_%d" % ammo_id
+	card.custom_minimum_size = Vector2(cell, cell)
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	card.clip_contents = true
+	card.mouse_filter = Control.MOUSE_FILTER_STOP
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.16, 0.17, 0.22, 0.95)
 	sb.set_corner_radius_all(12)
@@ -239,14 +304,12 @@ func _make_codex_cell(ammo_id: int, def: Dictionary, cell: float) -> Control:
 	sb.content_margin_right = 6
 	sb.content_margin_top = 8
 	sb.content_margin_bottom = 6
-	btn.add_theme_stylebox_override("normal", sb)
-	btn.add_theme_stylebox_override("hover", sb)
-	btn.add_theme_stylebox_override("pressed", sb)
+	card.add_theme_stylebox_override("panel", sb)
 	var v := VBoxContainer.new()
 	v.set_anchors_preset(Control.PRESET_FULL_RECT)
 	v.add_theme_constant_override("separation", 4)
 	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	btn.add_child(v)
+	card.add_child(v)
 	var chip := _codex_chip(ammo_id, mini(cell * 0.48, 64.0))
 	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	v.add_child(chip)
@@ -266,8 +329,8 @@ func _make_codex_cell(ammo_id: int, def: Dictionary, cell: float) -> Control:
 	rl.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
 	rl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(rl)
-	btn.pressed.connect(_on_codex_cell_pressed.bind(ammo_id))
-	return btn
+	card.gui_input.connect(_on_codex_cell_gui_input.bind(ammo_id))
+	return card
 
 
 func _codex_chip(ammo_id: int, size_px: float = 48.0) -> Panel:

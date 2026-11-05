@@ -1,3 +1,8 @@
+## 2026-11-05 — v0.4.33 图鉴方格上可拖滑
+- 根因：图鉴方格用 Button，触摸从方格起手被吞，只有缝隙能滚。
+- 改法：方格改 PanelContainer + gui_input；拖过阈值=滚（惯性同前），短按轻点=开详情；滚轮转发。
+- GUT 453/453；演示 /workspace/rr-demo-vids/v433_codex_scroll.mp4。
+
 ## 2026-11-05 — v0.4.32 预转花式转枪 / 致死必碎 / 图鉴网格
 - 射击姿势：`suppress_shot_from_hook`，预转时 on_shot 不播姿势；`_play_tap_shot` 出膛才 `play_shoot`。
 - 花式转枪：`play_gun_twirl(dur)` 与 `_play_roll_spin_visual` 同步；转完回 idle+瞄准。
