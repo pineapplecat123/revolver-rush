@@ -34,8 +34,7 @@ func _shot_one(cs: CombatState) -> void:
 		cs._post_fire_enemy_pending = false
 
 
-func test_version_is_0_4_34() -> void:
-	assert_eq(GameVersion.STRING, "0.4.34")
+func test_changelog_mentions_0_4_34() -> void:
 	assert_true("0.4.34" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
@@ -107,6 +106,9 @@ func test_burn_vfx_script_has_full_body_api() -> void:
 	assert_true("configure" in src)
 	assert_true("set_burn_active" in src)
 	assert_true("黑烟" in src or "smoke" in src.to_lower() or "烟" in src)
+	# v0.4.35：大火焰用软斑叠色，不再用细线火舌
+	assert_false("draw_line" in src)
+	assert_true("_blob_tex" in src or "radial" in src or "teardrop" in src or "泪滴" in src or "篝火" in src)
 	var fx = load("res://scripts/combat/burn_vfx.gd").new()
 	assert_not_null(fx)
 	fx.configure(56, 100, 1.55)
