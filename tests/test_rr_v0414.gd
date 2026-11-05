@@ -1,5 +1,5 @@
 extends GutTest
-## v0.4.14 懒惰：命中叠加减速；三罪 4s 射速−50% 窗。
+## v0.4.14 懒惰：命中叠加减速；三罪禁枪（v0.4.36：3s）。
 
 const SLOTH := FireResolver.ID_SLOTH
 const WHITE := CombatConstants.WHITE_AMMO_ID
@@ -60,13 +60,9 @@ func test_sloth_applies_slow_on_hit() -> void:
 func test_sloth_three_sin_fire_lock() -> void:
 	var cs := _rush(41411)
 	cs._resolve_sin_pack_on_load([SLOTH, SLOTH, SLOTH])
-	assert_almost_eq(cs.sloth_fire_penalty_remaining, CombatConstants.SLOTH_FIRE_PENALTY_SEC, 0.001)
-	cs.dev_force_load([WHITE, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY] as Array[int])
-	cs.magazine.set_start(0)
-	# fire_tap path sets lock
-	cs.fire_tap()
-	assert_gt(cs.fire_lock_remaining, 0.0)
+	# v0.4.36：三罪直接禁枪，不再开射速窗
+	assert_eq(cs.sloth_fire_penalty_remaining, 0.0)
+	assert_almost_eq(cs.fire_lock_remaining, CombatConstants.SLOTH_FIRE_BAN_SEC, 0.001)
 	assert_false(cs.can_fire())
 	cs.tick_combat_time(cs.fire_lock_remaining + 0.01)
-	# may still need ammo ready
 	assert_eq(cs.fire_lock_remaining, 0.0)

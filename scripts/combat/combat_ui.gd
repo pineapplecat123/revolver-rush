@@ -4564,11 +4564,11 @@ func _refresh_bag_list() -> void:
 
 
 func _update_temp_sin_timers() -> void:
-	## v0.3.8：袋内临时罪孽球画寿命环；转轮仓显示剩余秒数。
+	## v0.4.36：袋/转轮 TTL 球都画圆形倒计时环，不写秒数；打出即毁临时无环。
 	if state == null:
 		return
 	if _bag_physics != null:
-		_bag_physics.temp_full_life = CombatConstants.TEMP_SIN_LIFETIME_SEC
+		_bag_physics.temp_full_life = CombatConstants.GHOST_TTL_SEC
 		_bag_physics.temp_full_life_by_id = {
 			FireResolver.ID_GHOST: CombatConstants.GHOST_TTL_SEC,
 			FireResolver.ID_PEBBLE: CombatConstants.PEBBLE_TTL_SEC,
@@ -4604,30 +4604,52 @@ func _update_temp_sin_timers() -> void:
 			envy_mark.position = Vector2(maxi(panel.size.x - 14, 16), 2)
 		elif envy_mark != null:
 			envy_mark.visible = false
+		# 去掉旧秒数文字
 		var lab: Label = panel.get_node_or_null("TempLife") as Label
+		if lab != null:
+			lab.visible = false
 		var life: float = state.magazine.slot_temp_life(s)
+		var ring: Control = panel.get_node_or_null("TempLifeRing") as Control
 		if life <= 0.0:
-			if lab != null:
-				lab.visible = false
+			if ring != null:
+				ring.visible = false
 			continue
-		if lab == null:
-			lab = Label.new()
-			lab.name = "TempLife"
-			lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			lab.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-			lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-			lab.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-			lab.add_theme_font_size_override("font_size", 14)
-			lab.add_theme_color_override("font_outline_color", Color(0, 0, 0, 1))
-			lab.add_theme_constant_override("outline_size", 5)
-			lab.z_index = 3
-			panel.add_child(lab)
-		lab.visible = true
-		# 临时仓整体半透明（modulate 0.48），秒数要抵消回不透明才看得清
-		lab.modulate = Color(1, 1, 1, 1.0 / maxf(panel.modulate.a, 0.2))
-		lab.text = "%ds" % int(ceil(life))
-		var low: bool = life <= CombatConstants.TEMP_SIN_LIFETIME_SEC * 0.25
-		lab.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3) if low else Color(1.0, 0.97, 0.85))
+		if ring == null:
+			ring = _make_chamber_temp_ring()
+			panel.add_child(ring)
+		ring.visible = true
+		ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var full: float = CombatConstants.GHOST_TTL_SEC
+		var aid: int = state.magazine.slots[s]
+		if aid == FireResolver.ID_PEBBLE:
+			full = CombatConstants.PEBBLE_TTL_SEC
+		elif aid == FireResolver.ID_GHOST:
+			full = CombatConstants.GHOST_TTL_SEC
+		ring.set_meta("frac", clampf(life / maxf(full, 0.01), 0.0, 1.0))
+		ring.set_meta("low", life <= full * 0.25)
+		ring.queue_redraw()
+
+
+func _make_chamber_temp_ring() -> Control:
+	var ring := Control.new()
+	ring.name = "TempLifeRing"
+	ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ring.z_index = 4
+	ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	ring.draw.connect(_draw_chamber_temp_ring.bind(ring))
+	return ring
+
+
+func _draw_chamber_temp_ring(ring: Control) -> void:
+	## 与袋内球相同：从 12 点顺时针缩短的寿命环，不写数字。
+	var frac: float = float(ring.get_meta("frac", 0.0))
+	if frac <= 0.0:
+		return
+	var low: bool = bool(ring.get_meta("low", false))
+	var col := Color(1.0, 0.3, 0.25, 0.95) if low else Color(1.0, 0.95, 0.8, 0.9)
+	var c: Vector2 = ring.size * 0.5
+	var r: float = mini(ring.size.x, ring.size.y) * 0.48
+	ring.draw_arc(c, r, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, col, 2.6, false)
 
 
 func _consume_expired_temp_events() -> void:

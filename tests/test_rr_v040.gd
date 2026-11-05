@@ -1,9 +1,9 @@
 extends GutTest
-## v0.4.0 语法基建：连发窗、倾泻、装入33%临时罪、墓碑幽灵连射、DoT 0.5s、地图商店、钩子总线。
+## v0.4.0 语法基建：连发窗、倾泻、装入33%临时罪、墓碑幽灵连射、DoT tick、地图商店、钩子总线。
 
 const W := FireResolver.ID_WRATH
 const WHITE := CombatConstants.WHITE_AMMO_ID
-const LIFE := CombatConstants.TEMP_SIN_LIFETIME_SEC
+const LIFE := CombatConstants.GHOST_TTL_SEC
 
 
 func before_each() -> void:
@@ -119,7 +119,7 @@ func test_dot_ticks_every_half_second_not_on_step() -> void:
 	cs.tick_enemy_auto_step()
 	assert_eq(cs.enemies[0].hp, hp0)
 	assert_eq(cs.enemies[0].burn_stacks, 3)
-	# 0.5s DoT
+	# DoT tick
 	cs._dot_timer = 0.01
 	assert_true(cs.tick_dot(0.02))
 	assert_lt(cs.enemies[0].hp, hp0)

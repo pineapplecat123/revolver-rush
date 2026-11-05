@@ -31,11 +31,11 @@ func test_version_is_0_4_20() -> void:
 
 func test_temp_sin_numbers_and_split_ttls() -> void:
 	assert_almost_eq(CombatConstants.LOAD_TEMP_SIN_CHANCE, 0.20, 0.0001)
-	assert_eq(CombatConstants.TEMP_SIN_LIFETIME_SEC, 10.0)
-	# 幽灵/小石头/嫉妒复制与临时罪孽拆开，仍 18 秒
-	assert_eq(CombatConstants.GHOST_TTL_SEC, 18.0)
-	assert_eq(CombatConstants.PEBBLE_TTL_SEC, 18.0)
-	assert_eq(CombatConstants.ENVY_COPY_TTL_SEC, 18.0)
+	# v0.4.36：临时罪孽/嫉妒不计时；幽灵/小石头 30s
+	assert_eq(CombatConstants.TEMP_SIN_LIFETIME_SEC, 0.0)
+	assert_eq(CombatConstants.GHOST_TTL_SEC, 30.0)
+	assert_eq(CombatConstants.PEBBLE_TTL_SEC, 30.0)
+	assert_eq(CombatConstants.ENVY_COPY_TTL_SEC, 0.0)
 
 
 # —— 沙盒：默认木桩 ——

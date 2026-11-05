@@ -189,11 +189,11 @@ func test_ui_muzzle_chip_shows_countdown_and_bar() -> void:
 	var lab: Label = ui._muzzle_chip_nodes[0]["label"]
 	assert_eq(lab.text, "愤怒 2.0s")
 	var bar: ColorRect = ui._muzzle_chip_nodes[0]["bar"]
-	assert_almost_eq(bar.anchor_right, 0.5, 0.01)
+	assert_almost_eq(bar.anchor_right, 2.0 / CombatConstants.MUZZLE_DURATION_WRATH_SEC, 0.01)
 	cs._muzzle_wrath_t = 1.0
 	ui._update_muzzle_countdowns()
 	assert_eq(lab.text, "愤怒 1.0s", "原地更新不重建")
-	assert_almost_eq(bar.anchor_right, 0.25, 0.01)
+	assert_almost_eq(bar.anchor_right, 1.0 / CombatConstants.MUZZLE_DURATION_WRATH_SEC, 0.01)
 	assert_eq((ui._muzzle_chip_nodes[1]["label"] as Label).text, "傲慢 6.0s")
 
 

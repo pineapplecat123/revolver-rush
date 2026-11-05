@@ -160,25 +160,43 @@ func _ensure_temp_size() -> void:
 
 
 static func temp_value(v) -> float:
-	## 临时标记统一成剩余寿命：true → 默认寿命；false/null → 0；数字原样。
+	## 临时标记：true → 打出即毁（不计时）；false/null → 0；>0 = TTL 剩余秒；<0 = 打出即毁哨兵。
 	if v is bool:
-		return CombatConstants.TEMP_SIN_LIFETIME_SEC if v else 0.0
+		return CombatConstants.FIRE_ONCE_TEMP if v else 0.0
 	if v == null:
 		return 0.0
-	return maxf(0.0, float(v))
+	var f: float = float(v)
+	if f < 0.0:
+		return CombatConstants.FIRE_ONCE_TEMP
+	return f
+
+
+static func is_fire_once_temp(v) -> bool:
+	return temp_value(v) < 0.0
+
+
+static func is_timed_temp(v) -> bool:
+	return temp_value(v) > 0.0
 
 
 func is_slot_temporary(index: int) -> bool:
-	if index < 0 or index >= temp_slots.size():
+	if index < 0 or index >= temp_slots.size() or slots[index] == EMPTY:
 		return false
-	return temp_value(temp_slots[index]) > 0.0 and slots[index] != EMPTY
+	return temp_value(temp_slots[index]) != 0.0 or is_slot_envy_copy(index)
 
 
 func slot_temp_life(index: int) -> float:
-	## 该仓临时罪孽剩余秒（永久弹/空仓 0）。
-	if not is_slot_temporary(index):
+	## 该仓临时剩余秒；打出即毁哨兵为 FIRE_ONCE_TEMP；永久/空仓 0。
+	if index < 0 or index >= temp_slots.size() or slots[index] == EMPTY:
 		return 0.0
 	return temp_value(temp_slots[index])
+
+
+func is_slot_fire_once(index: int) -> bool:
+	## 嫉妒复制或临时罪孽（不计时）：打出即毁。
+	if is_slot_envy_copy(index):
+		return true
+	return is_fire_once_temp(slot_temp_life(index))
 
 
 ## 卸除：返回 [{id, temp}, ...]

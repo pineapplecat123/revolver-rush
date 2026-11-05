@@ -137,12 +137,12 @@ func _run_mech_dot_tick() -> void:
 	var e: EnemyInstance = _dummy(cs, 200, 3)
 	cs.sandbox_set_enemy_status({"burn": 4})
 	var hp0: int = e.hp
-	# 推进两个 DoT 跳（0.5s）
+	# 推进两个 DoT 跳
 	cs.tick_combat_time(CombatConstants.DOT_TICK_SEC)
 	cs.tick_combat_time(CombatConstants.DOT_TICK_SEC)
 	var dealt: int = hp0 - e.hp
 	var ok: bool = dealt >= 2 and int(_hook_counts.get("on_dot_tick", 0)) >= 1
-	_row_mech("DoT 0.5s 跳", "pass" if ok else "fail",
+	_row_mech("DoT tick 跳", "pass" if ok else "fail",
 		"burn4 两跳 dealt=%d on_dot_tick=%d DOT_TICK=%.1f" % [
 			dealt, int(_hook_counts.get("on_dot_tick", 0)), CombatConstants.DOT_TICK_SEC
 		])
@@ -724,7 +724,7 @@ func _run_balance_sims() -> void:
 	_balance_notes.append("商店价：普通5/精良8/稀有14/史诗22；金币弹持续射击会抽干买店本钱")
 
 	# three-sin severity snapshot
-	_balance_notes.append("三罪惩罚：愤怒自伤6（最大HP20的30%%）；傲慢拉近；贪婪-6金；色欲自混乱；嫉妒弃2永久；暴食自DoT；懒惰射速窗4s")
+	_balance_notes.append("三罪惩罚：愤怒自伤6（最大HP20的30%%）；傲慢拉近；贪婪-6金；色欲自混乱；嫉妒弃2永久；暴食自DoT；懒惰禁枪3s")
 
 
 func _write_report() -> void:

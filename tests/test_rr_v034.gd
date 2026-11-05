@@ -116,9 +116,9 @@ func test_muzzle_wrath_duration_refresh_and_pride_permanent() -> void:
 
 
 func test_muzzle_duration_constants() -> void:
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_WRATH_SEC, 4.0, 0.001)
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_GREED_SEC, 4.0, 0.001)
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_ELEMENT_SEC, 4.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_WRATH_SEC, 8.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_GREED_SEC, 8.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_ELEMENT_SEC, 8.0, 0.001)
 
 
 func test_changelog_has_0_3_4() -> void:

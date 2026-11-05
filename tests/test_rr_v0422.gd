@@ -163,10 +163,10 @@ func test_permanent_ammo_survives_shop_reset_and_temp_expiry() -> void:
 	assert_gt(fired.size(), 0)
 	assert_eq(cs.count_permanent_owned(), expected, "打进弃牌堆不算丢")
 	# 袋里塞临时弹：罪孽 / 幽灵 / 小石头 / 嫉妒式白弹。它们到期不能连带永久弹。
-	cs._bag_append(W, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	cs._bag_append(W, true)
 	cs._bag_append(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC)
 	cs._bag_append(FireResolver.ID_PEBBLE, CombatConstants.PEBBLE_TTL_SEC)
-	cs._bag_append(WHITE, CombatConstants.ENVY_COPY_TTL_SEC)
+	cs._bag_append(WHITE, CombatConstants.FIRE_ONCE_TEMP, true)
 	assert_eq(cs.count_permanent_owned(), expected)
 	var temps: Array = []
 	for i in cs.bag.size():
@@ -221,7 +221,7 @@ func test_player_status_rings_sit_on_anchor() -> void:
 	await get_tree().process_frame
 	var cs: CombatState = ui.state
 	cs.player_confuse_remaining = CombatConstants.LUST_SELF_CONFUSE_SEC
-	cs.sloth_fire_penalty_remaining = CombatConstants.SLOTH_FIRE_PENALTY_SEC * 0.5
+	cs.fire_lock_remaining = CombatConstants.SLOTH_FIRE_BAN_SEC * 0.5
 	cs.gluttony_self_dot_remaining = 2.0
 	var entries: Array = cs.player_status_ring_entries()
 	assert_gte(entries.size(), 3)
@@ -229,13 +229,13 @@ func test_player_status_rings_sit_on_anchor() -> void:
 	for e in entries:
 		labels.append(str(e.get("label", "")))
 	assert_true("乱" in labels)
-	assert_true("缓" in labels)
+	assert_true("禁" in labels)
 	assert_true("伤" in labels)
-	var slow_ratio := 1.0
+	var ban_ratio := 1.0
 	for e in entries:
-		if str(e.get("id", "")) == "slow":
-			slow_ratio = float(e.get("ratio", 1.0))
-	assert_almost_eq(slow_ratio, 0.5, 0.05)
+		if str(e.get("id", "")) == "lock":
+			ban_ratio = float(e.get("ratio", 1.0))
+	assert_almost_eq(ban_ratio, 0.5, 0.05)
 	ui._update_player_status_rings()
 	var rings: Control = ui.get_node("PlayerStatusRings")
 	var anchor: Vector2 = ui.player_status_anchor_global()

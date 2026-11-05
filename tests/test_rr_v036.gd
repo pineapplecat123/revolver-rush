@@ -24,7 +24,7 @@ func _rush(seed_v: int = 3601) -> CombatState:
 func _total_temp(cs: CombatState) -> int:
 	var n: int = cs.count_temporary_in_bag()
 	for t in cs.discard_temp:
-		if t:
+		if Magazine.temp_value(t) != 0.0:
 			n += 1
 	for i in cs.magazine.slots.size():
 		if cs.magazine.is_slot_temporary(i):
@@ -65,10 +65,11 @@ func test_sin_total_matches_design_after_every_reset() -> void:
 			seen = cs.bag_reset_count
 			# v0.3.8：整池 = 基础 15 + 惩罚生成的临时罪孽（本测不推进时间，不会到期）
 			# v0.4.0：临时罪来自装入 33%，不再来自三罪孽惩罚
-			var temps: int = cs.load_temp_sins_spawned
-			assert_eq(cs.total_ammo_count(W), 5 + temps, "第 %d 次重置：罪孽 = 5 + 装入临时" % seen)
-			assert_eq(_total_ammo(cs), 15 + temps, "整池 = 15 + 装入临时，膛内弹不复制")
-			assert_eq(_total_temp(cs), temps, "临时罪孽只来自装入33%")
+			# v0.4.36：装入临时打出即毁，池内只剩尚未打出的；spawned 是累计值
+			var temps_now: int = _total_temp(cs)
+			assert_eq(cs.total_ammo_count(W), 5 + temps_now, "第 %d 次重置：永久5 + 现存临时" % seen)
+			assert_eq(_total_ammo(cs), 15 + temps_now, "整池 = 15 + 现存临时，膛内弹不复制")
+			assert_lte(temps_now, cs.load_temp_sins_spawned)
 			assert_eq(cs.penalty_temp_sins_spawned, 0)
 		while cs.can_fire():
 			var fired: Array = cs.fire_tap()

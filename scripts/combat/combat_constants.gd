@@ -67,17 +67,19 @@ const WAVE_SPAWN_COUNT_MULT := 1.5
 
 ## 枪口状态持续时间（秒，受战斗速度倍率缩放；傲慢整场，无计时）。
 ## 设计表原为「挂上到回合结束」；rush! 无经典回合，改为固定秒数。
-const MUZZLE_DURATION_WRATH_SEC := 4.0
-const MUZZLE_DURATION_GREED_SEC := 4.0
-const MUZZLE_DURATION_ELEMENT_SEC := 4.0  ## 穿甲/汽油/火/水/雷/回声
-const MUZZLE_DURATION_LIFESTEAL_SEC := 4.0  ## 吸血（可叠层）
-## v0.3.7：傲慢也计时，明显长于其它枪口（口头「计时比较久」→ 选 12 秒）。
-const MUZZLE_DURATION_PRIDE_SEC := 12.0
+const MUZZLE_DURATION_WRATH_SEC := 8.0
+const MUZZLE_DURATION_GREED_SEC := 8.0
+const MUZZLE_DURATION_ELEMENT_SEC := 8.0  ## 穿甲/汽油/火/水/雷/回声/炸药
+const MUZZLE_DURATION_LIFESTEAL_SEC := 8.0  ## 吸血（可叠层）
+## v0.4.36：傲慢 30 秒。
+const MUZZLE_DURATION_PRIDE_SEC := 30.0
 
 
 ## ——— v0.3.8 无波次 / 经验值 / 临时罪孽寿命 ———
-## 临时罪孽（装入时 20% +1 同种）寿命：10 秒（战斗秒 × 速度，暂停时停）。v0.4.20：18→10。
-const TEMP_SIN_LIFETIME_SEC := 10.0
+## v0.4.36：临时罪孽不再计时；打出即毁（与嫉妒复制同）。保留常量名兼容旧调用，值为 0。
+const TEMP_SIN_LIFETIME_SEC := 0.0
+## 临时/嫉妒一次性标记写入 temp 槽的哨兵（<0 = 不计时，打出即毁）。
+const FIRE_ONCE_TEMP := -1.0
 ## 经验：击杀得 XP = 敌人 max_hp（Boss/超级僵尸 ×2）。
 const XP_BOSS_MULT := 2
 ## 升级阈值：need(L) = XP_BASE + XP_LINEAR*(L-1) + XP_QUAD*(L-1)^2  → L1 30, L2 55, L3 90, L4 135, L5 190 …
@@ -100,19 +102,19 @@ const SPAWN_LANE_CELLS := 3
 ## ——— v0.4.0 语法基建 ———
 ## 装入罪孽时 20% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。v0.4.20：0.33→0.20。
 const LOAD_TEMP_SIN_CHANCE := 0.20
-## DoT（燃烧/流血）独立 0.5s 跳一次，不再挂在落格拍。
-const DOT_TICK_SEC := 0.5
+## DoT（燃烧/流血/暴食自伤）独立 0.7s 跳一次，不再挂在落格拍。
+const DOT_TICK_SEC := 0.7
 ## 地图商店：首次出现与再次刷新间隔（战斗秒）。
 const MAP_SHOP_FIRST_SEC := 45.0
 const MAP_SHOP_RESPAWN_SEC := 90.0
 ## 幽灵 TTL：与临时罪孽同寿命。
 ## v0.4.20 墓碑：打出时袋里没幽灵 → 生成这么多颗临时幽灵
 const TOMBSTONE_GHOST_SPAWN := 2
-const GHOST_TTL_SEC := 18.0  ## v0.4.20：与临时罪孽寿命拆开，保持 18 秒
+const GHOST_TTL_SEC := 30.0  ## v0.4.36：30 秒
 ## 小石头 TTL：与幽灵同寿命。
-const PEBBLE_TTL_SEC := 18.0  ## v0.4.20：与临时罪孽寿命拆开，保持 18 秒
-## 嫉妒复制弹：一次性临时，TTL 仅作兜底（打出即毁，不进弃牌）
-const ENVY_COPY_TTL_SEC := 18.0
+const PEBBLE_TTL_SEC := 30.0  ## v0.4.36：30 秒
+## 嫉妒复制弹：一次性临时，打出即毁；不再设 TTL 兜底（v0.4.36）。
+const ENVY_COPY_TTL_SEC := 0.0
 ## v0.4.30：嫉妒持续期间，每发「打中敌人」的子弹有此概率复制自身一发一次性临时弹
 const ENVY_HIT_COPY_CHANCE := 0.25
 
@@ -121,25 +123,29 @@ const LIFESTEAL_CHANCE_PER_STACK := 0.20
 const LIFESTEAL_HEAL_RATIO := 0.50
 
 ## ——— v0.4.11+ 空壳四罪 ———
-const MUZZLE_DURATION_LUST_SEC := 4.0
-const MUZZLE_DURATION_ENVY_SEC := 4.0
-const MUZZLE_DURATION_GLUTTONY_SEC := 4.0
-const MUZZLE_DURATION_SLOTH_SEC := 4.0
+const MUZZLE_DURATION_LUST_SEC := 8.0
+const MUZZLE_DURATION_ENVY_SEC := 8.0
+const MUZZLE_DURATION_GLUTTONY_SEC := 8.0
+const MUZZLE_DURATION_SLOTH_SEC := 8.0
 ## 色欲：每层使命中敌人混乱的概率；混乱持续秒数；三罪自混乱秒数。
 const LUST_CONFUSE_CHANCE_PER_STACK := 0.20
-const LUST_CONFUSE_SEC := 1.0
-const LUST_SELF_CONFUSE_SEC := 1.0
+const LUST_CONFUSE_SEC := 5.0
+const LUST_SELF_CONFUSE_SEC := 3.0
 ## 嫉妒：旧击杀复制概率（v0.4.30 起不用）；三罪弃牌数保留。
 const ENVY_COPY_CHANCE_PER_STACK := 0.30
 const ENVY_THREE_SIN_DISCARD := 2
-## 暴食：击杀回 1 HP；每层每秒最多 1 次；三罪自伤 DoT 每跳伤害。
+## 暴食：击杀回 1 HP；每层每秒最多 1 次；三罪自伤 DoT。
 const GLUTTONY_HEAL_ON_KILL := 1
 const GLUTTONY_PROCS_PER_SEC_PER_LAYER := 1.0
 const GLUTTONY_SELF_DOT_DAMAGE := 1
-## 懒惰：减速层时长；三罪射速窗与开火锁（窗内每次开火后锁住，近似 −50% 射速）。
-const SLOTH_SLOW_LAYER_SEC := 3.0
-const SLOTH_FIRE_PENALTY_SEC := 4.0
-const SLOTH_FIRE_LOCK_SEC := 0.5
+## v0.4.36：三罪自伤持续 3.5s，每 DOT_TICK_SEC(0.7) 扣 1。
+const GLUTTONY_SELF_DOT_SEC := 3.5
+## 懒惰：减速层时长；三罪改为禁枪 3 秒（不再用射速窗/短锁）。
+const SLOTH_SLOW_LAYER_SEC := 5.0
+const SLOTH_FIRE_BAN_SEC := 3.0
+## 旧名保留给测试兼容（数值对齐禁枪）。
+const SLOTH_FIRE_PENALTY_SEC := 3.0
+const SLOTH_FIRE_LOCK_SEC := 3.0
 
 ## v0.4.21 玩家点射射速帽。手动连点与连发窗免费点射共用，不能快过这个数。
 ## 10 次/秒 = 间隔 0.1 秒。

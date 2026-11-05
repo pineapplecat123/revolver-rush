@@ -174,7 +174,7 @@ func test_envy_copy_destroyed_on_fire_not_discard() -> void:
 	var cs := _rush(43002)
 	cs.pace_after_fire = false
 	cs.dev_force_load([E, E, E, E, E, E] as Array[int])
-	cs.magazine.set_slot(0, WHITE, CombatConstants.ENVY_COPY_TTL_SEC, true)
+	cs.magazine.set_slot(0, WHITE, CombatConstants.FIRE_ONCE_TEMP, true)
 	cs.magazine.set_start(0)
 	var disc0: int = cs.discard.size()
 	var bag0: int = cs.bag.size()

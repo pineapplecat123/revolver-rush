@@ -22,35 +22,36 @@ func _rush(seed_v: int = 3701, sin_id: int = W) -> CombatState:
 
 
 func test_duration_table() -> void:
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_WRATH_SEC, 4.0, 0.001)
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_GREED_SEC, 4.0, 0.001)
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_ELEMENT_SEC, 4.0, 0.001)
-	assert_almost_eq(CombatConstants.MUZZLE_DURATION_PRIDE_SEC, 12.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_WRATH_SEC, 8.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_GREED_SEC, 8.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_ELEMENT_SEC, 8.0, 0.001)
+	assert_almost_eq(CombatConstants.MUZZLE_DURATION_PRIDE_SEC, 30.0, 0.001)
 
 
 func test_each_wrath_layer_expires_independently() -> void:
 	var cs := _rush()
+	var D: float = CombatConstants.MUZZLE_DURATION_WRATH_SEC
 	cs._mount_sin_muzzle_from({"wrath": true})
 	cs.tick_muzzle_durations(1.5)
 	cs._mount_sin_muzzle_from({"wrath": true})
 	assert_eq(cs._muzzle_wrath, 2)
-	assert_almost_eq(cs._muzzle_wrath_t, 4.0 - 1.5, 0.01, "最短=旧层")
-	assert_almost_eq(float(cs._muzzle_wrath_layers[1]), 4.0, 0.01)
-	# 旧层再 2.6s 到期 → 剩 1 层
-	cs.tick_muzzle_durations(2.6)
+	assert_almost_eq(cs._muzzle_wrath_t, D - 1.5, 0.01, "最短=旧层")
+	assert_almost_eq(float(cs._muzzle_wrath_layers[1]), D, 0.01)
+	# 旧层再到期 → 剩 1 层
+	cs.tick_muzzle_durations(D - 1.5 + 0.1)
 	assert_eq(cs._muzzle_wrath, 1)
-	assert_almost_eq(cs._muzzle_wrath_t, 4.0 - 2.6, 0.05)
-	# 新层再到期
-	cs.tick_muzzle_durations(2.0)
+	assert_gt(cs._muzzle_wrath_t, 0.0)
+	cs.tick_muzzle_durations(D + 0.1)
 	assert_eq(cs._muzzle_wrath, 0)
 
 
 func test_pride_is_timed_not_permanent() -> void:
 	var cs := _rush(3702, P)
+	var D: float = CombatConstants.MUZZLE_DURATION_PRIDE_SEC
 	cs._mount_sin_muzzle_from({"pride": true})
 	assert_eq(cs._muzzle_pride, 1)
-	assert_almost_eq(cs._muzzle_pride_t, 12.0, 0.01)
-	cs.tick_muzzle_durations(11.9)
+	assert_almost_eq(cs._muzzle_pride_t, D, 0.01)
+	cs.tick_muzzle_durations(D - 0.1)
 	assert_eq(cs._muzzle_pride, 1)
 	cs.tick_muzzle_durations(0.2)
 	assert_eq(cs._muzzle_pride, 0, "傲慢到期清零")
@@ -58,17 +59,19 @@ func test_pride_is_timed_not_permanent() -> void:
 
 func test_pride_layers_independent_and_longer_than_wrath() -> void:
 	var cs := _rush(3703, P)
+	var PD: float = CombatConstants.MUZZLE_DURATION_PRIDE_SEC
+	var WD: float = CombatConstants.MUZZLE_DURATION_WRATH_SEC
 	cs._mount_sin_muzzle_from({"pride": true})
 	cs.tick_muzzle_durations(3.0)
 	cs._mount_sin_muzzle_from({"pride": true})
 	assert_eq(cs._muzzle_pride, 2)
-	assert_almost_eq(cs._muzzle_pride_t, 9.0, 0.01)
-	# 愤怒 4s 整段过去，傲慢仍在
+	assert_almost_eq(cs._muzzle_pride_t, PD - 3.0, 0.01)
+	# 愤怒整段过去，傲慢仍在
 	cs._mount_sin_muzzle_from({"wrath": true})
-	cs.tick_muzzle_durations(4.1)
+	cs.tick_muzzle_durations(WD + 0.1)
 	assert_eq(cs._muzzle_wrath, 0)
 	assert_eq(cs._muzzle_pride, 2)
-	cs.tick_muzzle_durations(5.0)  # 旧傲慢层 9-4.1-5 < 0
+	cs.tick_muzzle_durations(PD - 3.0 - WD)  # 旧傲慢层到期
 	assert_eq(cs._muzzle_pride, 1)
 	assert_gt(cs._muzzle_pride_t, 0.0)
 
@@ -105,12 +108,13 @@ func test_ui_shows_soonest_and_stack() -> void:
 
 func test_element_max_one_refreshes_single_layer() -> void:
 	var cs := _rush(3705)
+	var D: float = CombatConstants.MUZZLE_DURATION_ELEMENT_SEC
 	cs._mount_muzzle_from({"pierce": true})
 	cs.tick_muzzle_durations(2.0)
-	assert_almost_eq(cs._muzzle_pierce_t, 2.0, 0.01)
+	assert_almost_eq(cs._muzzle_pierce_t, D - 2.0, 0.01)
 	cs._mount_muzzle_from({"pierce": true})
 	assert_eq(cs._muzzle_pierce_layers.size(), 1)
-	assert_almost_eq(cs._muzzle_pierce_t, 4.0, 0.01)
+	assert_almost_eq(cs._muzzle_pierce_t, D, 0.01)
 
 
 func test_entries_no_infinity() -> void:

@@ -430,13 +430,14 @@ func _draw_box() -> void:
 		draw_arc(pos, r, 0.0, TAU, 24, Color(0.1, 0.1, 0.12, 0.75), 1.5, true)
 		if tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
-		# v0.3.8 临时罪孽寿命环：从 12 点顺时针缩短；≤25% 变红
+		# v0.4.36：仅 TTL>0 画寿命环（幽灵/小石头）；打出即毁临时只有半透明，无环无秒数
 		if is_temp_ball:
-			var life: float = float(b.get("life", temp_full_life))
-			var full: float = float(temp_full_life_by_id.get(aid, temp_full_life))
-			var frac: float = clampf(life / maxf(full, 0.01), 0.0, 1.0)
-			var ring_col: Color = Color(1.0, 0.3, 0.25, 0.95) if frac <= 0.25 else Color(1.0, 0.95, 0.8, 0.9)
-			draw_arc(pos, r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, true)
+			var life: float = float(b.get("life", 0.0))
+			if life > 0.0:
+				var full: float = float(temp_full_life_by_id.get(aid, temp_full_life))
+				var frac: float = clampf(life / maxf(full, 0.01), 0.0, 1.0)
+				var ring_col: Color = Color(1.0, 0.3, 0.25, 0.95) if frac <= 0.25 else Color(1.0, 0.95, 0.8, 0.9)
+				draw_arc(pos, r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, false)
 		var glyph: String = st["glyph"]
 		var fsize := int(maxi(9, int(r * 0.95)))
 		if font != null:

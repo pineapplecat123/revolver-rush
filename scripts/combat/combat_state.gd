@@ -910,12 +910,14 @@ func _bag_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> vo
 		sandbox_hold_bag_empty = false
 	bag.append(ammo_id)
 	var tv: float = _normalize_temp_for(ammo_id, temporary)
-	if envy_copy and tv <= 0.0:
-		tv = CombatConstants.ENVY_COPY_TTL_SEC
+	# v0.4.36：嫉妒复制不计时 → 打出即毁哨兵
+	if envy_copy and tv == 0.0:
+		tv = CombatConstants.FIRE_ONCE_TEMP
 	bag_temp.append(tv)
 	bag_envy_copy.append(bool(envy_copy))
 	hooks.emit_hook(&"on_bag_enter", {
-		"cs": self, "ammo_id": ammo_id, "temp_life": tv, "temporary": tv > 0.0, "envy_copy": bool(envy_copy),
+		"cs": self, "ammo_id": ammo_id, "temp_life": tv,
+		"temporary": tv != 0.0 or bool(envy_copy), "envy_copy": bool(envy_copy),
 	})
 
 
@@ -953,12 +955,12 @@ func _fill_starter_bag(extra_sin: int = 0) -> void:
 
 
 func _counts_as_permanent(ammo_id: int, temporary) -> bool:
-	## 永久拥有：非空、非衍生物、没有剩余 TTL。
+	## 永久拥有：非空、非衍生物、非 TTL/打出即毁临时。
 	if ammo_id == Magazine.EMPTY:
 		return false
 	if DataRegistry.is_ammo_ephemeral(ammo_id):
 		return false
-	return Magazine.temp_value(temporary) <= 0.0
+	return Magazine.temp_value(temporary) == 0.0
 
 
 func _note_baseline_add(ammo_id: int, temporary) -> void:
@@ -1202,13 +1204,15 @@ func total_ammo_count(ammo_id: int) -> int:
 func is_bag_index_temporary(index: int) -> bool:
 	if index < 0 or index >= bag_temp.size() or index >= bag.size():
 		return false
-	return Magazine.temp_value(bag_temp[index]) > 0.0
+	if Magazine.temp_value(bag_temp[index]) != 0.0:
+		return true
+	return index < bag_envy_copy.size() and bool(bag_envy_copy[index])
 
 
 func count_temporary_in_bag() -> int:
 	var n := 0
-	for t in bag_temp:
-		if Magazine.temp_value(t) > 0.0:
+	for i in bag_temp.size():
+		if is_bag_index_temporary(i):
 			n += 1
 	return n
 
@@ -1413,23 +1417,25 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 	if envy_n >= 3:
 		_envy_discard_permanent_nonsin(CombatConstants.ENVY_THREE_SIN_DISCARD)
 	if glut_n >= 3:
-		# 持续掉血：挂一段自伤 DoT（与 tick_dot 同频）
-		gluttony_self_dot_remaining = maxf(gluttony_self_dot_remaining, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC)
+		# v0.4.36：自伤 3.5s，每 0.7s 扣 1
+		gluttony_self_dot_remaining = maxf(gluttony_self_dot_remaining, CombatConstants.GLUTTONY_SELF_DOT_SEC)
 		_log("罪孽[暴食]：本匣暴食 ×%d（≥3）→ 持续掉血 %.1fs。" % [glut_n, gluttony_self_dot_remaining])
 		hooks.emit_hook(&"on_gluttony_self_dot", {"cs": self, "remaining": gluttony_self_dot_remaining})
 	if sloth_n >= 3:
-		sloth_fire_penalty_remaining = maxf(sloth_fire_penalty_remaining, CombatConstants.SLOTH_FIRE_PENALTY_SEC)
-		_log("罪孽[懒惰]：本匣懒惰 ×%d（≥3）→ 射速−50%% 窗 %.1fs。" % [
-			sloth_n, sloth_fire_penalty_remaining
+		# v0.4.36：3 秒禁枪（复用 fire_lock；不再开射速窗）
+		fire_lock_remaining = maxf(fire_lock_remaining, CombatConstants.SLOTH_FIRE_BAN_SEC)
+		sloth_fire_penalty_remaining = 0.0
+		_log("罪孽[懒惰]：本匣懒惰 ×%d（≥3）→ 禁枪 %.1fs。" % [
+			sloth_n, fire_lock_remaining
 		])
-		hooks.emit_hook(&"on_sloth_fire_penalty", {"cs": self, "remaining": sloth_fire_penalty_remaining})
+		hooks.emit_hook(&"on_sloth_fire_penalty", {"cs": self, "remaining": fire_lock_remaining})
 	# v0.4.0：三罪孽惩罚不再加临时罪孽；临时罪只走「装入时 20%」。
 
 
 func _spawn_penalty_temp_sin(sin_id: int) -> void:
-	_bag_append(sin_id, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	_bag_append(sin_id, true)
 	penalty_temp_sins_spawned += 1
-	_log("罪孽惩罚：袋内 +1 颗临时%s（%.0f 秒后消失）。" % [_ammo_name(sin_id), CombatConstants.TEMP_SIN_LIFETIME_SEC])
+	_log("罪孽惩罚：袋内 +1 颗临时%s（打出即消失）。" % _ammo_name(sin_id))
 
 
 
@@ -1475,9 +1481,11 @@ func _try_spawn_temp_sin_on_load(resolved: int) -> void:
 		return
 	if rng.randf() >= CombatConstants.LOAD_TEMP_SIN_CHANCE:
 		return
-	_bag_append(resolved, CombatConstants.TEMP_SIN_LIFETIME_SEC)
+	_bag_append(resolved, true)
 	load_temp_sins_spawned += 1
-	_log("装入%s：%d%% 触发 → 袋内 +1 临时（%.0fs）。" % [_ammo_name(resolved), int(round(CombatConstants.LOAD_TEMP_SIN_CHANCE * 100.0)), CombatConstants.TEMP_SIN_LIFETIME_SEC])
+	_log("装入%s：%d%% 触发 → 袋内 +1 临时（打出即消失）。" % [
+		_ammo_name(resolved), int(round(CombatConstants.LOAD_TEMP_SIN_CHANCE * 100.0))
+	])
 	hooks.emit_hook(&"on_temp_sin_spawn", {"cs": self, "sin_id": resolved, "source": "load33"})
 
 
@@ -1650,9 +1658,9 @@ func _place_envy_copy(ammo_id: int) -> String:
 		for k in n:
 			var i: int = (start + k) % n
 			if magazine.slots[i] == Magazine.EMPTY:
-				magazine.set_slot(i, ammo_id, CombatConstants.ENVY_COPY_TTL_SEC, true)
+				magazine.set_slot(i, ammo_id, CombatConstants.FIRE_ONCE_TEMP, true)
 				return "chamber"
-	_bag_append(ammo_id, CombatConstants.ENVY_COPY_TTL_SEC, true)
+	_bag_append(ammo_id, CombatConstants.FIRE_ONCE_TEMP, true)
 	return "bag"
 
 
@@ -2888,10 +2896,14 @@ func fire_next_shot() -> bool:
 	last_shot_was_pierce = pierce
 	last_shot_was_envy_copy = shot_envy
 
-	if fuse_n < 2 and not shot_envy:
+	var shot_fire_once: bool = shot_envy or Magazine.is_fire_once_temp(shot_temp)
+	if fuse_n < 2 and not shot_fire_once:
 		_discard_append(ammo_id, shot_temp)
-	elif shot_envy:
-		_log("  → 嫉妒复制弹打出即毁（不进弃牌）。")
+	elif shot_fire_once:
+		if shot_envy:
+			_log("  → 嫉妒复制弹打出即毁（不进弃牌）。")
+		else:
+			_log("  → 临时弹打出即毁（不进弃牌）。")
 	# 元素枪口：本发后挂上，供后续击发附带
 	_mount_muzzle_from(flags)
 	if ammo_id == FireResolver.ID_TOMBSTONE:
@@ -3879,11 +3891,13 @@ func _auto_load_and_fire_once() -> bool:
 		var ammo_id: int = _fire_queue[_fire_index]
 		var base_dmg: int = _fire_damages[_fire_index]
 		var shot_temp: float = magazine.slot_temp_life(hammer)
+		var shot_envy: bool = magazine.is_slot_envy_copy(hammer)
 		var fuse_n: int = _pebble_fuse_count
 		if fuse_n >= 2 and ammo_id == FireResolver.ID_PEBBLE:
 			_consume_pebble_fuse(fuse_n)
 			_pebble_fuse_count = 0
 			shot_temp = 0.0
+			shot_envy = false
 		else:
 			_consume_hammer_chamber(ammo_id)
 		var flags := FireResolver.inherits_from(ammo_id)
@@ -3902,7 +3916,8 @@ func _auto_load_and_fire_once() -> bool:
 		last_shot_hit_amounts.clear()
 		last_shot_was_pierce = pierce
 		# 额外轮：先挂元素枪口（含回声），本发即享受
-		if fuse_n < 2:
+		var shot_fire_once: bool = shot_envy or Magazine.is_fire_once_temp(shot_temp)
+		if fuse_n < 2 and not shot_fire_once:
 			_discard_append(ammo_id, shot_temp)
 		_mount_muzzle_from(flags)
 		var dealt_auto: int = _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
@@ -3961,8 +3976,7 @@ func fire_tap(resolve_sync: bool = true) -> Array:
 	if player_fire_gate_remaining > 0.0:
 		return shots
 	hooks.emit_hook(&"on_fire", {"cs": self})
-	if sloth_fire_penalty_remaining > 0.0:
-		fire_lock_remaining = maxf(fire_lock_remaining, CombatConstants.SLOTH_FIRE_LOCK_SEC)
+	# v0.4.36：懒惰三罪直接禁枪，不再在每次开火后续短锁
 	if not can_fire():
 		return shots
 	if not resolve_sync and volley_port_empty():
@@ -4635,19 +4649,14 @@ func player_status_ring_entries() -> Array:
 			"confuse", "乱", player_confuse_remaining, CombatConstants.LUST_SELF_CONFUSE_SEC,
 			Color(0.95, 0.45, 0.9)
 		))
-	if sloth_fire_penalty_remaining > 0.0:
+	if fire_lock_remaining > 0.0:
 		out.append(_player_timed_ring(
-			"slow", "缓", sloth_fire_penalty_remaining, CombatConstants.SLOTH_FIRE_PENALTY_SEC,
-			Color(0.45, 0.75, 1.0)
-		))
-	elif fire_lock_remaining > 0.0:
-		out.append(_player_timed_ring(
-			"lock", "锁", fire_lock_remaining, CombatConstants.SLOTH_FIRE_LOCK_SEC,
+			"lock", "禁", fire_lock_remaining, CombatConstants.SLOTH_FIRE_BAN_SEC,
 			Color(0.75, 0.75, 0.85)
 		))
 	if gluttony_self_dot_remaining > 0.0:
 		out.append(_player_timed_ring(
-			"dot", "伤", gluttony_self_dot_remaining, CombatConstants.MUZZLE_DURATION_GLUTTONY_SEC,
+			"dot", "伤", gluttony_self_dot_remaining, CombatConstants.GLUTTONY_SELF_DOT_SEC,
 			Color(1.0, 0.45, 0.2)
 		))
 	return out

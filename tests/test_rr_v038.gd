@@ -5,7 +5,7 @@ const W := FireResolver.ID_WRATH
 const P := FireResolver.ID_PRIDE
 const G := FireResolver.ID_GREED
 const WHITE := CombatConstants.WHITE_AMMO_ID
-const LIFE := CombatConstants.TEMP_SIN_LIFETIME_SEC
+const LIFE := CombatConstants.GHOST_TTL_SEC  # timed TTL sample; fire-once temps use true
 
 
 func before_each() -> void:
@@ -196,13 +196,17 @@ func test_state_persists_across_clear() -> void:
 # ——— 临时罪孽寿命 ———
 
 func test_temp_sin_expires_from_bag() -> void:
+	## v0.4.36：临时罪孽不计时；有 TTL 的（幽灵）仍会到期。
 	var cs := _rush()
 	var n0: int = cs.bag.size()
-	cs._bag_append(W, LIFE)
-	cs.tick_temp_sin_lifetimes(LIFE - 0.5)
-	assert_eq(cs.bag.size(), n0 + 1)
+	cs._bag_append(W, true)  # fire-once
+	cs.tick_temp_sin_lifetimes(999.0)
+	assert_eq(cs.bag.size(), n0 + 1, "fire-once temp does not time out")
+	cs._bag_append(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC)
+	cs.tick_temp_sin_lifetimes(CombatConstants.GHOST_TTL_SEC - 0.5)
+	assert_eq(cs.bag.size(), n0 + 2)
 	cs.tick_temp_sin_lifetimes(1.0)
-	assert_eq(cs.bag.size(), n0)
+	assert_eq(cs.bag.size(), n0 + 1)
 	assert_eq(str(cs.expired_temp_events.back()["where"]), "bag")
 
 
@@ -227,10 +231,10 @@ func test_temp_sin_expires_from_magazine_slot_becomes_empty() -> void:
 func test_each_temp_sin_has_own_lifetime() -> void:
 	var cs := _rush()
 	var n0: int = cs.bag.size()
-	cs._bag_append(W, LIFE)
-	cs.tick_temp_sin_lifetimes(10.0)
-	cs._bag_append(W, LIFE)
-	cs.tick_temp_sin_lifetimes(LIFE - 10.0 + 0.1)
+	cs._bag_append(FireResolver.ID_GHOST, 10.0)
+	cs.tick_temp_sin_lifetimes(5.0)
+	cs._bag_append(FireResolver.ID_GHOST, 10.0)
+	cs.tick_temp_sin_lifetimes(5.1)
 	assert_eq(cs.bag.size(), n0 + 1, "先来的到期，后来的还在")
 
 
@@ -323,7 +327,8 @@ func test_ui_muzzle_one_translucent_bar_per_layer() -> void:
 	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
 	await wait_process_frames(2)
 	var cs: CombatState = ui.state
-	cs._muzzle_wrath_layers = [0.8, 2.0, 4.0]
+	var D: float = CombatConstants.MUZZLE_DURATION_WRATH_SEC
+	cs._muzzle_wrath_layers = [D * 0.1, D * 0.5, D]
 	ui._refresh_muzzle_hud()
 	var node: Dictionary = ui._muzzle_chip_nodes[0]
 	var bars: Array = node["bars"]
@@ -333,11 +338,11 @@ func test_ui_muzzle_one_translucent_bar_per_layer() -> void:
 		var cr: ColorRect = b
 		assert_eq(cr.get_parent(), parent, "所有层叠在同一条轨道上")
 		assert_true(cr.color.a >= 0.35 and cr.color.a <= 0.45, "半透明")
-	assert_almost_eq((bars[0] as ColorRect).anchor_right, 0.2, 0.01)
+	assert_almost_eq((bars[0] as ColorRect).anchor_right, 0.1, 0.01)
 	assert_almost_eq((bars[2] as ColorRect).anchor_right, 1.0, 0.01)
 	assert_gt((bars[0] as ColorRect).color.r, (bars[0] as ColorRect).color.g * 2.0, "≤25% 那层变红")
 	assert_lt((bars[2] as ColorRect).color.r, (bars[2] as ColorRect).color.g * 2.0)
-	assert_eq((node["label"] as Label).text, "愤怒×3 0.8s")
+	assert_eq((node["label"] as Label).text, "愤怒×3 %.1fs" % (D * 0.1))
 
 
 func test_ui_wheel_position_independent_of_chip_count() -> void:
@@ -362,11 +367,16 @@ func test_ui_wheel_position_independent_of_chip_count() -> void:
 
 
 func test_ui_chamber_shows_temp_seconds() -> void:
+	## v0.4.36：仓内 TTL 画环不写秒数
 	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
 	await wait_process_frames(2)
 	var cs: CombatState = ui.state
-	cs.magazine.set_slot(0, W, 9.2)
+	cs.magazine.set_slot(0, FireResolver.ID_GHOST, 9.2)
 	ui._update_temp_sin_timers()
 	var lab: Label = ui._chamber_panels[0].get_node_or_null("TempLife")
-	assert_not_null(lab)
-	assert_eq(lab.text, "10s")
+	if lab != null:
+		assert_false(lab.visible)
+	var ring: Control = ui._chamber_panels[0].get_node_or_null("TempLifeRing")
+	assert_not_null(ring)
+	assert_true(ring.visible)
+	assert_gt(float(ring.get_meta("frac", 0.0)), 0.2)

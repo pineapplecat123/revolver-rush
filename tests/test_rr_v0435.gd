@@ -1,8 +1,7 @@
 extends GutTest
 ## v0.4.35：燃烧改为篝火式大火焰软斑。
 
-func test_version_is_0_4_35() -> void:
-	assert_eq(GameVersion.STRING, "0.4.35")
+func test_changelog_mentions_0_4_35() -> void:
 	assert_true("0.4.35" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
