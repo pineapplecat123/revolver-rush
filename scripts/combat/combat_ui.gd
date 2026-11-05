@@ -1210,12 +1210,6 @@ func _process(delta: float) -> void:
 		_update_enemy_glide_visuals()
 	if has_hp_hold() and _in_flight_shots <= 0 and not is_shooting():
 		release_all_hp_holds()  # 保险：没有子弹在飞就不该再留着旧血量
-	if not _dying_until.is_empty():
-		var now_ms: int = Time.get_ticks_msec()
-		for deid in _dying_until.keys():
-			if now_ms >= int(_dying_until[deid]):
-				_refresh_board()  # 死亡动画播完：清掉小动物
-				break
 	_update_muzzle_countdowns()
 	_update_temp_sin_timers()
 	_update_sandbox_stats_hud()
@@ -1735,22 +1729,28 @@ func _audit_spawn(rec: Dictionary) -> void:
 
 func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: float = 0.0) -> void:
 	## 单发弹道（不 await 逻辑）：飞到命中格时播放该格延后的飘字/飚血，落地后清尸体。
+	## v0.4.30：实弹（仓发）出膛瞬间必播开火姿势 + 必有弹道。逻辑结算时 on_shot 已播过一次，
+	## 但第一发常在预转之前就播完了——这里再 seek 一次对齐画面。目标已死/没命中 → 子弹飞过画面，不喷血。
 	var wait_s: float = batch_delay + (_paced(EXTRA_SHOT_STAGGER_SEC) * float(order) if order > 0 else 0.0)
 	if wait_s > 0.0:
 		await _pwait(wait_s)
-		if order > 0 and _skel_player != null and is_instance_valid(_skel_player):
-			_skel_player.play_shoot()  # 错开的额外弹各自后坐一下（首发由 on_shot 钩子触发）
+	# 出膛帧：仓发必播后坐（含首发；幽灵虚拟靠自己的路径）
+	if is_chamber_shot(rec) and _skel_player != null and is_instance_valid(_skel_player):
+		_skel_player.play_shoot()
+		fire_anim_log.append({"slot": int(rec.get("slot", -1)), "ms": Time.get_ticks_msec(), "hits": (rec.get("hit_cells", []) as Array).size()})
+		if fire_anim_log.size() > 200:
+			fire_anim_log.pop_front()
 	_audit_spawn(rec)
 	var hit_cells: Array = rec.get("hit_cells", [])
 	var hit_amts: Array = rec.get("hit_amounts", [])
 	var from_g: Vector2 = _player_shot_origin_global()
-	if hit_cells.is_empty() or from_g == Vector2.ZERO:
-		for ev in events:
-			_spawn_hit_event(ev)
-		_on_tap_shot_landed()
-		return
-	var end_cell: int = int(hit_cells[hit_cells.size() - 1])
-	var to_g: Vector2 = _cell_unit_global_center(end_cell)
+	if from_g == Vector2.ZERO:
+		from_g = _cell_unit_global_center(CombatConstants.PLAYER_CELL)
+	if from_g == Vector2.ZERO:
+		from_g = Vector2(80, 280)
+	# v0.4.30：没命中也飞——飞过棋盘右侧（哑火穿过），事件照旧落地时处理
+	var end_cell: int = int(hit_cells[hit_cells.size() - 1]) if not hit_cells.is_empty() else CombatConstants.BOARD_SIZE - 1
+	var to_g: Vector2 = _cell_unit_global_center(end_cell) if not hit_cells.is_empty() else Vector2.ZERO
 	if to_g == Vector2.ZERO:
 		to_g = from_g + Vector2(float(CELL_W) * float(maxi(end_cell, 1)), 0.0)
 	var ammo_id: int = int(rec.get("ammo_id", -1))
@@ -2113,11 +2113,7 @@ func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 		if _hp_resolving:
 			continue  # 开火逻辑结算中：先别清，等 hold 记好
 		if _skel_keep_offstate(int(eid2)):
-			var ksk: SkeletonEnemy = _skel_enemies[eid2] as SkeletonEnemy
-			if ksk != null and is_instance_valid(ksk) and not _hp_hold.has(eid2) and not ksk.is_dead:
-				ksk.set_hp(0, 1)
-				ksk.play_death()
-			continue
+			continue  # 子弹还没飞到：留着
 		drop.append(eid2)
 	for eid3 in drop:
 		var oldsk: SkeletonEnemy = _skel_enemies[eid3] as SkeletonEnemy
@@ -2252,10 +2248,8 @@ func _animate_shot_projectile(
 	var delta: Vector2 = to_g - from_g
 	if delta.length_squared() < 0.01:
 		delta = Vector2.RIGHT
-	var host := Control.new()
-	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var host: Control = _acquire_shot_host()
 	host.z_index = Z_SHOT_VFX
-	add_child(host)
 	host.global_position = from_g
 	host.rotation = delta.angle()
 	var n_out: int = outline_cols.size()
@@ -2263,35 +2257,37 @@ func _animate_shot_projectile(
 	if n_out > 0:
 		glow_col = outline_cols[0]
 	var trail_lines: Array = []
+	var si := 0
 	if sin_shot:
 		# v0.4.28 罪孽弹：外面一圈黑红「危险」光带（比普通光晕宽、暗、会抽动）
-		var danger := _make_shot_streak(SHOT_TRAIL_THICK + SIN_STREAK_EXTRA, RarityFx.SIN_DARK.lerp(RarityFx.SIN_RED, 0.35), 0.85, 0.0)
-		danger.name = "SinDanger"
-		trail_lines.append(danger)
+		trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK + SIN_STREAK_EXTRA, RarityFx.SIN_DARK.lerp(RarityFx.SIN_RED, 0.35), 0.85, 0.0, "SinDanger"))
+		si += 1
 	# 淡光晕：同形状、略宽、很淡（不是圆球）
-	trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK + SHOT_STREAK_HALO, _shot_head_display_color(glow_col, 0.2, 1.0), 0.30, 0.0))
+	trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK + SHOT_STREAK_HALO, _shot_head_display_color(glow_col, 0.2, 1.0), 0.30, 0.0))
+	si += 1
 	for oi in n_out:
 		var oc: Color = outline_cols[oi]
 		var pad: float = float(n_out - oi) * SHOT_OUTLINE_PAD
-		trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK + pad * 2.0, oc, 0.95, 0.10))
+		trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK + pad * 2.0, oc, 0.95, 0.10))
+		si += 1
 	# 芯色：保留弹药色相、提亮到深色弹（愤怒红等）也看得清
-	trail_lines.append(_make_shot_streak(SHOT_TRAIL_THICK, _shot_head_display_color(core_col, 0.38, 1.0), 1.0, 0.12))
-	for line in trail_lines:
-		host.add_child(line)
-		line.visible = false
-	# 亮弹头：同宽一小段（圆头），颜色是弹药色提亮——和枪线是一体的
-	var tip := Line2D.new()
+	trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK, _shot_head_display_color(core_col, 0.38, 1.0), 1.0, 0.12))
+	# 亮弹头：同宽一小段（圆头）
+	var tip: Line2D = host.get_node_or_null("Tip") as Line2D if shot_fx_pool_enabled else null
+	if tip == null:
+		tip = Line2D.new()
+		tip.name = "Tip"
+		tip.antialiased = true
+		tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
+		tip.end_cap_mode = Line2D.LINE_CAP_NONE
+		host.add_child(tip)
 	tip.width = SHOT_TRAIL_THICK
-	tip.antialiased = true
-	tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
-	tip.end_cap_mode = Line2D.LINE_CAP_NONE
 	tip.default_color = _shot_head_display_color(core_col, 0.55, 1.0)
-	var tip_grad := Gradient.new()
-	tip_grad.set_color(0, _shot_head_display_color(core_col, 0.7, 1.0))
-	tip_grad.set_color(1, _shot_head_display_color(core_col, 0.38, 1.0))
-	tip.gradient = tip_grad
+	var hc0: Color = _shot_head_display_color(core_col, 0.7, 1.0)
+	var hc1: Color = _shot_head_display_color(core_col, 0.38, 1.0)
+	tip.gradient = _cached_tip_gradient(hc0, hc1)
 	tip.points = PackedVector2Array([Vector2(SHOT_TIP_LEAD, 0), Vector2(-SHOT_TIP_LEN, 0)])
-	host.add_child(tip)
+	tip.visible = true
 	if powder:
 		_attach_powder_trail(host)
 	if sin_shot:
@@ -2304,6 +2300,13 @@ func _animate_shot_projectile(
 		"fired": {},
 		"trail_lines": trail_lines,
 	}
+	tracer_log.append({
+		"from": from_g, "to": to_g, "hits": waypoints.size(),
+		"pass_through": waypoints.is_empty(),
+		"ms": Time.get_ticks_msec(),
+	})
+	if tracer_log.size() > 200:
+		tracer_log.pop_front()
 	_shot_projectile_step(0.0, ctx)
 	var tw := create_tween()
 	# 匀速：初速即满速（v0.2.69）；拖尾为连续 Line2D 光带
@@ -2322,11 +2325,12 @@ func _animate_shot_projectile(
 		# 飙血改由 enemy_damaged 统一触发（含非子弹掉血）
 	if is_instance_valid(host):
 		_detach_powder_trail(host)
-		host.queue_free()
+		_release_shot_host(host)
 
 
 func _make_shot_streak(width: float, col: Color, head_a: float, tail_a: float) -> Line2D:
 	## 一条枪线：最前端圆头（begin cap 在弹头），头部一段保持满宽，往后收细、变淡。
+	## v0.4.30：宽度曲线与渐变缓存复用（观感不变，少分配）。
 	var line := Line2D.new()
 	line.width = width
 	line.default_color = Color(1, 1, 1, 1)
@@ -2334,21 +2338,230 @@ func _make_shot_streak(width: float, col: Color, head_a: float, tail_a: float) -
 	line.begin_cap_mode = Line2D.LINE_CAP_ROUND
 	line.end_cap_mode = Line2D.LINE_CAP_NONE
 	line.joint_mode = Line2D.LINE_JOINT_ROUND
-	var curve := Curve.new()
-	curve.add_point(Vector2(0.0, 1.0))
-	curve.add_point(Vector2(0.18, 1.0))
-	curve.add_point(Vector2(1.0, 0.18))
-	line.width_curve = curve
-	var grad := Gradient.new()
-	grad.set_color(0, Color(col.r, col.g, col.b, head_a))
-	grad.set_color(1, Color(col.r, col.g, col.b, tail_a))
-	grad.add_point(0.35, Color(col.r, col.g, col.b, head_a * 0.85))
-	line.gradient = grad
+	line.width_curve = _shared_streak_width_curve()
+	line.gradient = _cached_gradient(col, head_a, head_a * 0.85, tail_a)
 	line.points = PackedVector2Array([Vector2.ZERO, Vector2(-1.0, 0.0)])
 	return line
 
 
 var _powder_emitters: int = 0
+## v0.4.30 Web/兼容渲染：弹道宿主与火药/罪孽粒子池（回收复用，不改观感）
+## false = 每发新建/释放（基准对照）；默认 true。环境变量 RR_NO_SHOT_POOL=1 也可关。
+var shot_fx_pool_enabled: bool = true
+var _shot_host_pool: Array = []
+const SHOT_HOST_POOL_MAX := 24
+var _powder_pool: Dictionary = {}  # name_prefix -> Array[CPUParticles2D]
+const POWDER_POOL_MAX_PER := 8
+## 枪线宽度曲线 / 渐变按参数缓存（只读复用，避免每发 new Curve/Gradient）
+static var _streak_width_curve: Curve = null
+static var _grad_cache: Dictionary = {}
+var _trail_pts_scratch := PackedVector2Array()
+
+
+func _shared_streak_width_curve() -> Curve:
+	if _streak_width_curve == null:
+		_streak_width_curve = Curve.new()
+		_streak_width_curve.add_point(Vector2(0.0, 1.0))
+		_streak_width_curve.add_point(Vector2(0.18, 1.0))
+		_streak_width_curve.add_point(Vector2(1.0, 0.18))
+	return _streak_width_curve
+
+
+func _cached_tip_gradient(c0: Color, c1: Color) -> Gradient:
+	## 弹头两端色不同；量化后缓存，观感不变。
+	var key := "tip_%d_%d_%d_%d_%d_%d_%d_%d" % [
+		int(c0.r * 64.0), int(c0.g * 64.0), int(c0.b * 64.0), int(c0.a * 64.0),
+		int(c1.r * 64.0), int(c1.g * 64.0), int(c1.b * 64.0), int(c1.a * 64.0),
+	]
+	var g = _grad_cache.get(key)
+	if g != null:
+		return g
+	g = Gradient.new()
+	g.set_color(0, c0)
+	g.set_color(1, c1)
+	if _grad_cache.size() > 256:
+		_grad_cache.clear()
+	_grad_cache[key] = g
+	return g
+
+
+func _cached_gradient(col: Color, head_a: float, mid_a: float, tail_a: float) -> Gradient:
+	## 颜色量化到 1/64，同色同透明度共用一条 Gradient。
+	var key := "%d_%d_%d_%d_%d_%d" % [
+		int(col.r * 64.0), int(col.g * 64.0), int(col.b * 64.0),
+		int(head_a * 64.0), int(mid_a * 64.0), int(tail_a * 64.0),
+	]
+	var g = _grad_cache.get(key)
+	if g != null:
+		return g
+	g = Gradient.new()
+	g.set_color(0, Color(col.r, col.g, col.b, head_a))
+	g.set_color(1, Color(col.r, col.g, col.b, tail_a))
+	g.add_point(0.35, Color(col.r, col.g, col.b, mid_a))
+	if _grad_cache.size() > 256:
+		_grad_cache.clear()
+	_grad_cache[key] = g
+	return g
+
+
+func _acquire_shot_host() -> Control:
+	if not shot_fx_pool_enabled:
+		var host0 := Control.new()
+		host0.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		host0.z_index = Z_SHOT_VFX
+		add_child(host0)
+		return host0
+	while not _shot_host_pool.is_empty():
+		var h: Control = _shot_host_pool.pop_back() as Control
+		if h != null and is_instance_valid(h):
+			h.visible = true
+			h.modulate = Color.WHITE
+			return h
+	var host := Control.new()
+	host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	host.z_index = Z_SHOT_VFX
+	# 预挂一套可复用枪线（最多：SinDanger+光晕+3描边+芯+Tip = 7 线）；用不到的隐藏。
+	for i in 7:
+		var line := Line2D.new()
+		line.name = "Streak%d" % i
+		line.visible = false
+		line.antialiased = true
+		line.begin_cap_mode = Line2D.LINE_CAP_ROUND
+		line.end_cap_mode = Line2D.LINE_CAP_NONE
+		line.joint_mode = Line2D.LINE_JOINT_ROUND
+		line.width_curve = _shared_streak_width_curve()
+		host.add_child(line)
+	var tip := Line2D.new()
+	tip.name = "Tip"
+	tip.visible = false
+	tip.antialiased = true
+	tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
+	tip.end_cap_mode = Line2D.LINE_CAP_NONE
+	tip.width = SHOT_TRAIL_THICK
+	host.add_child(tip)
+	add_child(host)
+	return host
+
+
+func _release_shot_host(host: Control) -> void:
+	if host == null or not is_instance_valid(host):
+		return
+	if not shot_fx_pool_enabled:
+		host.queue_free()
+		return
+	# 只藏线，不拆；粒子已 detach。清掉误挂的非池化子节点。
+	var streak_i := 0
+	for c in host.get_children():
+		if c is Line2D:
+			var line := c as Line2D
+			line.visible = false
+			line.modulate = Color.WHITE
+			if line.name == &"Tip" or str(line.name) == "Tip":
+				pass
+			else:
+				line.name = "Streak%d" % streak_i
+				streak_i += 1
+				if line.has_meta("sin_danger"):
+					line.remove_meta("sin_danger")
+		elif c is CPUParticles2D:
+			pass  # 应已 detach
+		else:
+			host.remove_child(c)
+			c.queue_free()
+	host.visible = false
+	host.rotation = 0.0
+	host.global_position = Vector2(-9999, -9999)
+	if _shot_host_pool.size() >= SHOT_HOST_POOL_MAX:
+		host.queue_free()
+		return
+	_shot_host_pool.append(host)
+
+
+func _checkout_streak(host: Control, idx: int, width: float, col: Color, head_a: float, tail_a: float, nm: String = "") -> Line2D:
+	## 从宿主预挂线里取一条配置好；池关闭或不存在则新建（与旧路径一致）。
+	var line: Line2D = null
+	if shot_fx_pool_enabled:
+		line = host.get_node_or_null("Streak%d" % idx) as Line2D
+	if line == null:
+		line = _make_shot_streak(width, col, head_a, tail_a)
+		if nm != "":
+			line.name = nm
+		if nm == "SinDanger":
+			line.set_meta("sin_danger", true)
+		host.add_child(line)
+	else:
+		# 飞行中可用角色名（如 SinDanger）；回收时再改回 StreakN。
+		if nm != "":
+			line.name = nm
+		if nm == "SinDanger":
+			line.set_meta("sin_danger", true)
+		elif line.has_meta("sin_danger"):
+			line.remove_meta("sin_danger")
+		line.width = width
+		line.default_color = Color(1, 1, 1, 1)
+		line.width_curve = _shared_streak_width_curve()
+		line.gradient = _cached_gradient(col, head_a, head_a * 0.85, tail_a)
+		line.points = PackedVector2Array([Vector2.ZERO, Vector2(-1.0, 0.0)])
+		line.visible = false
+	return line
+
+
+func _acquire_powder_emitter(nm: String, amount: int, life: float, s_min: float, s_max: float, spread: float) -> CPUParticles2D:
+	if not shot_fx_pool_enabled:
+		return _powder_emitter(nm, amount, life, s_min, s_max, spread)
+	var pool: Array = _powder_pool.get(nm, [])
+	while not pool.is_empty():
+		var p: CPUParticles2D = pool.pop_back() as CPUParticles2D
+		if p != null and is_instance_valid(p):
+			_configure_powder_emitter(p, nm, amount, life, s_min, s_max, spread)
+			return p
+	_powder_pool[nm] = pool
+	return _powder_emitter(nm, amount, life, s_min, s_max, spread)
+
+
+func _release_powder_emitter(p: CPUParticles2D) -> void:
+	if p == null or not is_instance_valid(p):
+		return
+	if not shot_fx_pool_enabled:
+		if is_instance_valid(p):
+			p.queue_free()
+		return
+	p.emitting = false
+	p.restart()
+	p.emitting = false
+	if p.get_parent() != null:
+		p.get_parent().remove_child(p)
+	add_child(p)
+	p.visible = false
+	p.global_position = Vector2(-9999, -9999)
+	var nm: String = str(p.name)
+	var pool: Array = _powder_pool.get(nm, [])
+	if pool.size() >= POWDER_POOL_MAX_PER:
+		p.queue_free()
+		return
+	pool.append(p)
+	_powder_pool[nm] = pool
+
+
+func _configure_powder_emitter(p: CPUParticles2D, nm: String, amount: int, life: float, s_min: float, s_max: float, spread: float) -> void:
+	p.name = nm
+	p.visible = true
+	p.local_coords = false
+	p.amount = amount
+	p.lifetime = life
+	p.emitting = true
+	p.direction = Vector2(-1, 0)
+	p.spread = spread
+	p.initial_velocity_min = 10.0
+	p.initial_velocity_max = 55.0
+	p.gravity = Vector2(0, 30)
+	p.damping_min = 8.0
+	p.damping_max = 26.0
+	p.scale_amount_min = s_min
+	p.scale_amount_max = s_max
+	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_SPHERE
+	p.emission_sphere_radius = SHOT_TRAIL_THICK * 0.7
+	p.z_index = -1
 
 
 func _attach_powder_trail(host: Node) -> void:
@@ -2357,21 +2570,12 @@ func _attach_powder_trail(host: Node) -> void:
 	if _powder_emitters >= POWDER_MAX_EMITTERS:
 		return
 	_powder_emitters += 1
-	var soot := _powder_emitter("PowderTrail", POWDER_PARTICLES, 1.05, 2.8, 5.6, 70.0)
-	var ramp := Gradient.new()
-	ramp.set_color(0, Color(0.16, 0.15, 0.15, 1.0))
-	ramp.add_point(0.35, Color(0.42, 0.41, 0.4, 0.95))
-	ramp.add_point(0.7, Color(0.62, 0.6, 0.58, 0.6))
-	ramp.set_color(ramp.get_point_count() - 1, Color(0.7, 0.68, 0.66, 0.0))
-	soot.color_ramp = ramp
-	host.add_child(soot)
-	var ember := _powder_emitter("PowderEmbers", POWDER_EMBERS, 0.6, 1.8, 3.4, 110.0)
-	var er := Gradient.new()
-	er.set_color(0, Color(1.0, 0.92, 0.55, 1.0))
-	er.add_point(0.4, Color(1.0, 0.55, 0.12, 0.95))
-	er.set_color(er.get_point_count() - 1, Color(0.85, 0.2, 0.05, 0.0))
-	ember.color_ramp = er
-	host.add_child(ember)
+	var soot := _acquire_powder_emitter("PowderTrail", POWDER_PARTICLES, 1.05, 2.8, 5.6, 70.0)
+	soot.color_ramp = _cached_powder_ramp_soot()
+	_reparent_fx(soot, host)
+	var ember := _acquire_powder_emitter("PowderEmbers", POWDER_EMBERS, 0.6, 1.8, 3.4, 110.0)
+	ember.color_ramp = _cached_powder_ramp_ember()
+	_reparent_fx(ember, host)
 
 
 func _attach_sin_trail(host: Node) -> void:
@@ -2379,21 +2583,67 @@ func _attach_sin_trail(host: Node) -> void:
 	if _powder_emitters >= POWDER_MAX_EMITTERS:
 		return
 	_powder_emitters += 1
-	var smoke := _powder_emitter("SinSmoke", 30, 0.8, 3.0, 6.5, 80.0)
+	var smoke := _acquire_powder_emitter("SinSmoke", 30, 0.8, 3.0, 6.5, 80.0)
 	smoke.gravity = Vector2(0, -60)
-	var sr := Gradient.new()
-	sr.set_color(0, Color(0.25, 0.0, 0.03, 0.9))
-	sr.add_point(0.5, Color(0.08, 0.0, 0.01, 0.7))
-	sr.set_color(sr.get_point_count() - 1, Color(0.0, 0.0, 0.0, 0.0))
-	smoke.color_ramp = sr
-	host.add_child(smoke)
-	var em := _powder_emitter("SinEmbers", 14, 0.55, 1.6, 3.0, 120.0)
+	smoke.color_ramp = _cached_sin_ramp_smoke()
+	_reparent_fx(smoke, host)
+	var em := _acquire_powder_emitter("SinEmbers", 14, 0.55, 1.6, 3.0, 120.0)
 	em.gravity = Vector2(0, -90)
-	var er := Gradient.new()
-	er.set_color(0, Color(1.0, 0.2, 0.15, 1.0))
-	er.set_color(1, Color(0.4, 0.0, 0.02, 0.0))
-	em.color_ramp = er
-	host.add_child(em)
+	em.color_ramp = _cached_sin_ramp_ember()
+	_reparent_fx(em, host)
+
+
+static var _ramp_soot: Gradient = null
+static var _ramp_ember: Gradient = null
+static var _ramp_sin_smoke: Gradient = null
+static var _ramp_sin_ember: Gradient = null
+
+
+func _reparent_fx(node: Node, new_parent: Node) -> void:
+	if node == null or new_parent == null:
+		return
+	var old = node.get_parent()
+	if old == new_parent:
+		return
+	if old != null:
+		old.remove_child(node)
+	new_parent.add_child(node)
+
+
+func _cached_powder_ramp_soot() -> Gradient:
+	if _ramp_soot == null:
+		_ramp_soot = Gradient.new()
+		_ramp_soot.set_color(0, Color(0.16, 0.15, 0.15, 1.0))
+		_ramp_soot.add_point(0.35, Color(0.42, 0.41, 0.4, 0.95))
+		_ramp_soot.add_point(0.7, Color(0.62, 0.6, 0.58, 0.6))
+		_ramp_soot.set_color(_ramp_soot.get_point_count() - 1, Color(0.7, 0.68, 0.66, 0.0))
+	return _ramp_soot
+
+
+func _cached_powder_ramp_ember() -> Gradient:
+	if _ramp_ember == null:
+		_ramp_ember = Gradient.new()
+		_ramp_ember.set_color(0, Color(1.0, 0.92, 0.55, 1.0))
+		_ramp_ember.add_point(0.4, Color(1.0, 0.55, 0.12, 0.95))
+		_ramp_ember.set_color(_ramp_ember.get_point_count() - 1, Color(0.85, 0.2, 0.05, 0.0))
+	return _ramp_ember
+
+
+func _cached_sin_ramp_smoke() -> Gradient:
+	if _ramp_sin_smoke == null:
+		_ramp_sin_smoke = Gradient.new()
+		_ramp_sin_smoke.set_color(0, Color(0.25, 0.0, 0.03, 0.9))
+		_ramp_sin_smoke.add_point(0.5, Color(0.08, 0.0, 0.01, 0.7))
+		_ramp_sin_smoke.set_color(_ramp_sin_smoke.get_point_count() - 1, Color(0.0, 0.0, 0.0, 0.0))
+	return _ramp_sin_smoke
+
+
+func _cached_sin_ramp_ember() -> Gradient:
+	if _ramp_sin_ember == null:
+		_ramp_sin_ember = Gradient.new()
+		_ramp_sin_ember.set_color(0, Color(1.0, 0.2, 0.15, 1.0))
+		_ramp_sin_ember.set_color(1, Color(0.4, 0.0, 0.02, 0.0))
+	return _ramp_sin_ember
 
 
 func _powder_emitter(nm: String, amount: int, life: float, s_min: float, s_max: float, spread: float) -> CPUParticles2D:
@@ -2433,11 +2683,12 @@ func _detach_powder_trail(host: Node) -> void:
 		p.z_index = Z_SHOT_VFX - 1
 		p.emitting = false
 		max_life = maxf(max_life, p.lifetime)
+		var hold: CPUParticles2D = p
 		var tw0 := create_tween()
-		tw0.tween_interval(p.lifetime + 0.1)
+		tw0.tween_interval(hold.lifetime + 0.1)
 		tw0.tween_callback(func() -> void:
-			if is_instance_valid(p):
-				p.queue_free())
+			if is_instance_valid(hold):
+				_release_powder_emitter(hold))
 	if not any:
 		return
 	var tw := create_tween()
@@ -2524,12 +2775,12 @@ func _shot_projectile_step(t: float, ctx: Dictionary) -> void:
 			line.visible = false
 		else:
 			line.visible = true
-			# 多段点：宽度曲线才能平滑收细（两点会出台阶）
-			var pts := PackedVector2Array()
+			# 多段点：宽度曲线才能平滑收细（两点会出台阶）。v0.4.30 复用 scratch，少分配。
+			_trail_pts_scratch.resize(13)
 			for k in 13:
-				pts.append(Vector2(-visible_len * float(k) / 12.0, 0.0))
-			line.points = pts
-			if line.name == "SinDanger":
+				_trail_pts_scratch[k] = Vector2(-visible_len * float(k) / 12.0, 0.0)
+			line.points = _trail_pts_scratch
+			if line.name == "SinDanger" or line.get_meta("sin_danger", false):
 				line.modulate.a = RarityFx.sin_flicker(Time.get_ticks_msec() * 0.001, 0.0)
 	var waypoints: Array = ctx.get("waypoints", [])
 	var fired: Dictionary = ctx.get("fired", {})
@@ -3179,30 +3430,18 @@ func release_all_hp_holds() -> void:
 	_refresh_board()
 
 
-## v0.4.29：逻辑里已被清掉（死了）的敌人，小动物要留到子弹画面上打到它那一刻，
-## 然后播死亡再淡出——不能开火当帧就消失（否则子弹飞到一块空地上喷血）。
-const DYING_SKEL_SEC := 0.9
-var _dying_until: Dictionary = {}  # enemy instance id → 保留到的 ticks_msec
+## v0.4.30：逻辑已死的敌人，小动物只留到子弹画面命中那一刻；命中瞬间直接炸碎块消失，不播死亡动画、不滞留。
+var _dying_until: Dictionary = {}  # 兼容旧测试字段；不再用于滞留
 
 
-func _note_hold_released(e) -> void:
-	if e == null or not is_instance_valid(e) or state == null:
-		return
-	var en: EnemyInstance = e as EnemyInstance
-	if state.enemies.has(en) and en.is_alive():
-		return
-	_dying_until[en.get_instance_id()] = Time.get_ticks_msec() + int(DYING_SKEL_SEC * 1000.0)
+func _note_hold_released(_e) -> void:
+	## v0.4.30：命中后再决定碎块；这里不再开死亡滞留计时。
+	pass
 
 
 func _skel_keep_offstate(eid: int) -> bool:
-	## 不在逻辑敌人表里，但画面上还要留着：血量还被「留住」（子弹没到），或正在播死亡。
-	if _hp_hold.has(eid):
-		return true
-	if _dying_until.has(eid):
-		if Time.get_ticks_msec() < int(_dying_until[eid]):
-			return true
-		_dying_until.erase(eid)
-	return false
+	## 只在血量还被「留住」（子弹没飞到）时留着小动物。
+	return _hp_hold.has(eid)
 
 
 func _spawn_hit_event(ev: Dictionary) -> void:
@@ -3236,6 +3475,8 @@ var _visual_dead: Dictionary = {}  # enemy instance id → true（致死那一�
 var _enemy_last_hit_g: Dictionary = {}  # enemy instance id → 最后可见位置（敌人已被清掉时兜底）
 var air_blood_skipped: int = 0  # 测试/演示：被拦下的「空中飙血」次数
 var hit_fx_log: Array = []  # 测试：[{eid, g, lethal}] 每次真的喷了血的位置
+var fire_anim_log: Array = []  # v0.4.30 测试：出膛帧 play_shoot [{slot, ms, hits}]
+var tracer_log: Array = []  # v0.4.30 测试：每发弹道 [{from, to, hits, pass_through}]
 
 
 func _release_hp_hold_for(e) -> void:
@@ -3269,7 +3510,8 @@ func _enemy_hit_global(e: EnemyInstance) -> Vector2:
 		if g2 != Vector2.ZERO:
 			_enemy_last_hit_g[eid] = g2
 		return g2
-	return Vector2.ZERO
+	# 逻辑已清掉但还有最后可见位置（哑火穿过用）
+	return _enemy_last_hit_g.get(eid, Vector2.ZERO)
 
 
 func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) -> void:
@@ -3292,20 +3534,31 @@ func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) 
 			_visual_dead.clear()
 			_visual_dead[eid] = true
 	var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+	if lethal:
+		# v0.4.30：命中瞬间碎块爆炸，本体立刻消失（不播死亡动画）
+		_spawn_damage_float(cell, amount, kind, at_g)
+		if amount > 0:
+			_spawn_blood_burst(at_g, amount, Vector2.ZERO, true)
+		_spawn_gore_for_enemy(en, at_g)
+		if sk != null and is_instance_valid(sk):
+			sk.queue_free()
+		_skel_enemies.erase(eid)
+		hit_fx_log.append({"eid": eid, "g": at_g, "lethal": true})
+		if hit_fx_log.size() > 200:
+			hit_fx_log.pop_front()
+		return
 	if sk != null and is_instance_valid(sk) and not sk.is_dead:
 		sk.play_hurt()
 	_spawn_damage_float(cell, amount, kind, at_g)
 	if amount <= 0:
 		return
 	var dir := Vector2.ZERO
-	if (not lethal) and _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
+	if _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
 		dir = _blood_spray_dir
-	_spawn_blood_burst(at_g, amount, dir, lethal)
-	hit_fx_log.append({"eid": eid, "g": at_g, "lethal": lethal})
+	_spawn_blood_burst(at_g, amount, dir, false)
+	hit_fx_log.append({"eid": eid, "g": at_g, "lethal": false})
 	if hit_fx_log.size() > 200:
 		hit_fx_log.pop_front()
-	if lethal:
-		_spawn_gore_for_enemy(en, at_g)
 
 
 func _on_enemy_damaged(cell: int, amount: int, kind: String = "") -> void:
@@ -4150,10 +4403,13 @@ func _refresh_bag_list() -> void:
 	# 物理盒只同步「袋」内每发；膛/弃仍在统计行可见
 	var ids: Array = []
 	var temps: Array = []
+	var envies: Array = []
+	state._sync_temp_arrays()
 	for i in state.bag.size():
 		ids.append(int(state.bag[i]))
 		temps.append(state.is_bag_index_temporary(i))
-	_bag_physics.sync_ammo_ids(ids, temps)
+		envies.append(bool(state.bag_envy_copy[i]) if i < state.bag_envy_copy.size() else false)
+	_bag_physics.sync_ammo_ids(ids, temps, envies)
 	_update_temp_sin_timers()
 	if _detail_open and _hover_ammo_id >= 0:
 		_show_ammo_detail(_hover_ammo_id, _bag_physics, true, false)
@@ -4186,6 +4442,20 @@ func _update_temp_sin_timers() -> void:
 		var panel: Control = _chamber_panels[s]
 		if panel == null or not is_instance_valid(panel):
 			continue
+		var envy_mark: ColorRect = panel.get_node_or_null("EnvyCopyMark") as ColorRect
+		if state.magazine.is_slot_envy_copy(s):
+			if envy_mark == null:
+				envy_mark = ColorRect.new()
+				envy_mark.name = "EnvyCopyMark"
+				envy_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				envy_mark.color = Color(0.25, 0.95, 0.45, 0.95)
+				envy_mark.size = Vector2(10, 10)
+				envy_mark.position = Vector2(panel.size.x - 14, 2)
+				panel.add_child(envy_mark)
+			envy_mark.visible = true
+			envy_mark.position = Vector2(maxi(panel.size.x - 14, 16), 2)
+		elif envy_mark != null:
+			envy_mark.visible = false
 		var lab: Label = panel.get_node_or_null("TempLife") as Label
 		var life: float = state.magazine.slot_temp_life(s)
 		if life <= 0.0:
@@ -4614,16 +4884,16 @@ func _build_sin_pick_panel() -> void:
 	row.add_theme_constant_override("separation", 8)
 	vbox.add_child(row)
 	_sin_add_choice_btn(row, "愤怒", "伤3 · 枪口愤怒叠伤\n装≥3自伤6", FireResolver.ID_WRATH, Color(0.75, 0.18, 0.18))
-	_sin_add_choice_btn(row, "傲慢", "伤2 · 枪口傲慢本场\n装≥3拉近敌人", FireResolver.ID_PRIDE, Color(0.55, 0.35, 0.85))
+	_sin_add_choice_btn(row, "傲慢", "伤2 · 枪口傲慢12s\n装≥3拉近敌人", FireResolver.ID_PRIDE, Color(0.55, 0.35, 0.85))
 	_sin_add_choice_btn(row, "贪婪", "伤2 · 枪口贪婪掉金\n装≥3金币-6", FireResolver.ID_GREED, Color(0.2, 0.65, 0.35))
 	_sin_add_choice_btn(row, "色欲", "伤2 · 枪口混乱\n装≥3自混乱自伤", FireResolver.ID_LUST, Color(0.85, 0.25, 0.55))
 	var row2 := HBoxContainer.new()
 	row2.alignment = BoxContainer.ALIGNMENT_CENTER
 	row2.add_theme_constant_override("separation", 8)
 	vbox.add_child(row2)
-	_sin_add_choice_btn(row2, "嫉妒", "伤2 · 击杀复制上发\n装≥3弃2永久", FireResolver.ID_ENVY, Color(0.25, 0.7, 0.45))
+	_sin_add_choice_btn(row2, "嫉妒", "伤2 · 命中25%复制\n装≥3弃2永久", FireResolver.ID_ENVY, Color(0.25, 0.7, 0.45))
 	_sin_add_choice_btn(row2, "暴食", "伤2 · 击杀回血\n装≥3持续掉血", FireResolver.ID_GLUTTONY, Color(0.75, 0.45, 0.15))
-	_sin_add_choice_btn(row2, "懒惰", "伤2 · 命中减速\n装≥3射速-50%", FireResolver.ID_SLOTH, Color(0.45, 0.55, 0.75))
+	_sin_add_choice_btn(row2, "懒惰", "伤2 · 命中减速\n装≥3射速窗", FireResolver.ID_SLOTH, Color(0.45, 0.55, 0.75))
 	add_child(_sin_panel)
 
 

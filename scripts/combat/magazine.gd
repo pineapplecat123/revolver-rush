@@ -7,15 +7,19 @@ const EMPTY := -1
 var slots: Array[int] = []
 ## 与 slots 平行：临时罪孽剩余寿命（秒，>0=临时；0/false=永久）。v0.3.8 起存 float；兼容 bool。
 var temp_slots: Array = []
+## v0.4.30 嫉妒复制：一次性临时弹；打出后销毁，不进弃牌/基线。
+var envy_copy_slots: Array = []
 var start_index: int = 0
 
 
 func _init(size: int = CombatConstants.MAGAZINE_SIZE) -> void:
 	slots.clear()
 	temp_slots.clear()
+	envy_copy_slots.clear()
 	for _i in size:
 		slots.append(EMPTY)
 		temp_slots.append(false)
+		envy_copy_slots.append(false)
 	start_index = 0
 
 
@@ -42,15 +46,22 @@ func clear() -> void:
 			temp_slots[i] = 0.0
 		else:
 			temp_slots.append(0.0)
+		if i < envy_copy_slots.size():
+			envy_copy_slots[i] = false
+		else:
+			envy_copy_slots.append(false)
 	start_index = 0
 
 
 ## 写入单个仓位（逐步装填用）。
-func set_slot(index: int, ammo_id: int, temporary = false) -> void:
+func set_slot(index: int, ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
 	assert(index >= 0 and index < slots.size())
 	slots[index] = ammo_id
 	_ensure_temp_size()
 	temp_slots[index] = temp_value(temporary) if ammo_id != EMPTY else 0.0
+	while envy_copy_slots.size() < slots.size():
+		envy_copy_slots.append(false)
+	envy_copy_slots[index] = bool(envy_copy) and ammo_id != EMPTY
 
 
 ## 按顺序填入 ammo_ids（从槽 0 起）；返回实际装入数量。
@@ -175,6 +186,17 @@ func unload_all_entries() -> Array:
 	var out: Array = []
 	for i in slots.size():
 		if slots[i] != EMPTY:
-			out.append({"id": slots[i], "temp": slot_temp_life(i)})
+			out.append({"id": slots[i], "temp": slot_temp_life(i), "envy_copy": is_slot_envy_copy(i)})
 	clear()
 	return out
+
+
+func is_slot_envy_copy(index: int) -> bool:
+	if index < 0 or index >= envy_copy_slots.size():
+		return false
+	return bool(envy_copy_slots[index]) and slots[index] != EMPTY
+
+
+func clear_slot_envy(index: int) -> void:
+	if index >= 0 and index < envy_copy_slots.size():
+		envy_copy_slots[index] = false

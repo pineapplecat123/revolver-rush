@@ -75,31 +75,34 @@ func clear_balls() -> void:
 	queue_redraw()
 
 
-## 与袋内弹药同步。ammo_ids 可含重复；temps 与之等长时标记临时额外罪孽（半透明）。
-func sync_ammo_ids(ammo_ids: Array, temps: Array = []) -> void:
-	var want: Dictionary = {}  # key "id:t" -> count
+## 与袋内弹药同步。ammo_ids 可含重复；temps/envies 与之等长。
+## v0.4.30：envies 标记嫉妒一次性复制（绿菱角标）。
+func sync_ammo_ids(ammo_ids: Array, temps: Array = [], envies: Array = []) -> void:
+	var want: Dictionary = {}  # key "id:t:e" -> count
 	for i in ammo_ids.size():
 		var aid: int = int(ammo_ids[i])
 		var is_temp: bool = bool(temps[i]) if i < temps.size() else false
-		var key: String = "%d:%d" % [aid, 1 if is_temp else 0]
+		var is_envy: bool = bool(envies[i]) if i < envies.size() else false
+		var key: String = "%d:%d:%d" % [aid, 1 if is_temp else 0, 1 if is_envy else 0]
 		want[key] = int(want.get(key, 0)) + 1
 	var have: Dictionary = {}
 	for b in _balls:
-		var key2: String = "%d:%d" % [int(b["id"]), 1 if bool(b.get("temp", false)) else 0]
+		var key2: String = "%d:%d:%d" % [int(b["id"]), 1 if bool(b.get("temp", false)) else 0, 1 if bool(b.get("envy", false)) else 0]
 		have[key2] = int(have.get(key2, 0)) + 1
 	for key3 in have.keys():
 		var extra: int = int(have[key3]) - int(want.get(key3, 0))
 		while extra > 0:
 			var parts: PackedStringArray = str(key3).split(":")
-			_remove_one_ball(int(parts[0]), parts.size() > 1 and parts[1] == "1")
+			_remove_one_ball(int(parts[0]), parts.size() > 1 and parts[1] == "1", parts.size() > 2 and parts[2] == "1")
 			extra -= 1
 	for key4 in want.keys():
 		var miss: int = int(want[key4]) - int(have.get(key4, 0))
 		var parts2: PackedStringArray = str(key4).split(":")
 		var aid4: int = int(parts2[0])
 		var t4: bool = parts2.size() > 1 and parts2[1] == "1"
+		var e4: bool = parts2.size() > 2 and parts2[2] == "1"
 		for _i in miss:
-			_spawn_ball(aid4, t4)
+			_spawn_ball(aid4, t4, e4)
 	_update_radii_for_count()
 	_recount_animated()
 	_dirty = true
@@ -155,7 +158,7 @@ func _update_radii_for_count() -> void:
 		b["r"] = r
 
 
-func _spawn_ball(ammo_id: int, temporary: bool = false) -> void:
+func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false) -> void:
 	var sz := size
 	if sz.x < 8.0 or sz.y < 8.0:
 		sz = custom_minimum_size
@@ -165,7 +168,8 @@ func _spawn_ball(ammo_id: int, temporary: bool = false) -> void:
 	var y: float = WALL_PAD + r + randf_range(0.0, 10.0)
 	_balls.append({
 		"id": ammo_id,
-		"temp": temporary,
+		"temp": temporary or envy_copy,
+		"envy": envy_copy,
 		"pos": Vector2(x, y),
 		"vel": Vector2(randf_range(-40.0, 40.0), randf_range(0.0, 30.0)),
 		"r": r,
@@ -214,8 +218,8 @@ func _process(delta: float) -> void:
 		queue_redraw()
 
 
-func _remove_one_ball(ammo_id: int, temporary: bool = false) -> void:
-	# 优先移除靠上的同 id+temp 球，看起来像被「抓走」
+func _remove_one_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false) -> void:
+	# 优先移除靠上的同 id+temp+envy 球，看起来像被「抓走」
 	var best_i := -1
 	var best_top := INF
 	for i in _balls.size():
@@ -223,6 +227,8 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false) -> void:
 		if int(b["id"]) != ammo_id:
 			continue
 		if bool(b.get("temp", false)) != temporary:
+			continue
+		if bool(b.get("envy", false)) != envy_copy:
 			continue
 		if float(b["pos"].y) < best_top:
 			best_top = float(b["pos"].y)
@@ -447,6 +453,13 @@ func _draw_box() -> void:
 			elif tier == RarityFx.TIER_SIN:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.sin_text_outline(tsec, seedv))
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+		# v0.4.30 嫉妒一次性复制：右上角绿菱
+		if bool(b.get("envy", false)):
+			var d: float = maxf(3.5, r * 0.35)
+			var tip: Vector2 = pos + Vector2(r * 0.55, -r * 0.55)
+			draw_colored_polygon(PackedVector2Array([
+				tip + Vector2(0, -d), tip + Vector2(d, 0), tip + Vector2(0, d), tip + Vector2(-d, 0)
+			]), Color(0.25, 0.95, 0.45, 0.95))
 	# 临时罪孽消失特效：扩散淡出圈
 	for pp in _pops:
 		var k: float = clampf(float(pp["t"]) / POP_SEC, 0.0, 1.0)

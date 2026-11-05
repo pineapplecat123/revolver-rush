@@ -1590,13 +1590,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 359,
-			"dps_proxy": 119.666666666667,
+			"dealt": 1197,
+			"dps_proxy": 299.25,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#1",
-			"ops": 3,
-			"shots": 34
+			"ops": 4,
+			"shots": 58
 		},
 		{
 			"bag_size": 12,
@@ -1623,13 +1623,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 45,
-			"dps_proxy": 15.0,
-			"gold_spent": -13,
+			"dealt": 55,
+			"dps_proxy": 18.3333333333333,
+			"gold_spent": -15,
 			"heal": 0,
 			"name": "随机混装#4",
 			"ops": 3,
-			"shots": 18
+			"shots": 19
 		},
 		{
 			"bag_size": 12,
@@ -1645,8 +1645,8 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 201,
-			"dps_proxy": 67.0,
+			"dealt": 196,
+			"dps_proxy": 65.3333333333333,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#6",
@@ -1656,13 +1656,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 248,
-			"dps_proxy": 82.6666666666667,
+			"dealt": 254,
+			"dps_proxy": 84.6666666666667,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#7",
 			"ops": 3,
-			"shots": 18
+			"shots": 19
 		},
 		{
 			"bag_size": 12,
@@ -1700,13 +1700,13 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 267,
-			"dps_proxy": 89.0,
+			"dealt": 455,
+			"dps_proxy": 151.666666666667,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#11",
 			"ops": 3,
-			"shots": 32
+			"shots": 40
 		},
 		{
 			"bag_size": 12,
@@ -1731,6 +1731,28 @@
 			"name": "厨槽D·AOE溅射",
 			"ops": 3,
 			"shots": 28
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 1197,
+			"dps_proxy": 299.25,
+			"gold_spent": 0,
+			"heal": 0,
+			"name": "随机混装#1",
+			"ops": 4,
+			"shots": 58
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
+			"dealt": 455,
+			"dps_proxy": 151.666666666667,
+			"gold_spent": 1,
+			"heal": 0,
+			"name": "随机混装#11",
+			"ops": 3,
+			"shots": 40
 		},
 		{
 			"bag_size": 12,
@@ -1768,17 +1790,6 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 359,
-			"dps_proxy": 119.666666666667,
-			"gold_spent": 0,
-			"heal": 0,
-			"name": "随机混装#1",
-			"ops": 3,
-			"shots": 34
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
 			"dealt": 274,
 			"dps_proxy": 91.3333333333333,
 			"gold_spent": -29,
@@ -1790,30 +1801,19 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 267,
-			"dps_proxy": 89.0,
-			"gold_spent": 1,
-			"heal": 0,
-			"name": "随机混装#11",
-			"ops": 3,
-			"shots": 32
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 248,
-			"dps_proxy": 82.6666666666667,
+			"dealt": 254,
+			"dps_proxy": 84.6666666666667,
 			"gold_spent": 1,
 			"heal": 0,
 			"name": "随机混装#7",
 			"ops": 3,
-			"shots": 18
+			"shots": 19
 		},
 		{
 			"bag_size": 12,
 			"cycles": 3,
-			"dealt": 201,
-			"dps_proxy": 67.0,
+			"dealt": 196,
+			"dps_proxy": 65.3333333333333,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "随机混装#6",
@@ -1867,6 +1867,17 @@
 		{
 			"bag_size": 12,
 			"cycles": 3,
+			"dealt": 55,
+			"dps_proxy": 18.3333333333333,
+			"gold_spent": -15,
+			"heal": 0,
+			"name": "随机混装#4",
+			"ops": 3,
+			"shots": 19
+		},
+		{
+			"bag_size": 12,
+			"cycles": 3,
 			"dealt": 49,
 			"dps_proxy": 16.3333333333333,
 			"gold_spent": 0,
@@ -1874,17 +1885,6 @@
 			"name": "随机混装#3",
 			"ops": 3,
 			"shots": 19
-		},
-		{
-			"bag_size": 12,
-			"cycles": 3,
-			"dealt": 45,
-			"dps_proxy": 15.0,
-			"gold_spent": -13,
-			"heal": 0,
-			"name": "随机混装#4",
-			"ops": 3,
-			"shots": 18
 		},
 		{
 			"bag_size": 12,
@@ -2159,6 +2159,21 @@
 			]
 		},
 		{
+			"dealt": 8,
+			"dps_proxy": 8.0,
+			"gold_spent": 0,
+			"heal": 0,
+			"name": "嫉妒×白",
+			"note": "复制看概率",
+			"ops": 1,
+			"player_hp": 20,
+			"shots": 3,
+			"slots": [
+				35,
+				1
+			]
+		},
+		{
 			"dealt": 7,
 			"dps_proxy": 7.0,
 			"gold_spent": 0,
@@ -2232,21 +2247,6 @@
 				25,
 				25,
 				25
-			]
-		},
-		{
-			"dealt": 5,
-			"dps_proxy": 5.0,
-			"gold_spent": 0,
-			"heal": 0,
-			"name": "嫉妒×白",
-			"note": "复制看概率",
-			"ops": 1,
-			"player_hp": 20,
-			"shots": 2,
-			"slots": [
-				35,
-				1
 			]
 		},
 		{
@@ -2570,15 +2570,15 @@
 			]
 		},
 		{
-			"dealt": 5,
-			"dps_proxy": 5.0,
+			"dealt": 8,
+			"dps_proxy": 8.0,
 			"gold_spent": 0,
 			"heal": 0,
 			"name": "嫉妒×白",
 			"note": "复制看概率",
 			"ops": 1,
 			"player_hp": 20,
-			"shots": 2,
+			"shots": 3,
 			"slots": [
 				35,
 				1
@@ -2949,5 +2949,5 @@
 			"shots": 1
 		}
 	],
-	"version": "0.4.29"
+	"version": "0.4.30"
 }

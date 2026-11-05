@@ -47,6 +47,8 @@ var hooks: CombatHooks = CombatHooks.new()
 static var boot_sandbox: bool = false
 ## 沙盒：可自定义枪口/袋/怪；默认暂停连续刷怪与地图商店
 var sandbox_mode: bool = false
+## v0.4.30 沙盒：玩家点了「清空弹药袋」后，挡住 ensure_bag_refilled；加弹后解除。
+var sandbox_hold_bag_empty: bool = false
 var spawn_paused: bool = false
 var map_shop_disabled: bool = false
 
@@ -58,6 +60,8 @@ var bag: Array[int] = []
 var bag_temp: Array = []  ## v0.3.8：临时罪孽剩余寿命秒（0=永久）
 var discard: Array[int] = []
 var discard_temp: Array = []
+## v0.4.30 嫉妒一次性复制（与 bag 同序）；打出销毁，不进弃牌/基线
+var bag_envy_copy: Array = []
 var magazine: Magazine = Magazine.new()
 var enemies: Array = []
 var turn_index: int = 0
@@ -444,6 +448,7 @@ var last_fired_slot: int = -1
 var last_shot_was_blank: bool = false
 ## 本发开火前快跳过的空仓步数（供 UI 快转）
 var last_blank_skip_steps: int = 0
+var last_shot_was_envy_copy: bool = false
 ## UI 射击特效：本发弹药 id / 主命中格 / 主命中伤害 / 枪口描边=开火前枪口贡献色（怒→傲→贪→穿甲；不含本发刚挂罪孽）
 var last_shot_ammo_id: int = -1
 var last_shot_hit_cell: int = -1
@@ -532,6 +537,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	pace_after_fire = true
 	auto_enemy_advance = true
 	sandbox_mode = false
+	sandbox_hold_bag_empty = false
 	spawn_paused = false
 	map_shop_disabled = false
 	reset_enemy_glide()
@@ -560,6 +566,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH, default_dummies: bool = true) -> void:
 	start_rush(seed_value, sin_ammo_id)
 	sandbox_mode = true
+	sandbox_hold_bag_empty = false
 	spawn_paused = true
 	map_shop_disabled = true
 	enemies.clear()
@@ -898,11 +905,18 @@ static func _normalize_temp_for(ammo_id: int, temporary) -> float:
 	return tv
 
 
-func _bag_append(ammo_id: int, temporary = false) -> void:
+func _bag_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
+	if sandbox_hold_bag_empty:
+		sandbox_hold_bag_empty = false
 	bag.append(ammo_id)
 	var tv: float = _normalize_temp_for(ammo_id, temporary)
+	if envy_copy and tv <= 0.0:
+		tv = CombatConstants.ENVY_COPY_TTL_SEC
 	bag_temp.append(tv)
-	hooks.emit_hook(&"on_bag_enter", {"cs": self, "ammo_id": ammo_id, "temp_life": tv, "temporary": tv > 0.0})
+	bag_envy_copy.append(bool(envy_copy))
+	hooks.emit_hook(&"on_bag_enter", {
+		"cs": self, "ammo_id": ammo_id, "temp_life": tv, "temporary": tv > 0.0, "envy_copy": bool(envy_copy),
+	})
 
 
 func _discard_append(ammo_id: int, temporary = false) -> void:
@@ -914,6 +928,10 @@ func _sync_temp_arrays() -> void:
 	## 兜底：保证 temp 数组与 bag/discard 等长（旧路径漏标时当永久弹）。
 	while bag_temp.size() < bag.size():
 		bag_temp.append(_normalize_temp_for(int(bag[bag_temp.size()]), false))
+	while bag_envy_copy.size() < bag.size():
+		bag_envy_copy.append(false)
+	while bag_envy_copy.size() > bag.size():
+		bag_envy_copy.pop_back()
 	while bag_temp.size() > bag.size():
 		bag_temp.pop_back()
 	while discard_temp.size() < discard.size():
@@ -982,8 +1000,7 @@ func _strip_temporary_ammo_from_bag() -> void:
 	var i := bag.size() - 1
 	while i >= 0:
 		if Magazine.temp_value(bag_temp[i]) > 0.0:
-			bag.remove_at(i)
-			bag_temp.remove_at(i)
+			_bag_remove_at(i)
 		i -= 1
 
 
@@ -996,9 +1013,7 @@ func _extract_ghosts_from_bag_and_discard() -> Array:
 	while i >= 0:
 		if int(bag[i]) == FireResolver.ID_GHOST:
 			var tv: float = Magazine.temp_value(bag_temp[i]) if i < bag_temp.size() else 0.0
-			bag.remove_at(i)
-			if i < bag_temp.size():
-				bag_temp.remove_at(i)
+			_bag_remove_at(i)
 			if tv > 0.0:
 				lives.append(tv)
 		i -= 1
@@ -1026,6 +1041,10 @@ func _shuffle_bag() -> void:
 		var tmp_t = bag_temp[i]
 		bag_temp[i] = bag_temp[j]
 		bag_temp[j] = tmp_t
+		_sync_temp_arrays()
+		var tmp_e = bag_envy_copy[i]
+		bag_envy_copy[i] = bag_envy_copy[j]
+		bag_envy_copy[j] = tmp_e
 
 
 func _bag_reset_pool(next_reset_count: int) -> Array:
@@ -1108,6 +1127,7 @@ func _reset_bag_in_combat() -> bool:
 			live_temps.append({"id": int(discard[i]), "temp": tv})
 	bag.clear()
 	bag_temp.clear()
+	bag_envy_copy.clear()
 	discard.clear()
 	discard_temp.clear()
 	for entry in pool:
@@ -1147,6 +1167,7 @@ func apply_shop_session(new_ids: Array, new_temps: Array, new_gold: int, new_dis
 	gold = new_gold
 	bag.clear()
 	bag_temp.clear()
+	bag_envy_copy.clear()
 	for i in new_ids.size():
 		var tv = new_temps[i] if i < new_temps.size() else 0.0
 		_bag_append(int(new_ids[i]), tv)
@@ -1209,7 +1230,11 @@ func _auto_reset_bag_if_empty_at_turn_start() -> bool:
 
 func ensure_bag_refilled_if_empty() -> bool:
 	## 袋一空就补：立刻战斗内重置（构筑基线 + N 临时罪孽，保留幽灵）。弃牌并入重置逻辑。
+	## v0.4.30 沙盒：玩家主动清空后保持空袋，直到再加弹。
 	if not bag.is_empty():
+		sandbox_hold_bag_empty = false
+		return false
+	if sandbox_mode and sandbox_hold_bag_empty:
 		return false
 	if not _reset_bag_in_combat():
 		return false
@@ -1564,9 +1589,7 @@ func _envy_discard_permanent_nonsin(n: int) -> int:
 	pick.reverse()
 	for i in pick:
 		var aid: int = int(bag[i])
-		bag.remove_at(i)
-		if i < bag_temp.size():
-			bag_temp.remove_at(i)
+		_bag_remove_at(i)
 		_discard_append(aid, 0.0)
 		hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": aid, "reason": "envy_discard"})
 		moved += 1
@@ -1598,15 +1621,39 @@ func _try_sloth_slow_on_hit(e: EnemyInstance) -> void:
 
 
 func _try_envy_copy_on_kill() -> void:
-	if _muzzle_envy <= 0 or last_non_sin_ammo_id < 0:
+	## v0.4.30：击杀复制已废；保留空函数以免旧钩子/测试硬引用炸掉。
+	pass
+
+
+func _try_envy_copy_on_hit(ammo_id: int) -> void:
+	## v0.4.30：嫉妒持续期间，打中敌人的那发有 ENVY_HIT_COPY_CHANCE 复制自身一发一次性临时弹。
+	## 优先塞进转轮下一个空仓；满了就进袋（带 TTL + envy 标记）。打出即毁，不进弃牌/基线。
+	if _muzzle_envy <= 0 or ammo_id < 0:
 		return
-	var chance: float = minf(1.0, float(_muzzle_envy) * CombatConstants.ENVY_COPY_CHANCE_PER_STACK)
-	if rng.randf() >= chance:
+	if DataRegistry.is_sin_ammo(ammo_id):
+		return  # 罪孽弹不复制
+	if rng.randf() >= CombatConstants.ENVY_HIT_COPY_CHANCE:
 		return
-	var aid: int = last_non_sin_ammo_id
-	_bag_append(aid, CombatConstants.ENVY_COPY_TTL_SEC)
-	_log("  → 嫉妒：复制上一发非罪[%s] TTL 入袋。" % _ammo_name(aid))
-	hooks.emit_hook(&"on_envy_copy", {"cs": self, "ammo_id": aid})
+	var placed := _place_envy_copy(ammo_id)
+	if placed == "none":
+		return
+	_log("  → 嫉妒：复制本发[%s]一次性临时（→%s）。" % [_ammo_name(ammo_id), placed])
+	hooks.emit_hook(&"on_envy_copy", {"cs": self, "ammo_id": ammo_id, "where": placed})
+
+
+func _place_envy_copy(ammo_id: int) -> String:
+	## 返回 "chamber" / "bag" / "none"
+	if magazine != null:
+		# 从击发位下一格起找空仓
+		var n: int = magazine.size()
+		var start: int = (magazine.chamber_at_fire_port() + 1) % n
+		for k in n:
+			var i: int = (start + k) % n
+			if magazine.slots[i] == Magazine.EMPTY:
+				magazine.set_slot(i, ammo_id, CombatConstants.ENVY_COPY_TTL_SEC, true)
+				return "chamber"
+	_bag_append(ammo_id, CombatConstants.ENVY_COPY_TTL_SEC, true)
+	return "bag"
 
 
 func _try_gluttony_heal_on_kill() -> void:
@@ -1923,21 +1970,33 @@ func ammo_inventory_by_id() -> Dictionary:
 ## 弹药袋无顺序：每次从现存弹药中均匀随机抽取（数量加权=逐发随机下标），不按数组 FIFO。
 ## 最近一次 _draw_random_from_bag 对应的临时标记（与返回数组等长）
 var _last_drawn_temps: Array = []
+var _last_drawn_envy: Array = []
+
+
+func _bag_remove_at(idx: int) -> void:
+	## 同步摘掉 bag / bag_temp / bag_envy_copy 同一下标。
+	if idx < 0 or idx >= bag.size():
+		return
+	bag.remove_at(idx)
+	if idx < bag_temp.size():
+		bag_temp.remove_at(idx)
+	if idx < bag_envy_copy.size():
+		bag_envy_copy.remove_at(idx)
 
 
 func _draw_random_from_bag(count: int) -> Array[int]:
 	_sync_temp_arrays()
 	var drawn: Array[int] = []
 	_last_drawn_temps.clear()
+	_last_drawn_envy.clear()
 	var n: int = mini(count, bag.size())
 	for _i in n:
 		var idx: int = rng.randi_range(0, bag.size() - 1)
 		var aid: int = int(bag[idx])
 		drawn.append(aid)
 		_last_drawn_temps.append(bag_temp[idx] if idx < bag_temp.size() else 0.0)
-		bag.remove_at(idx)
-		if idx < bag_temp.size():
-			bag_temp.remove_at(idx)
+		_last_drawn_envy.append(bool(bag_envy_copy[idx]) if idx < bag_envy_copy.size() else false)
+		_bag_remove_at(idx)
 		hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": aid, "reason": "draw"})
 	return drawn
 
@@ -2175,6 +2234,7 @@ func load_next_chamber() -> Dictionary:
 	var drawn: Array[int] = _draw_random_from_bag(1)
 	var raw_id: int = drawn[0]
 	var raw_temp = _last_drawn_temps[0] if not _last_drawn_temps.is_empty() else 0.0
+	var raw_envy: bool = bool(_last_drawn_envy[0]) if not _last_drawn_envy.is_empty() else false
 	_load_raw_ids.append(raw_id)
 	var resolved: int = raw_id
 	var swap: Dictionary = _try_insurance_swap_third_sin(resolved, raw_temp)
@@ -2183,7 +2243,7 @@ func load_next_chamber() -> Dictionary:
 	_load_resolved_ids.append(resolved)
 	var slot: int = magazine.chamber_at_load_port()
 	assert(magazine.slots[slot] == Magazine.EMPTY)
-	magazine.set_slot(slot, resolved, _normalize_temp_for(resolved, raw_temp))
+	magazine.set_slot(slot, resolved, _normalize_temp_for(resolved, raw_temp), raw_envy)
 	hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": slot, "temporary": Magazine.temp_value(raw_temp) > 0.0})
 	_apply_justice_strip_on_load(resolved)
 	_check_sin_threshold_after_insert(resolved)
@@ -2328,8 +2388,11 @@ func _return_magazine_to_bag() -> void:
 	for i in magazine.slots.size():
 		var id: int = magazine.slots[i]
 		if id != Magazine.EMPTY:
-			_bag_append(id, magazine.slot_temp_life(i))
-			n += 1
+			if magazine.is_slot_envy_copy(i):
+				_log("膛内嫉妒复制[%s]卸回时销毁。" % _ammo_name(id))
+			else:
+				_bag_append(id, magazine.slot_temp_life(i))
+				n += 1
 	magazine.clear()
 	if n > 0:
 		_log("膛内未耗 %d 发归还弹药袋。" % n)
@@ -2727,6 +2790,7 @@ func fire_next_shot() -> bool:
 	last_shot_was_blank = false
 	last_fired_slot = hammer
 	var shot_temp: float = magazine.slot_temp_life(hammer)
+	var shot_envy: bool = magazine.is_slot_envy_copy(hammer)
 	var ammo_id: int = _fire_queue[_fire_index]
 	var base_dmg: int = _fire_damages[_fire_index]
 	var fuse_n: int = _pebble_fuse_count
@@ -2734,6 +2798,7 @@ func fire_next_shot() -> bool:
 		_consume_pebble_fuse(fuse_n)
 		_pebble_fuse_count = 0
 		shot_temp = 0.0  # 已在 fuse 内各自 discard
+		shot_envy = false
 	else:
 		_consume_hammer_chamber(ammo_id)
 
@@ -2755,9 +2820,12 @@ func fire_next_shot() -> bool:
 	last_shot_hit_cells.clear()
 	last_shot_hit_amounts.clear()
 	last_shot_was_pierce = pierce
+	last_shot_was_envy_copy = shot_envy
 
-	if fuse_n < 2:
+	if fuse_n < 2 and not shot_envy:
 		_discard_append(ammo_id, shot_temp)
+	elif shot_envy:
+		_log("  → 嫉妒复制弹打出即毁（不进弃牌）。")
 	# 元素枪口：本发后挂上，供后续击发附带
 	_mount_muzzle_from(flags)
 	if ammo_id == FireResolver.ID_TOMBSTONE:
@@ -2766,6 +2834,7 @@ func fire_next_shot() -> bool:
 	_fire_index += 1
 
 	_note_last_non_sin_ammo(ammo_id)
+	# 嫉妒复制：有 pace 时等命中结算后再判（见 finalize_paced_shot）；同步路径在下面扣血后判
 	if pace_after_fire and player_confuse_remaining <= 0.0:
 		# 只规划命中路径；扣血/飘字等拖尾飞到怪身上再 resolve_paced_hit
 		# 色欲自混乱期间改为同步结算（伤害打自己）。
@@ -2797,6 +2866,8 @@ func fire_next_shot() -> bool:
 
 	var dealt_total := _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 	_fire_total_damage += dealt_total
+	if dealt_total > 0:
+		_try_envy_copy_on_hit(ammo_id)
 	_maybe_spawn_pebbles_from_stone(ammo_id, dealt_total)
 	_remove_dead()
 
@@ -2956,6 +3027,8 @@ func finalize_paced_shot() -> void:
 		last_shot_dealt = first_dealt
 		total += echo_total
 	_fire_total_damage += total
+	if total > 0:
+		_try_envy_copy_on_hit(int(_paced_shot.get("ammo_id", -1)))
 	_maybe_spawn_pebbles_from_stone(int(_paced_shot.get("ammo_id", -1)), total)
 	if bool(_paced_shot.get("gold", false)):
 		_queue_extra_autofire_from_shot(int(_paced_shot.get("ammo_id", -1)))
@@ -3247,6 +3320,9 @@ func _consume_hammer_chamber(expected_id: int) -> void:
 	var hammer: int = magazine.chamber_at_fire_port()
 	if magazine.slots[hammer] == expected_id:
 		magazine.slots[hammer] = Magazine.EMPTY
+		magazine.clear_slot_envy(hammer)
+		if hammer < magazine.temp_slots.size():
+			magazine.temp_slots[hammer] = 0.0
 	else:
 		# 兜底：自锤位起找第一发匹配（不应在逐步射满匣时触发）
 		var i := hammer
@@ -3296,6 +3372,9 @@ func _finish_fire() -> void:
 		return
 	if not auto_enemy_advance:
 		_run_enemy_turn()
+	else:
+		# rush! 自动走位：不进怪回合，回到可行动（与 pace_after_fire 分支一致）
+		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
 	_emit()
 
 
@@ -4074,12 +4153,19 @@ func do_unload() -> bool:
 		return false
 	commit_load_session_if_active()
 	var removed_entries: Array = magazine.unload_all_entries()
+	var destroyed := 0
 	for entry in removed_entries:
 		var id: int = int(entry.get("id", Magazine.EMPTY))
 		var is_temp = entry.get("temp", 0.0)
+		if bool(entry.get("envy_copy", false)):
+			destroyed += 1
+			continue  # 嫉妒复制：卸除即毁，不进弃牌
 		_discard_append(id, is_temp)
 	var removed_size: int = removed_entries.size()
-	_log("卸除 %d 发进入弃牌堆。" % removed_size)
+	_log("卸除 %d 发进入弃牌堆%s。" % [
+		removed_size - destroyed,
+		("（销毁嫉妒复制 %d）" % destroyed) if destroyed > 0 else "",
+	])
 	if _check_end_after_player():
 		_emit()
 		return true
@@ -4529,8 +4615,7 @@ func tick_temp_sin_lifetimes(delta_sec: float) -> bool:
 			if tv <= 0.0:
 				expired_temp_events.append({"where": "bag", "slot": -1, "id": int(bag[i])})
 				_log("临时%s到期消失（袋）。" % _ammo_name(int(bag[i])))
-				bag.remove_at(i)
-				bag_temp.remove_at(i)
+				_bag_remove_at(i)
 				changed = true
 			else:
 				bag_temp[i] = tv
@@ -4864,7 +4949,12 @@ func dev_clear_bag() -> void:
 	var n: int = bag.size()
 	bag.clear()
 	bag_temp.clear()
-	_log("[开发] 清空弹药袋（移除 %d）" % n)
+	bag_envy_copy.clear()
+	if sandbox_mode:
+		sandbox_hold_bag_empty = true
+		_log("[沙盒] 清空弹药袋（移除 %d）· 保持空袋直到手动加弹" % n)
+	else:
+		_log("[开发] 清空弹药袋（移除 %d）" % n)
 	_emit()
 
 

@@ -50,19 +50,14 @@ func test_envy_def() -> void:
 
 
 func test_envy_copy_on_kill() -> void:
+	## v0.4.30：击杀不再复制；此测试保留为「击杀路径不复制」。
 	var cs := _rush(41210)
 	cs.last_non_sin_ammo_id = ECHO
-	cs._muzzle_envy = 5  # 100%
+	cs._muzzle_envy = 5
 	var bag0: int = cs.bag.size()
-	# kill via remove_dead path
 	cs.enemies[0].hp = 0
 	cs._remove_dead()
-	var echo_ttl := 0
-	for i in cs.bag.size():
-		if int(cs.bag[i]) == ECHO and Magazine.temp_value(cs.bag_temp[i] if i < cs.bag_temp.size() else 0.0) > 0.0:
-			echo_ttl += 1
-	assert_gt(echo_ttl, 0)
-	assert_gt(cs.bag.size(), bag0)
+	assert_eq(cs.bag.size(), bag0, "v0.4.30 击杀不再复制")
 
 
 func test_envy_three_sin_discards_permanent_nonsin() -> void:

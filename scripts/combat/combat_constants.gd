@@ -111,8 +111,10 @@ const TOMBSTONE_GHOST_SPAWN := 2
 const GHOST_TTL_SEC := 18.0  ## v0.4.20：与临时罪孽寿命拆开，保持 18 秒
 ## 小石头 TTL：与幽灵同寿命。
 const PEBBLE_TTL_SEC := 18.0  ## v0.4.20：与临时罪孽寿命拆开，保持 18 秒
-## 嫉妒击杀复制非罪弹入袋的 TTL（v0.4.20 从临时罪孽寿命拆出，保持 18 秒）
+## 嫉妒复制弹：一次性临时，TTL 仅作兜底（打出即毁，不进弃牌）
 const ENVY_COPY_TTL_SEC := 18.0
+## v0.4.30：嫉妒持续期间，每发「打中敌人」的子弹有此概率复制自身一发一次性临时弹
+const ENVY_HIT_COPY_CHANCE := 0.25
 
 ## 吸血枪口：每层概率与回血比例。
 const LIFESTEAL_CHANCE_PER_STACK := 0.20
@@ -127,7 +129,7 @@ const MUZZLE_DURATION_SLOTH_SEC := 4.0
 const LUST_CONFUSE_CHANCE_PER_STACK := 0.20
 const LUST_CONFUSE_SEC := 1.0
 const LUST_SELF_CONFUSE_SEC := 1.0
-## 嫉妒：击杀时每层复制上一发非罪的概率；三罪弃牌数。
+## 嫉妒：旧击杀复制概率（v0.4.30 起不用）；三罪弃牌数保留。
 const ENVY_COPY_CHANCE_PER_STACK := 0.30
 const ENVY_THREE_SIN_DISCARD := 2
 ## 暴食：击杀回 1 HP；每层每秒最多 1 次；三罪自伤 DoT 每跳伤害。

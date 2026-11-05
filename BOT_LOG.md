@@ -1,3 +1,14 @@
+## 2026-11-05 — v0.4.30 出膛必有姿势+弹道 / 致死即碎 / 嫉妒命中复制 / 图鉴 / 沙盒空袋 / 弹道池化
+- 出膛姿势+弹道：视觉生成时再 `play_shoot`；`hit_cells` 空也飞穿拉弹道（`fire_anim_log`/`tracer_log` 回归）。
+- 致死：命中 lethal 立刻卸小动物+gore，去掉 `DYING_SKEL_SEC` 滞留；远抛血线保留；穿过不喷空血。
+- 嫉妒：`ENVY_HIT_COPY_CHANCE=0.25`，命中非罪弹复制一次性临时（膛优先/袋），绿菱标记，打出/卸下销毁不进弃牌；击杀复制移除。
+- 图鉴：主菜单可滚动列出全部 enabled 弹药（稀有度 FX/价/数值/描述）。
+- 沙盒：`sandbox_hold_bag_empty`，`dev_clear_bag` 后挡住 `ensure_bag_refilled_if_empty`，加弹解除。
+- 文案：`ammo.json` 嫉妒与若干弹药说明对齐当前行为。
+- Web 弹道性能（观感不变）：shot host / Line2D / powder·sin 粒子池；共享 Curve+Gradient 缓存；拖尾 points scratch；`RR_NO_SHOT_POOL=1` A/B。llvmpipe 下帧时约 10.3–11.4ms 量级噪声互有胜负，池化主收益在少分配/GC（Web 更敏感）。观感会变的（降粒子数、关 AA、限并发拖尾、减血雾）只作提案未上。
+- GUT 443/443；`test_rr_v0430`。演示 /workspace/rr-demo-vids/v430_batch.mp4（~16s）。
+- 同步收束：`pace_after_fire=false` 且 rush 自动走位时 `_finish_fire` 回到 AWAIT_ACTION（修测试连环开火卡 FIRING）。
+
 ## 2026-11-04 — v0.4.29 不在空中喷血 / 空仓算一拍 / 袋内小球性能 / 商店删弃牌
 - 空中飙血根因：逻辑开火当帧就把打死的敌人从 enemies 里清掉 → 下一次刷新小动物立刻消失，子弹飞到时按「格子」找位置 → 空地喷血（自由行走时格子中心本来也不在敌人身上）。修法：`_notify_enemy_damage` 记 `last_damaged_enemy/last_damage_lethal`，UI 延后事件带上 `enemy/lethal`；命中时按那只敌人的小动物位置喷（`_enemy_hit_global`），它已在之前某下致死（`_visual_dead`）或已离场 → 哑火（`air_blood_skipped`）。开火结算期间（`_hp_resolving`）不清小动物；被「留血」的死敌小动物留到命中，再播死亡 `DYING_SKEL_SEC` 0.9s 后清。弹道终点/航点改为敌人当前位置。旧的纯格子事件：该格没敌人就不喷。
 - 空仓一拍：`fire_tap(false)` 击发位空 → 不开火、直接挂连射；UI `_run_volley_autofire` 每拍：等间隔 →（空）`_present_blank_beat`：红圈对准空仓、停 VOLLEY_FIRE_HOLD_SEC、转一格 volley_rotate_sec（与实弹拍同长）、`take_volley_blank_beat()` 逻辑转一格。删 VOLLEY_EMPTY_SKIP_SEC。结束规则：打完最后一颗已装弹就结束（`_volley_should_continue` 匣空即停），不空转剩余空仓。同步结算（测试/resolve_sync）仍一次跳过空仓（无时间概念，结果一致）。`blank_audit` 记录空拍。

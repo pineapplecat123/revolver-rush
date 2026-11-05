@@ -87,6 +87,14 @@ size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 24
 text = "更新日志"
 
+[node name="BtnCodex" type="Button" parent="Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(420, 72)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 24
+text = "图鉴"
+
 [node name="BtnClearCache" type="Button" parent="Center"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(420, 64)
@@ -188,10 +196,79 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_constants/separation = 6
 
+[node name="CodexDimmer" type="ColorRect" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.02, 0.02, 0.04, 0.72)
+
+[node name="CodexPanel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -340.0
+offset_top = -520.0
+offset_right = 340.0
+offset_bottom = 520.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CodexMargin" type="MarginContainer" parent="CodexPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 14
+
+[node name="CodexVBox" type="VBoxContainer" parent="CodexPanel/CodexMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="CodexHeader" type="HBoxContainer" parent="CodexPanel/CodexMargin/CodexVBox"]
+layout_mode = 2
+
+[node name="CodexTitle" type="Label" parent="CodexPanel/CodexMargin/CodexVBox/CodexHeader"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 30
+text = "弹药图鉴"
+
+[node name="BtnCodexClose" type="Button" parent="CodexPanel/CodexMargin/CodexVBox/CodexHeader"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(100, 44)
+layout_mode = 2
+theme_override_font_sizes/font_size = 22
+text = "返回"
+
+[node name="CodexScroll" type="ScrollContainer" parent="CodexPanel/CodexMargin/CodexVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="CodexList" type="VBoxContainer" parent="CodexPanel/CodexMargin/CodexVBox/CodexScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
 [connection signal="pressed" from="Center/BtnStart" to="." method="_on_start_pressed"]
 [connection signal="pressed" from="Center/BtnSandbox" to="." method="_on_sandbox_pressed"]
 [connection signal="pressed" from="Center/BtnChangelog" to="." method="_on_changelog_pressed"]
+[connection signal="pressed" from="Center/BtnCodex" to="." method="_on_codex_pressed"]
 [connection signal="pressed" from="Center/BtnClearCache" to="." method="_on_clear_cache_pressed"]
 [connection signal="pressed" from="Center/BtnQuit" to="." method="_on_quit_pressed"]
 [connection signal="gui_input" from="ChangelogDimmer" to="." method="_on_changelog_dimmer_gui_input"]
 [connection signal="pressed" from="ChangelogPanel/ChangelogMargin/ChangelogVBox/ChangelogHeader/BtnChangelogClose" to="." method="_on_changelog_close_pressed"]
+[connection signal="gui_input" from="CodexDimmer" to="." method="_on_codex_dimmer_gui_input"]
+[connection signal="pressed" from="CodexPanel/CodexMargin/CodexVBox/CodexHeader/BtnCodexClose" to="." method="_on_codex_close_pressed"]
