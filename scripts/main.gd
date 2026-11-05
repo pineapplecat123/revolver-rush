@@ -6,6 +6,13 @@ const CHANGELOG_PATH := "res://data/changelog.json"
 var _changelog_open := false
 
 
+## v0.4.32 图鉴惯性滑动
+var _codex_dragging: bool = false
+var _codex_last_y: float = 0.0
+var _codex_vel: float = 0.0
+var _codex_detail_ammo: int = -1
+
+
 func _ready() -> void:
 	RrAa.apply_project_defaults()
 	RrAa.apply_to_viewport(get_viewport())
@@ -115,21 +122,94 @@ func _style_codex_panel() -> void:
 	style.set_border_width_all(2)
 	style.border_color = Color(0.92, 0.72, 0.35, 0.9)
 	style.set_corner_radius_all(10)
-	style.content_margin_left = 4
-	style.content_margin_right = 4
-	style.content_margin_top = 4
-	style.content_margin_bottom = 4
+	style.content_margin_left = 10
+	style.content_margin_right = 10
+	style.content_margin_top = 8
+	style.content_margin_bottom = 10
 	%CodexPanel.add_theme_stylebox_override("panel", style)
+	if has_node("%CodexDetailPanel"):
+		var ds := style.duplicate() as StyleBoxFlat
+		ds.bg_color = Color(0.09, 0.1, 0.14, 0.98)
+		%CodexDetailPanel.add_theme_stylebox_override("panel", ds)
+	_setup_codex_kinetic_scroll()
+
+
+func _setup_codex_kinetic_scroll() -> void:
+	## 触摸拖拽 + 惯性（移动端 Web 的 ScrollContainer 惯性弱）。
+	var scroll: ScrollContainer = %CodexScroll
+	if scroll == null:
+		return
+	if not scroll.gui_input.is_connected(_on_codex_scroll_gui_input):
+		scroll.gui_input.connect(_on_codex_scroll_gui_input)
+	set_process(true)
+
+
+func _on_codex_scroll_gui_input(event: InputEvent) -> void:
+	var scroll: ScrollContainer = %CodexScroll
+	if scroll == null or not %CodexPanel.visible:
+		return
+	if event is InputEventScreenTouch:
+		var st := event as InputEventScreenTouch
+		if st.pressed:
+			_codex_dragging = true
+			_codex_last_y = st.position.y
+			_codex_vel = 0.0
+		else:
+			_codex_dragging = false
+	elif event is InputEventScreenDrag:
+		var sd := event as InputEventScreenDrag
+		_codex_dragging = true
+		var dy: float = sd.relative.y
+		scroll.scroll_vertical = int(scroll.scroll_vertical - dy)
+		_codex_vel = dy
+		_codex_last_y = sd.position.y
+		accept_event()
+	elif event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			if mb.pressed:
+				_codex_dragging = true
+				_codex_last_y = mb.position.y
+				_codex_vel = 0.0
+			else:
+				_codex_dragging = false
+	elif event is InputEventMouseMotion and _codex_dragging and (event as InputEventMouseMotion).button_mask & MOUSE_BUTTON_MASK_LEFT:
+		var mm := event as InputEventMouseMotion
+		var dy2: float = mm.relative.y
+		scroll.scroll_vertical = int(scroll.scroll_vertical - dy2)
+		_codex_vel = dy2
+		accept_event()
+
+
+func _process(delta: float) -> void:
+	if not has_node("%CodexPanel") or not %CodexPanel.visible:
+		return
+	if _codex_dragging:
+		return
+	if absf(_codex_vel) < 0.4:
+		_codex_vel = 0.0
+		return
+	var scroll: ScrollContainer = %CodexScroll
+	if scroll == null:
+		return
+	scroll.scroll_vertical = int(scroll.scroll_vertical - _codex_vel)
+	_codex_vel = lerpf(_codex_vel, 0.0, clampf(delta * 8.0, 0.0, 1.0))
 
 
 func _populate_codex() -> void:
-	## 从 live ammo 数据生成：名称 / 稀有度（带特效）/ 售价 / 数值 / 效果。
-	var list: VBoxContainer = %CodexList
+	## 方格网格：每格只显示弹球 + 名称 + 稀有度；点开看详情。
+	var list: GridContainer = %CodexList
 	for c in list.get_children():
 		list.remove_child(c)
 		c.free()
+	var view_w: float = size.x if size.x > 1.0 else 720.0
+	var cols: int = 3 if view_w >= 520.0 else 2
+	list.columns = cols
+	list.add_theme_constant_override("h_separation", 10)
+	list.add_theme_constant_override("v_separation", 10)
+	var cell: float = floorf((mini(view_w, 640.0) - 48.0 - float(cols - 1) * 10.0) / float(cols))
+	cell = clampf(cell, 96.0, 150.0)
 	var items: Array = DataRegistry.all_ammo()
-	# 按 id 排序，只列实装（enabled）
 	items = items.duplicate()
 	items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
 	for item in items:
@@ -138,55 +218,61 @@ func _populate_codex() -> void:
 		var aid: int = int(item.get("id", 0))
 		if aid <= 0 or not DataRegistry.is_ammo_enabled(aid):
 			continue
-		list.add_child(_make_codex_row(aid, item))
+		list.add_child(_make_codex_cell(aid, item, cell))
+	_codex_vel = 0.0
+	if has_node("%CodexScroll"):
+		%CodexScroll.scroll_vertical = 0
 
 
-func _make_codex_row(ammo_id: int, def: Dictionary) -> Control:
-	var row := PanelContainer.new()
-	row.name = "CodexRow_%d" % ammo_id
+func _make_codex_cell(ammo_id: int, def: Dictionary, cell: float) -> Control:
+	var btn := Button.new()
+	btn.name = "CodexCell_%d" % ammo_id
+	btn.custom_minimum_size = Vector2(cell, cell)
+	btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	btn.clip_contents = true
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.16, 0.17, 0.22, 0.95)
-	sb.set_corner_radius_all(8)
+	sb.set_corner_radius_all(12)
 	sb.set_border_width_all(1)
-	sb.border_color = Color(0.4, 0.45, 0.55, 0.8)
-	sb.content_margin_left = 10
-	sb.content_margin_right = 10
+	sb.border_color = Color(0.45, 0.5, 0.6, 0.85)
+	sb.content_margin_left = 6
+	sb.content_margin_right = 6
 	sb.content_margin_top = 8
-	sb.content_margin_bottom = 8
-	row.add_theme_stylebox_override("panel", sb)
-	var h := HBoxContainer.new()
-	h.add_theme_constant_override("separation", 10)
-	row.add_child(h)
-	# chip with rarity fx
-	var chip := _codex_chip(ammo_id)
-	h.add_child(chip)
-	var col := VBoxContainer.new()
-	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	col.add_theme_constant_override("separation", 2)
-	h.add_child(col)
+	sb.content_margin_bottom = 6
+	btn.add_theme_stylebox_override("normal", sb)
+	btn.add_theme_stylebox_override("hover", sb)
+	btn.add_theme_stylebox_override("pressed", sb)
+	var v := VBoxContainer.new()
+	v.set_anchors_preset(Control.PRESET_FULL_RECT)
+	v.add_theme_constant_override("separation", 4)
+	v.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	btn.add_child(v)
+	var chip := _codex_chip(ammo_id, mini(cell * 0.48, 64.0))
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	v.add_child(chip)
+	var nm := Label.new()
+	nm.text = str(def.get("name", ammo_id))
+	nm.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	nm.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	nm.add_theme_font_size_override("font_size", 15)
+	nm.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
+	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(nm)
 	var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
-	var price: int = ShopConstants.price_for_rarity(rarity)
-	var title := Label.new()
-	title.text = "%s · %s · %d 金" % [str(def.get("name", ammo_id)), ShopConstants.rarity_label(rarity), price]
-	title.add_theme_font_size_override("font_size", 20)
-	title.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
-	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	col.add_child(title)
-	var body := Label.new()
-	body.text = DataRegistry.format_ammo_detail_text(ammo_id)
-	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	body.add_theme_font_size_override("font_size", 15)
-	body.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
-	col.add_child(body)
-	# rarity overlay on the whole row card
-	var cols := _codex_ammo_color(ammo_id)
-	RarityFx.attach(row, ammo_id, cols.get("bg", Color(0.8, 0.8, 0.8)), 8.0)
-	return row
+	var rl := Label.new()
+	rl.text = ShopConstants.rarity_label(rarity)
+	rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	rl.add_theme_font_size_override("font_size", 13)
+	rl.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
+	rl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	v.add_child(rl)
+	btn.pressed.connect(_on_codex_cell_pressed.bind(ammo_id))
+	return btn
 
 
-func _codex_chip(ammo_id: int) -> Panel:
+func _codex_chip(ammo_id: int, size_px: float = 48.0) -> Panel:
 	var chip := Panel.new()
-	chip.custom_minimum_size = Vector2(48, 48)
+	chip.custom_minimum_size = Vector2(size_px, size_px)
 	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var colors := _codex_ammo_color(ammo_id)
 	var st := StyleBoxFlat.new()
@@ -202,8 +288,9 @@ func _codex_chip(ammo_id: int) -> Panel:
 	lb.set_anchors_preset(Control.PRESET_FULL_RECT)
 	lb.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	lb.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lb.add_theme_font_size_override("font_size", 22)
+	lb.add_theme_font_size_override("font_size", int(size_px * 0.42))
 	lb.add_theme_color_override("font_color", colors.get("fg", Color(0.1, 0.1, 0.1)))
+	lb.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	chip.add_child(lb)
 	RarityFx.attach(chip, ammo_id, st.bg_color, 999.0)
 	return chip
@@ -248,6 +335,9 @@ func _set_codex_open(open: bool) -> void:
 	%BtnQuit.disabled = open
 	if open:
 		_set_changelog_open(false)
+	else:
+		_set_codex_detail_open(false)
+		_codex_vel = 0.0
 
 
 func _on_codex_pressed() -> void:
@@ -262,6 +352,58 @@ func _on_codex_close_pressed() -> void:
 func _on_codex_dimmer_gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		_set_codex_open(false)
+	elif event is InputEventScreenTouch and event.pressed:
+		_set_codex_open(false)
+
+
+func _on_codex_cell_pressed(ammo_id: int) -> void:
+	_show_codex_detail(ammo_id)
+
+
+func _show_codex_detail(ammo_id: int) -> void:
+	_codex_detail_ammo = ammo_id
+	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+	var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
+	var price: int = ShopConstants.price_for_rarity(rarity)
+	%CodexDetailTitle.text = str(def.get("name", ammo_id))
+	var body: VBoxContainer = %CodexDetailBody
+	for c in body.get_children():
+		body.remove_child(c)
+		c.free()
+	var chip := _codex_chip(ammo_id, 72.0)
+	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	body.add_child(chip)
+	var meta := Label.new()
+	meta.text = "%s · %d 金" % [ShopConstants.rarity_label(rarity), price]
+	meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	meta.add_theme_font_size_override("font_size", 18)
+	meta.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+	body.add_child(meta)
+	var detail := Label.new()
+	detail.text = DataRegistry.format_ammo_detail_text(ammo_id)
+	detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	detail.add_theme_font_size_override("font_size", 16)
+	detail.add_theme_color_override("font_color", Color(0.78, 0.82, 0.9))
+	body.add_child(detail)
+	_set_codex_detail_open(true)
+
+
+func _set_codex_detail_open(open: bool) -> void:
+	if has_node("%CodexDetailDimmer"):
+		%CodexDetailDimmer.visible = open
+	if has_node("%CodexDetailPanel"):
+		%CodexDetailPanel.visible = open
+
+
+func _on_codex_detail_close_pressed() -> void:
+	_set_codex_detail_open(false)
+
+
+func _on_codex_detail_dimmer_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		_set_codex_detail_open(false)
+	elif event is InputEventScreenTouch and event.pressed:
+		_set_codex_detail_open(false)
 
 
 func _on_start_pressed() -> void:

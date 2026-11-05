@@ -1,3 +1,10 @@
+## 2026-11-05 — v0.4.32 预转花式转枪 / 致死必碎 / 图鉴网格
+- 射击姿势：`suppress_shot_from_hook`，预转时 on_shot 不播姿势；`_play_tap_shot` 出膛才 `play_shoot`。
+- 花式转枪：`play_gun_twirl(dur)` 与 `_play_roll_spin_visual` 同步；转完回 idle+瞄准。
+- 死亡：`_sync` 不再 `play_death`；无 hp-hold 的 0 血走 `_instant_gore_kill_visual`；敌人 `play_death` 仅隐藏。根因=同步在 DoT/爆炸等路径对 shown_hp<=0 播趴地动画。
+- 图鉴：Grid 方格 + 详情弹层；Scroll 触摸拖拽惯性；RarityFx 屏幕外不 redraw。
+- GUT 450/450；演示 /workspace/rr-demo-vids/v432_batch.mp4（~11s）。
+
 ## 2026-11-05 — v0.4.31 全局关 AA
 - `RrAa.ENABLED=false`：枪线/Tip Line2D、`gore_layer`/骨骼/`_make_shot_bullet_tip` Polygon2D、`project.godot` msaa_2d/3d + screen_space_aa + use_taa、主场景/战斗 Viewport 再钉一次、UI 字体 `antialiasing=0`（patch_font 持久化）。
 - 未动：火药/罪孽粒子数、拖尾并发、血雾/gore 数量。

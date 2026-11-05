@@ -11,6 +11,7 @@ const ANIM_SHOOT := &"shoot"
 const ANIM_RELOAD := &"reload"
 const ANIM_HURT := &"hurt"
 const ANIM_DEATH := &"death"
+const ANIM_TWIRL := &"twirl"
 const ANIM_RESET := &"RESET"
 
 ## 配色：橘猫（暖橘毛 + 奶油肚皮/口鼻 + 深褐描边），红色小领巾，在深蓝底上很醒目
@@ -72,6 +73,10 @@ var aim_target_provider: Callable = Callable()
 var aim_angle: float = 0.0  ## 当前叠加在 UpperArmF 上的偏转（平滑后）
 var aim_target_angle: float = 0.0  ## 本帧想要的偏转（已夹角）
 var _aim_override = null  ## set_aim_target() 手动指定（测试/演示）
+## v0.4.32：战斗 UI 出膛帧自己 play_shoot；预转期间 hook 的 on_shot 不要抢播。
+var suppress_shot_from_hook: bool = false
+var _twirling: bool = false
+var _twirl_tween: Tween = null
 var _aim_weight: float = 1.0
 var _applied_arm: float = 0.0
 var _applied_head: float = 0.0
@@ -145,7 +150,9 @@ func update_aim(delta: float) -> void:
 			want_w = 0.0
 		ANIM_HURT:
 			want_w = 0.5
-	if is_dead:
+		ANIM_TWIRL:
+			want_w = 0.0
+	if is_dead or _twirling:
 		want_w = 0.0
 	var k := clampf(delta * AIM_LERP, 0.0, 1.0)
 	_aim_weight = lerpf(_aim_weight, want_w, k)
@@ -226,6 +233,41 @@ func play_shoot() -> void:
 		anim.play(ANIM_SHOOT, 0.03)
 
 
+func play_gun_twirl(duration: float) -> void:
+	## v0.4.32：连射预转时花式转枪一整圈，时长对齐转轮动画；结束后回瞄准。
+	if is_dead:
+		return
+	_twirling = true
+	if _twirl_tween != null and _twirl_tween.is_valid():
+		_twirl_tween.kill()
+	var gun: Node2D = bones["HandF"].get_node_or_null("Revolver") as Node2D
+	var dur: float = maxf(duration, 0.12)
+	if anim.has_animation(ANIM_TWIRL):
+		anim.play(ANIM_TWIRL, 0.04)
+		var alen: float = anim.get_animation(ANIM_TWIRL).length
+		anim.speed_scale = alen / dur
+	if gun != null:
+		gun.rotation = 0.0
+		_twirl_tween = create_tween()
+		_twirl_tween.set_pause_mode(Tween.TWEEN_PAUSE_PROCESS)
+		_twirl_tween.tween_property(gun, "rotation", TAU, dur).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+		_twirl_tween.finished.connect(_on_gun_twirl_finished.bind(gun), CONNECT_ONE_SHOT)
+	else:
+		# 无枪节点时用计时收尾
+		_twirl_tween = create_tween()
+		_twirl_tween.tween_interval(dur)
+		_twirl_tween.finished.connect(_on_gun_twirl_finished.bind(null), CONNECT_ONE_SHOT)
+
+
+func _on_gun_twirl_finished(gun: Node2D) -> void:
+	if gun != null and is_instance_valid(gun):
+		gun.rotation = 0.0
+	anim.speed_scale = 1.0
+	_twirling = false
+	if not is_dead and anim.current_animation == ANIM_TWIRL:
+		anim.play(ANIM_IDLE, 0.08)
+
+
 func play_reload() -> void:
 	if is_dead:
 		return
@@ -265,7 +307,9 @@ func revive() -> void:
 func _on_hook(event: StringName, _payload: Dictionary) -> void:
 	match event:
 		&"on_shot":
-			play_shoot()
+			# v0.4.32：预转时逻辑已 on_shot，姿势改由 UI 出膛帧播
+			if not suppress_shot_from_hook:
+				play_shoot()
 		&"on_chamber_loaded":
 			play_reload()
 
@@ -291,6 +335,8 @@ func _on_phase_changed(p: int) -> void:
 func _on_anim_finished(n: StringName) -> void:
 	if n == ANIM_SHOOT or n == ANIM_RELOAD or n == ANIM_HURT:
 		anim.play(ANIM_IDLE, 0.1)
+	elif n == ANIM_TWIRL and not _twirling:
+		anim.play(ANIM_IDLE, 0.08)
 
 
 # ---------------------------------------------------------------- 搭骨架
@@ -748,6 +794,23 @@ func _build_animations() -> void:
 	_vis_track(hurt, xeyes, [[0.0, false]])
 	_eyes_track(hurt, [[0.0, e1], [0.03, Vector2(1, 0.15)], [0.2, Vector2(1, 0.15)], [0.26, e1]])
 	lib.add_animation(ANIM_HURT, hurt)
+
+	# twirl：0.36s 抬枪花式转一圈（预转时用 speed_scale 拉到转轮时长）
+	var twirl := _make_anim(0.36, {
+		_r("UpperArmF"): [[0.0, 0.1], [0.06, -0.55], [0.18, -0.35], [0.36, 0.1]],
+		_r("ForearmF"): [[0.0, -0.1], [0.06, -0.45], [0.18, -0.2], [0.36, -0.1]],
+		_r("HandF"): [[0.0, 0.0], [0.08, 0.35], [0.2, -0.2], [0.36, 0.0]],
+		_r("Torso"): [[0.0, 0.0], [0.08, -0.06], [0.2, 0.04], [0.36, 0.0]],
+		_r("Head"): [[0.0, 0.0], [0.08, 0.12], [0.36, 0.0]],
+		_r("Tail3"): [[0.0, t3r], [0.1, t3r + 0.35], [0.24, t3r - 0.25], [0.36, t3r]],
+		_r("UpperArmB"): [[0.0, 1.35], [0.1, 1.05], [0.36, 1.35]],
+	})
+	_flash_track(twirl, -1.0, -1.0)
+	_cyl_track(twirl, [[0.0, cyl0]])
+	_vis_track(twirl, eyes, [[0.0, true]])
+	_vis_track(twirl, xeyes, [[0.0, false]])
+	_eyes_track(twirl, [[0.0, e1], [0.08, Vector2(1.15, 0.85)], [0.36, e1]])
+	lib.add_animation(ANIM_TWIRL, twirl)
 
 	# death：1.0s 中弹一颤 → 腿一软 → 往前"啪叽"趴倒（脑袋朝右、小短腿往后翘、尾巴竖起再耷拉），眼睛变 ><，整体变暗（停在最后一帧）
 	var death := _make_anim(1.0, {

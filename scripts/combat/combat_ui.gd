@@ -1730,8 +1730,8 @@ func _audit_spawn(rec: Dictionary) -> void:
 
 func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: float = 0.0) -> void:
 	## 单发弹道（不 await 逻辑）：飞到命中格时播放该格延后的飘字/飚血，落地后清尸体。
-	## v0.4.30：实弹（仓发）出膛瞬间必播开火姿势 + 必有弹道。逻辑结算时 on_shot 已播过一次，
-	## 但第一发常在预转之前就播完了——这里再 seek 一次对齐画面。目标已死/没命中 → 子弹飞过画面，不喷血。
+	## v0.4.32：实弹（仓发）出膛瞬间才播开火姿势（预转时 hook 被 suppress）；必有弹道。
+	## 目标已死/没命中 → 子弹飞过画面，不喷血。
 	var wait_s: float = batch_delay + (_paced(EXTRA_SHOT_STAGGER_SEC) * float(order) if order > 0 else 0.0)
 	if wait_s > 0.0:
 		await _pwait(wait_s)
@@ -1968,6 +1968,7 @@ func _ensure_skeleton_player() -> void:
 	_skel_player.position = Vector2(UNIT_W * 0.5 - 2.0, UNIT_H)
 	_skel_player.scale = Vector2(1.35, 1.35)
 	unit.add_child(_skel_player)
+	_skel_player.suppress_shot_from_hook = true
 	_skel_player.bind_state(state)
 	_skel_player.aim_target_provider = _nearest_enemy_global  # 持枪手自动瞄最近的活怪
 
@@ -2100,10 +2101,15 @@ func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 				sk.position = Vector2(UNIT_W * 0.5, UNIT_H)
 		var shown_hp: int = display_hp(e)
 		sk.set_hp(shown_hp, e.max_hp)
-		if shown_hp <= 0 and not sk.is_dead:
-			sk.play_death()
+		# v0.4.32：绝不播趴地死亡动画。子弹未到（hp hold）→ 留着等命中碎块；
+		# 已是 0 血且无 hold（DoT/爆炸/贴身等）→ 当场碎块。
+		if shown_hp <= 0:
+			# 开火 snapshot→hold 窗口内先别碎（子弹还没飞）
+			if _hp_resolving or _skel_keep_offstate(eid) or _hp_hold.has(eid):
+				pass
+			else:
+				_instant_gore_kill_visual(e)
 		elif e.hp > 0 and sk.is_dead:
-			# 理论上不会复活；保险起见重建
 			sk.queue_free()
 			_skel_enemies.erase(eid)
 	# 清掉已离场的（子弹还没打到 / 正在播死亡的先留着）
@@ -3137,14 +3143,23 @@ func _run_shared_cylinder_spin() -> int:
 
 
 ## 大盘随机转：逻辑步数 + 至少一整圈，落点仍对齐 start_index；红圈不动。
-func _play_roll_spin_visual(logic_steps: int) -> void:
+func _roll_spin_duration(logic_steps: int) -> float:
 	var extra: int = CombatConstants.MAGAZINE_SIZE * ROLL_VISUAL_EXTRA_TURNS
 	var visual: float = float(logic_steps + extra)
-	var dur: float = _paced(clampf(
+	return _paced(clampf(
 		ROLL_ANIM_BASE + visual * ROLL_ANIM_PER_STEP,
 		ROLL_ANIM_BASE,
 		ROLL_ANIM_MAX
 	))
+
+
+func _play_roll_spin_visual(logic_steps: int) -> void:
+	## v0.4.32：转轮预转同时猫花式转枪；姿势在转完后才由出膛帧 play_shoot。
+	var extra: int = CombatConstants.MAGAZINE_SIZE * ROLL_VISUAL_EXTRA_TURNS
+	var visual: float = float(logic_steps + extra)
+	var dur: float = _roll_spin_duration(logic_steps)
+	if _skel_player != null and is_instance_valid(_skel_player):
+		_skel_player.play_gun_twirl(dur)
 	await _animate_disk_to(_wheel_visual_steps + visual, dur)
 
 
@@ -3516,6 +3531,33 @@ func _enemy_hit_global(e: EnemyInstance) -> Vector2:
 		return g2
 	# 逻辑已清掉但还有最后可见位置（哑火穿过用）
 	return _enemy_last_hit_g.get(eid, Vector2.ZERO)
+
+
+func _instant_gore_kill_visual(e: EnemyInstance) -> void:
+	## 任意致死来源的统一画面：血浆+碎块，立刻卸小动物（无趴地动画）。
+	if e == null or not is_instance_valid(e):
+		return
+	var eid: int = e.get_instance_id()
+	if _visual_dead.has(eid):
+		var sk0: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+		if sk0 != null and is_instance_valid(sk0):
+			sk0.queue_free()
+		_skel_enemies.erase(eid)
+		return
+	_visual_dead[eid] = true
+	var at_g: Vector2 = _enemy_hit_global(e)
+	if at_g == Vector2.ZERO:
+		at_g = _enemy_last_hit_g.get(eid, Vector2.ZERO)
+	if at_g != Vector2.ZERO:
+		_spawn_blood_burst(at_g, maxi(1, int(e.max_hp / 4) if e.max_hp > 0 else 3), Vector2.ZERO, true)
+		_spawn_gore_for_enemy(e, at_g)
+	var sk: SkeletonEnemy = _skel_enemies.get(eid) as SkeletonEnemy
+	if sk != null and is_instance_valid(sk):
+		sk.queue_free()
+	_skel_enemies.erase(eid)
+	hit_fx_log.append({"eid": eid, "g": at_g, "lethal": true, "source": "instant"})
+	if hit_fx_log.size() > 200:
+		hit_fx_log.pop_front()
 
 
 func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) -> void:

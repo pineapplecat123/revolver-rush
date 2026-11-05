@@ -253,10 +253,10 @@ func test_main_menu_has_codex_button_and_lists_enabled_ammo() -> void:
 	menu._on_codex_pressed()
 	await wait_process_frames(2)
 	assert_true(menu.get_node("%CodexPanel").visible)
-	var list: VBoxContainer = menu.get_node("%CodexList")
+	var list = menu.get_node("%CodexList")
 	var rows := 0
 	for c in list.get_children():
-		if str(c.name).begins_with("CodexRow_"):
+		if str(c.name).begins_with("CodexRow_") or str(c.name).begins_with("CodexCell_"):
 			rows += 1
 	var enabled := 0
 	for item in DataRegistry.all_ammo():

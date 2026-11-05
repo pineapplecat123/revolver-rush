@@ -83,6 +83,26 @@ func _collect_text_targets(host: Control) -> void:
 			_text_targets.append(c)
 
 
+
+func _is_roughly_on_screen() -> bool:
+	var gr := get_global_rect()
+	if gr.size.x <= 1.0 or gr.size.y <= 1.0:
+		return false
+	var parent_scroll: ScrollContainer = null
+	var n: Node = get_parent()
+	while n != null:
+		if n is ScrollContainer:
+			parent_scroll = n as ScrollContainer
+			break
+		n = n.get_parent()
+	if parent_scroll == null:
+		return true
+	var vr := parent_scroll.get_global_rect()
+	# 稍扩一圈，避免刚入镜时空白一帧
+	vr = vr.grow(48.0)
+	return gr.intersects(vr)
+
+
 func clear_text_glow() -> void:
 	for n in _text_targets:
 		if is_instance_valid(n):
@@ -92,7 +112,10 @@ func clear_text_glow() -> void:
 
 
 func _process(_delta: float) -> void:
-	if tier == TIER_COMMON or not is_visible_in_tree():
+	if tier == TIER_COMMON or not is_visible_in_tree() or not visible:
+		return
+	# v0.4.32：滚动容器外的格子不 redraw，减轻图鉴滑动卡顿
+	if not _is_roughly_on_screen():
 		return
 	queue_redraw()
 	if tier == TIER_EPIC or tier == TIER_SIN:

@@ -252,19 +252,90 @@ theme_override_font_sizes/font_size = 22
 text = "返回"
 
 [node name="CodexScroll" type="ScrollContainer" parent="CodexPanel/CodexMargin/CodexVBox"]
+unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="CodexList" type="VBoxContainer" parent="CodexPanel/CodexMargin/CodexVBox/CodexScroll"]
+[node name="CodexList" type="GridContainer" parent="CodexPanel/CodexMargin/CodexVBox/CodexScroll"]
 unique_name_in_owner = true
+columns = 3
+theme_override_constants/h_separation = 10
+theme_override_constants/v_separation = 10
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_constants/separation = 12
 
 [connection signal="pressed" from="Center/BtnStart" to="." method="_on_start_pressed"]
 [connection signal="pressed" from="Center/BtnSandbox" to="." method="_on_sandbox_pressed"]
 [connection signal="pressed" from="Center/BtnChangelog" to="." method="_on_changelog_pressed"]
+
+[node name="CodexDetailDimmer" type="ColorRect" parent="."]
+unique_name_in_owner = true
+visible = false
+z_index = 40
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.02, 0.02, 0.05, 0.72)
+
+[node name="CodexDetailPanel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+z_index = 41
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -300.0
+offset_top = -360.0
+offset_right = 300.0
+offset_bottom = 360.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CodexDetailMargin" type="MarginContainer" parent="CodexDetailPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 14
+
+[node name="CodexDetailVBox" type="VBoxContainer" parent="CodexDetailPanel/CodexDetailMargin"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="CodexDetailHeader" type="HBoxContainer" parent="CodexDetailPanel/CodexDetailMargin/CodexDetailVBox"]
+layout_mode = 2
+
+[node name="CodexDetailTitle" type="Label" parent="CodexDetailPanel/CodexDetailMargin/CodexDetailVBox/CodexDetailHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 26
+text = "详情"
+
+[node name="BtnCodexDetailClose" type="Button" parent="CodexDetailPanel/CodexDetailMargin/CodexDetailVBox/CodexDetailHeader"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "关闭"
+
+[node name="CodexDetailScroll" type="ScrollContainer" parent="CodexDetailPanel/CodexDetailMargin/CodexDetailVBox"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="CodexDetailBody" type="VBoxContainer" parent="CodexDetailPanel/CodexDetailMargin/CodexDetailVBox/CodexDetailScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
 [connection signal="pressed" from="Center/BtnCodex" to="." method="_on_codex_pressed"]
 [connection signal="pressed" from="Center/BtnClearCache" to="." method="_on_clear_cache_pressed"]
 [connection signal="pressed" from="Center/BtnQuit" to="." method="_on_quit_pressed"]
@@ -272,3 +343,6 @@ theme_override_constants/separation = 12
 [connection signal="pressed" from="ChangelogPanel/ChangelogMargin/ChangelogVBox/ChangelogHeader/BtnChangelogClose" to="." method="_on_changelog_close_pressed"]
 [connection signal="gui_input" from="CodexDimmer" to="." method="_on_codex_dimmer_gui_input"]
 [connection signal="pressed" from="CodexPanel/CodexMargin/CodexVBox/CodexHeader/BtnCodexClose" to="." method="_on_codex_close_pressed"]
+
+[connection signal="gui_input" from="CodexDetailDimmer" to="." method="_on_codex_detail_dimmer_gui_input"]
+[connection signal="pressed" from="CodexDetailPanel/CodexDetailMargin/CodexDetailVBox/CodexDetailHeader/BtnCodexDetailClose" to="." method="_on_codex_detail_close_pressed"]

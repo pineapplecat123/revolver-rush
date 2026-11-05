@@ -71,7 +71,9 @@ func test_combat_ui_mounts_skeleton_on_player_cell() -> void:
 	assert_not_null(ui._skel_player)
 	var unit: Node = ui.board_row.get_child(CombatConstants.PLAYER_CELL).get_node("UnitBody")
 	assert_eq(ui._skel_player.get_parent(), unit)
-	ui.state.hooks.emit_hook(&"on_shot", {"cs": ui.state, "ammo_id": 1, "virtual": false, "dealt": 1})
+	# v0.4.32：战斗 UI 抑制 hook 姿势，改由出膛帧 play_shoot
+	assert_true(ui._skel_player.suppress_shot_from_hook)
+	ui._skel_player.play_shoot()
 	assert_eq(ui._skel_player.current_animation(), &"shoot")
 
 

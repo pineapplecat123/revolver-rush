@@ -50,11 +50,12 @@ func test_walk_attack_death_flow() -> void:
 	assert_eq(p.current_animation(), &"hurt")
 	p.play_death()
 	assert_true(p.is_dead)
-	assert_eq(p.current_animation(), &"death")
+	assert_false(p.visible, "v0.4.32 死亡直接隐藏，不播趴地")
+	assert_ne(p.current_animation(), &"death")
 	p.set_moving(true)
-	assert_eq(p.current_animation(), &"death", "死后不走路")
+	assert_true(p.is_dead, "死后不走路")
 	p.play_attack()
-	assert_eq(p.current_animation(), &"death", "死后不攻击")
+	assert_true(p.is_dead, "死后不攻击")
 
 
 func test_dummy_ignores_walk_and_attack() -> void:

@@ -154,12 +154,14 @@ func play_hurt() -> void:
 
 
 func play_death() -> void:
+	## v0.4.32：不再播趴地动画；战斗 UI 改走碎块。旧调用只标记死亡并隐藏。
 	if is_dead:
 		return
 	is_dead = true
 	moving = false
-	anim.play(ANIM_DEATH, 0.05)
-	_apply_anim_rate()
+	visible = false
+	if anim:
+		anim.stop()
 
 
 func set_hp(hp: int, max_hp: int) -> void:
