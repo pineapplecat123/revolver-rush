@@ -2,9 +2,12 @@ name: Deploy Web to GitHub Pages
 
 # Root site = main (v0.4.36+). /redo/ = feat/gameplay-redo Hand/倒出 preview.
 # Actions Pages replaces the whole site each deploy, so every run rebuilds BOTH.
+# feat/gameplay-redo cannot deploy to the github-pages environment (main-only branch
+# policy). pushes to that branch kick workflow_dispatch on this workflow via
+# pages-redo-kick.yml so /redo/ still auto-updates.
 on:
   push:
-    branches: [main, feat/gameplay-redo]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
