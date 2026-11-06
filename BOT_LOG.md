@@ -1,3 +1,9 @@
+# 2026-11-06 Pages /redo/ preview
+
+- Same-repo GitHub Pages dual-build: root=main, `/redo/`=feat/gameplay-redo.
+- Separate repo blocked (PAT cannot createRepository); Actions artifact has no keep_files.
+- Auto-redeploy on push to main or feat/gameplay-redo.
+
 # 2026-11-06 feat/gameplay-redo hand prototype
 
 - PLAIN_ONLY：开局袋 24 平庸；店/奖励/图鉴/沙盒列表只露平庸。

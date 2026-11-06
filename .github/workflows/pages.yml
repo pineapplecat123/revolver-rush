@@ -1,8 +1,10 @@
 name: Deploy Web to GitHub Pages
 
+# Root site = main (v0.4.36+). /redo/ = feat/gameplay-redo Hand/倒出 preview.
+# Actions Pages replaces the whole site each deploy, so every run rebuilds BOTH.
 on:
   push:
-    branches: [main]
+    branches: [main, feat/gameplay-redo]
   workflow_dispatch:
 
 permissions:
@@ -20,9 +22,19 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout main (root site)
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          path: main-src
+
+      - name: Checkout feat/gameplay-redo (/redo/ preview)
+        uses: actions/checkout@v7
+        with:
+          ref: feat/gameplay-redo
+          path: redo-src
 
       - name: Cache Godot + export templates
         id: cache-godot
@@ -44,7 +56,6 @@ jobs:
           curl -fsSL -o /tmp/templates.tpz "$base/Godot_v${GODOT_VERSION}-stable_export_templates.tpz"
           tdir=~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
           mkdir -p "$tdir"
-          # Only the Web templates are needed; keep the cache small.
           unzip -q -j /tmp/templates.tpz 'templates/web_*' 'templates/version.txt' -d "$tdir"
           rm -f /tmp/templates.tpz
           ls -la "$tdir"
@@ -55,33 +66,55 @@ jobs:
           sudo ln -sf ~/godot-bin/godot /usr/local/bin/godot
           godot --version
 
-      - name: Import project
-        run: godot --headless --import
-
       - name: Install fonttools for charset check
         run: pip install --user fonttools
 
-      - name: Pre-push gate (version + UI charset)
-        run: bash tools/pre_push_check.sh
-
-      - name: Export Web
+      - name: Export main → site root
+        working-directory: main-src
         run: |
-          mkdir -p build/web
-          godot --headless --export-release "Web" build/web/index.html
-          test -f build/web/index.html
-          # Cache-bust: rename Godot assets with short SHA so browsers cannot keep old pck/wasm
-          HASH="${GITHUB_SHA:0:7}"
-          cd build/web
+          set -euo pipefail
+          godot --headless --path . --import
+          bash tools/pre_push_check.sh
+          mkdir -p "$GITHUB_WORKSPACE/build/web"
+          godot --headless --path . --export-release "Web" "$GITHUB_WORKSPACE/build/web/index.html"
+          test -f "$GITHUB_WORKSPACE/build/web/index.html"
+          HASH="$(git rev-parse --short HEAD)"
+          cd "$GITHUB_WORKSPACE/build/web"
           mv index.js "index.${HASH}.js"
           mv index.wasm "index.${HASH}.wasm"
           mv index.pck "index.${HASH}.pck"
           sed -i "s/index\.wasm/index.${HASH}.wasm/g; s/index\.pck/index.${HASH}.pck/g" "index.${HASH}.js"
           sed -i "s/index\.js/index.${HASH}.js/g; s/\"executable\":\"index\"/\"executable\":\"index.${HASH}\"/g; s/index\.pck/index.${HASH}.pck/g; s/index\.wasm/index.${HASH}.wasm/g" index.html
-          # HTML 角清缓存按钮（旧 pck 卡住时仍可点）；与主菜单按钮同一套清理逻辑
-          python3 "$GITHUB_WORKSPACE/tools/inject_web_clear_cache.py" index.html
-          # Short no-cache note page tip
-          printf '%s\n' "build=${HASH}" > version.txt
+          python3 "$GITHUB_WORKSPACE/main-src/tools/inject_web_clear_cache.py" index.html
+          printf '%s\n' "build=${HASH}" "branch=main" > version.txt
           ls -la
+
+      - name: Export feat/gameplay-redo → /redo/
+        working-directory: redo-src
+        run: |
+          set -euo pipefail
+          godot --headless --path . --import
+          bash tools/pre_push_check.sh
+          mkdir -p "$GITHUB_WORKSPACE/build/web/redo"
+          godot --headless --path . --export-release "Web" "$GITHUB_WORKSPACE/build/web/redo/index.html"
+          test -f "$GITHUB_WORKSPACE/build/web/redo/index.html"
+          HASH="$(git rev-parse --short HEAD)"
+          cd "$GITHUB_WORKSPACE/build/web/redo"
+          mv index.js "index.${HASH}.js"
+          mv index.wasm "index.${HASH}.wasm"
+          mv index.pck "index.${HASH}.pck"
+          sed -i "s/index\.wasm/index.${HASH}.wasm/g; s/index\.pck/index.${HASH}.pck/g" "index.${HASH}.js"
+          sed -i "s/index\.js/index.${HASH}.js/g; s/\"executable\":\"index\"/\"executable\":\"index.${HASH}\"/g; s/index\.pck/index.${HASH}.pck/g; s/index\.wasm/index.${HASH}.wasm/g" index.html
+          # Subfolder base so Godot asset paths resolve under /revolver-rush/redo/
+          if ! grep -q '<base ' index.html; then
+            sed -i 's|<head>|<head>\n<base href="/revolver-rush/redo/" />|' index.html
+          fi
+          python3 "$GITHUB_WORKSPACE/redo-src/tools/inject_web_clear_cache.py" index.html
+          printf '%s\n' "build=${HASH}" "branch=feat/gameplay-redo" "preview=hand-dump" > version.txt
+          # Tiny marker for HTTP checks (strings also live inside the pck)
+          printf '%s\n' "倒出" "手" "自动装入" > preview_markers.txt
+          ls -la
+          ls -la "$GITHUB_WORKSPACE/build/web"
 
       - uses: actions/configure-pages@v6
 
