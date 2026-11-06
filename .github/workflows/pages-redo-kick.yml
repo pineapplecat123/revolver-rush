@@ -1,0 +1,30 @@
+name: Kick Pages redo preview
+
+# github-pages environment only allows deploys from main. On Hand/倒出 branch
+# pushes, re-run the dual-build Pages workflow at ref main (root=main, /redo/=this branch).
+on:
+  push:
+    branches: [feat/gameplay-redo]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: pages-redo-kick
+  cancel-in-progress: true
+
+jobs:
+  kick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch Deploy Web to GitHub Pages on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh workflow run "Deploy Web to GitHub Pages" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref main
+          echo "Dispatched Pages dual-build (root=main, /redo/=feat/gameplay-redo tip)."
