@@ -62,6 +62,10 @@ var discard: Array[int] = []
 var discard_temp: Array = []
 ## v0.4.30 嫉妒一次性复制（与 bag 同序）；打出销毁，不进弃牌/基线
 var bag_envy_copy: Array = []
+## feat/gameplay-redo：「手」——倒出从袋抽入此处，再拖/自动装入弹仓。
+var hand: Array[int] = []
+var hand_temp: Array = []
+var hand_envy_copy: Array = []
 var magazine: Magazine = Magazine.new()
 var enemies: Array = []
 var turn_index: int = 0
@@ -593,6 +597,8 @@ func sandbox_spawn_default_dummies() -> int:
 
 
 func _consolidate_ammo_into_bag() -> void:
+	if not hand.is_empty():
+		return_hand_to_bag()
 	if not magazine.is_empty():
 		for entry in magazine.unload_all_entries():
 			_bag_append(int(entry.get("id", Magazine.EMPTY)), entry.get("temp", 0.0))
@@ -944,8 +950,17 @@ func _sync_temp_arrays() -> void:
 
 func _fill_starter_bag(extra_sin: int = 0) -> void:
 	## 灌入 10 平庸 + 5 本局罪孽 + extra_sin 发临时额外罪孽（半透明）。
+	## feat/gameplay-redo：PLAIN_ONLY 时只灌平庸 × STARTER_PLAIN_ONLY_COUNT，并清空手。
 	bag.clear()
 	bag_temp.clear()
+	bag_envy_copy.clear()
+	hand.clear()
+	hand_temp.clear()
+	hand_envy_copy.clear()
+	if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY:
+		for _i in CombatConstants.STARTER_PLAIN_ONLY_COUNT:
+			_bag_append(CombatConstants.WHITE_AMMO_ID, false)
+		return
 	for _i in CombatConstants.STARTER_WHITE_COUNT:
 		_bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	for _i in CombatConstants.STARTER_SIN_COUNT:
@@ -2096,6 +2111,212 @@ func can_load() -> bool:
 		return false
 	if magazine != null and magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
 		return false
+	return true
+
+
+
+func _sync_hand_arrays() -> void:
+	while hand_temp.size() < hand.size():
+		hand_temp.append(0.0)
+	while hand_temp.size() > hand.size():
+		hand_temp.pop_back()
+	while hand_envy_copy.size() < hand.size():
+		hand_envy_copy.append(false)
+	while hand_envy_copy.size() > hand.size():
+		hand_envy_copy.pop_back()
+
+
+func _hand_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
+	hand.append(ammo_id)
+	var tv: float = _normalize_temp_for(ammo_id, temporary)
+	if envy_copy and tv == 0.0:
+		tv = CombatConstants.FIRE_ONCE_TEMP
+	hand_temp.append(tv)
+	hand_envy_copy.append(bool(envy_copy))
+
+
+func _hand_remove_at(idx: int) -> Dictionary:
+	_sync_hand_arrays()
+	if idx < 0 or idx >= hand.size():
+		return {}
+	var entry := {
+		"id": int(hand[idx]),
+		"temp": hand_temp[idx] if idx < hand_temp.size() else 0.0,
+		"envy_copy": bool(hand_envy_copy[idx]) if idx < hand_envy_copy.size() else false,
+	}
+	hand.remove_at(idx)
+	if idx < hand_temp.size():
+		hand_temp.remove_at(idx)
+	if idx < hand_envy_copy.size():
+		hand_envy_copy.remove_at(idx)
+	return entry
+
+
+func return_hand_to_bag() -> int:
+	## 把手里的弹全部退回袋（倒出前清空手时用）。
+	_sync_hand_arrays()
+	var n: int = hand.size()
+	for i in n:
+		_bag_append(int(hand[i]), hand_temp[i] if i < hand_temp.size() else 0.0, bool(hand_envy_copy[i]) if i < hand_envy_copy.size() else false)
+	hand.clear()
+	hand_temp.clear()
+	hand_envy_copy.clear()
+	return n
+
+
+func can_dump_to_hand() -> bool:
+	## 倒出：袋有弹，且不在开火/敌方/胜负/奖励中。
+	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
+		return false
+	if reward_pending:
+		return false
+	if bag.is_empty() and not can_refill_bag():
+		return false
+	# 袋空但可补：允许，dump 里会 refill
+	if bag.is_empty():
+		return can_refill_bag()
+	return true
+
+
+func dump_to_hand() -> int:
+	## 倒出：若手非空，先退回袋；再从袋随机抽最多 HAND_SIZE 发入手。
+	## 返回实际入手数量。
+	if not can_dump_to_hand():
+		return 0
+	if not hand.is_empty():
+		return_hand_to_bag()
+	if bag.is_empty():
+		ensure_bag_refilled_if_empty()
+	if bag.is_empty():
+		_emit()
+		return 0
+	var n: int = mini(CombatConstants.HAND_SIZE, bag.size())
+	var drawn: Array[int] = _draw_random_from_bag(n)
+	for i in drawn.size():
+		var tv = _last_drawn_temps[i] if i < _last_drawn_temps.size() else 0.0
+		var ev: bool = bool(_last_drawn_envy[i]) if i < _last_drawn_envy.size() else false
+		_hand_append(int(drawn[i]), tv, ev)
+	_log("倒出：%d 发入手（手 %d / 袋 %d）。" % [drawn.size(), hand.size(), bag.size()])
+	if phase == Phase.AWAIT_LOAD or phase == Phase.AWAIT_ACTION:
+		pass
+	_emit()
+	return drawn.size()
+
+
+func can_auto_load_from_hand() -> bool:
+	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
+		return false
+	if reward_pending:
+		return false
+	if hand.is_empty():
+		return false
+	if magazine == null:
+		return false
+	return magazine.loaded_count() < CombatConstants.MAGAZINE_SIZE
+
+
+func auto_load_from_hand() -> int:
+	## 自动装入：按手顺序装进第一个空仓，直到手空或匣满。
+	if not can_auto_load_from_hand():
+		return 0
+	_reset_focus_shot_counter()
+	var loaded_n := 0
+	while not hand.is_empty() and magazine.loaded_count() < CombatConstants.MAGAZINE_SIZE:
+		var empty_slot := -1
+		for i in CombatConstants.MAGAZINE_SIZE:
+			if magazine.slots[i] == Magazine.EMPTY:
+				empty_slot = i
+				break
+		if empty_slot < 0:
+			break
+		if not _load_hand_front_into_slot(empty_slot):
+			break
+		loaded_n += 1
+	if loaded_n > 0 and phase == Phase.AWAIT_LOAD:
+		_set_phase(Phase.AWAIT_ACTION)
+	_log("自动装入：%d 发 → 匣（手剩 %d）。" % [loaded_n, hand.size()])
+	_emit()
+	return loaded_n
+
+
+func _load_hand_front_into_slot(slot: int) -> bool:
+	if hand.is_empty() or slot < 0 or slot >= CombatConstants.MAGAZINE_SIZE:
+		return false
+	if magazine.slots[slot] != Magazine.EMPTY:
+		return false
+	var entry: Dictionary = _hand_remove_at(0)
+	if entry.is_empty():
+		return false
+	var resolved: int = int(entry["id"])
+	var raw_temp = entry.get("temp", 0.0)
+	var raw_envy: bool = bool(entry.get("envy_copy", false))
+	magazine.set_slot(slot, resolved, _normalize_temp_for(resolved, raw_temp), raw_envy)
+	hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": resolved, "slot": slot, "temporary": Magazine.temp_value(raw_temp) > 0.0})
+	_apply_justice_strip_on_load(resolved)
+	_check_sin_threshold_after_insert(resolved)
+	_try_spawn_temp_sin_on_load(resolved)
+	return true
+
+
+func load_hand_index_into_chamber(hand_index: int, chamber_index: int) -> bool:
+	## 把手中第 hand_index 发装入指定空仓；若目标仓有弹则与手中该发互换。
+	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
+		return false
+	if reward_pending:
+		return false
+	_sync_hand_arrays()
+	if hand_index < 0 or hand_index >= hand.size():
+		return false
+	if chamber_index < 0 or chamber_index >= CombatConstants.MAGAZINE_SIZE:
+		return false
+	_reset_focus_shot_counter()
+	var hid: int = int(hand[hand_index])
+	var htemp = hand_temp[hand_index] if hand_index < hand_temp.size() else 0.0
+	var henvy: bool = bool(hand_envy_copy[hand_index]) if hand_index < hand_envy_copy.size() else false
+	var cid: int = magazine.slots[chamber_index]
+	if cid == Magazine.EMPTY:
+		_hand_remove_at(hand_index)
+		magazine.set_slot(chamber_index, hid, _normalize_temp_for(hid, htemp), henvy)
+		hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": hid, "slot": chamber_index, "temporary": Magazine.temp_value(htemp) > 0.0})
+		_apply_justice_strip_on_load(hid)
+		_check_sin_threshold_after_insert(hid)
+		_try_spawn_temp_sin_on_load(hid)
+	else:
+		# 互换：仓 → 手该位，手该位 → 仓
+		var ctemp = magazine.slot_temp_life(chamber_index)
+		var cenvy: bool = magazine.is_slot_envy_copy(chamber_index)
+		hand[hand_index] = cid
+		if hand_index < hand_temp.size():
+			hand_temp[hand_index] = ctemp
+		if hand_index < hand_envy_copy.size():
+			hand_envy_copy[hand_index] = cenvy
+		magazine.set_slot(chamber_index, hid, _normalize_temp_for(hid, htemp), henvy)
+		hooks.emit_hook(&"on_chamber_loaded", {"cs": self, "ammo_id": hid, "slot": chamber_index, "temporary": Magazine.temp_value(htemp) > 0.0})
+	if phase == Phase.AWAIT_LOAD and magazine.loaded_count() > 0:
+		_set_phase(Phase.AWAIT_ACTION)
+	_emit()
+	return true
+
+
+func swap_magazine_slots(a: int, b: int) -> bool:
+	## 弹仓两格对调（含空仓）。
+	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
+		return false
+	if reward_pending:
+		return false
+	if a < 0 or b < 0 or a >= CombatConstants.MAGAZINE_SIZE or b >= CombatConstants.MAGAZINE_SIZE:
+		return false
+	if a == b:
+		return true
+	var aid: int = magazine.slots[a]
+	var atemp = magazine.slot_temp_life(a)
+	var aenvy: bool = magazine.is_slot_envy_copy(a)
+	var bid: int = magazine.slots[b]
+	var btemp = magazine.slot_temp_life(b)
+	var benvy: bool = magazine.is_slot_envy_copy(b)
+	magazine.set_slot(a, bid, btemp if bid != Magazine.EMPTY else 0.0, benvy)
+	magazine.set_slot(b, aid, atemp if aid != Magazine.EMPTY else 0.0, aenvy)
+	_emit()
 	return true
 
 
@@ -4887,6 +5108,8 @@ func generate_reward_choices() -> Array[int]:
 	var pool: Array[int] = []
 	for item in DataRegistry.all_ammo():
 		var aid: int = int(item.get("id", 0))
+		if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY and aid != CombatConstants.WHITE_AMMO_ID:
+			continue
 		if DataRegistry.is_ammo_reward_eligible(aid):
 			pool.append(aid)
 	if pool.is_empty():

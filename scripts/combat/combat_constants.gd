@@ -20,6 +20,14 @@ const STARTER_WHITE_COUNT := 10
 const STARTER_SIN_COUNT := 5
 const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + STARTER_SIN_COUNT
 
+## feat/gameplay-redo：运行时只露平庸弹（袋开局/店/奖励/图鉴/沙盒列表）；测试仍可直接塞其它 id。
+## 运行时默认 true（combat_ui / main 也会钉死）；GUT 用 test_00 关掉，避免旧测试炸开局袋。
+static var GAMEPLAY_REDO_PLAIN_ONLY: bool = true
+## 「手」区容量；倒出最多抽这么多。
+const HAND_SIZE := 6
+## plain-only 开局袋：足够多的平庸，方便测倒出/装入手感。
+const STARTER_PLAIN_ONLY_COUNT := 24
+
 ## 战斗胜利奖励（灰盒）
 const REWARD_BASE_GOLD := 10
 const REWARD_SKIP_EXTRA_GOLD := 5

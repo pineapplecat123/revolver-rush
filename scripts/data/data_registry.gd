@@ -66,6 +66,13 @@ func is_ammo_enabled(ammo_id: int) -> bool:
 	return bool(get_ammo(ammo_id).get("enabled_in_combat", false))
 
 
+func is_ammo_runtime_visible(ammo_id: int) -> bool:
+	## feat/gameplay-redo：PLAIN_ONLY 时运行时只露平庸（图鉴/店/奖励/沙盒列表）。
+	if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY:
+		return ammo_id == CombatConstants.WHITE_AMMO_ID and is_ammo_enabled(ammo_id)
+	return is_ammo_enabled(ammo_id)
+
+
 func is_ammo_ephemeral(ammo_id: int) -> bool:
 	## 战斗衍生物（如幽灵）：战后消失，不进奖励/商店。
 	return bool(get_ammo(ammo_id).get("ephemeral", false))

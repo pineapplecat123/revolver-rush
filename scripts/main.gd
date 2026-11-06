@@ -279,7 +279,7 @@ func _populate_codex() -> void:
 		if typeof(item) != TYPE_DICTIONARY:
 			continue
 		var aid: int = int(item.get("id", 0))
-		if aid <= 0 or not DataRegistry.is_ammo_enabled(aid):
+		if aid <= 0 or not DataRegistry.is_ammo_runtime_visible(aid):
 			continue
 		list.add_child(_make_codex_cell(aid, item, cell))
 	_codex_vel = 0.0

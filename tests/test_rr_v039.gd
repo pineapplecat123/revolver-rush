@@ -186,9 +186,11 @@ func _start_ui_and_kill(levels: int):
 		e.max_hp = 500
 		e.atk = 0
 		e.pos_x = float(e.cell)  # v0.4.28：刷怪在视野外走进来；这里直接放进画面
-	for _k in 2:
-		ui._on_manual_load()
-		await wait_seconds(0.6)
+	# feat/gameplay-redo：倒出→自动装入（旧「手动装弹」已改走手）。
+	ui._on_manual_load()
+	await wait_process_frames(2)
+	ui._on_auto_load()
+	await wait_seconds(0.6)
 	await wait_seconds(0.5)  # 滑到半格
 	var target = cs.enemies[0]
 	for e in cs.enemies:
