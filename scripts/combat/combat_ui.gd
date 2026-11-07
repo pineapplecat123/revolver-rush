@@ -4575,7 +4575,7 @@ func _refresh_hand_list() -> void:
 		var panel := _make_hand_ball_panel(i, int(state.hand[i]))
 		hand_slots.add_child(panel)
 		_hand_slot_panels.append(panel)
-	# 空手也可接收拖入：整块区域可点（不建假槽）
+	# 空手也可接收拖入：整块区域可点（不建占位格）
 	hand_slots.mouse_filter = Control.MOUSE_FILTER_STOP
 	if not hand_slots.gui_input.is_connected(_on_hand_area_gui_input):
 		hand_slots.gui_input.connect(_on_hand_area_gui_input)
