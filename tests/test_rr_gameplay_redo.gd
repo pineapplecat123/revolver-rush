@@ -1,5 +1,5 @@
 extends GutTest
-## feat/gameplay-redo：倒出→手→自动装入 / 拖装 / 仓对调；PLAIN_ONLY 开局。
+## feat/gameplay-redo：倒出→手→拖装 / 仓对调（自动装入仅保留状态 API）；PLAIN_ONLY 开局。
 
 
 func before_each() -> void:
@@ -92,3 +92,18 @@ func test_reward_pool_plain_only() -> void:
 	assert_eq(choices.size(), CombatConstants.REWARD_CHOICE_COUNT)
 	for id in choices:
 		assert_eq(int(id), CombatConstants.WHITE_AMMO_ID)
+
+
+func test_ui_no_autoload_button_and_hand_scatter() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(3)
+	assert_null(ui.get_node_or_null("%BtnAutoLoad"))
+	ui.state.dump_to_hand()
+	ui._refresh()
+	await wait_process_frames(2)
+	assert_gt(ui._hand_slot_panels.size(), 0)
+	# 散落：至少两颗位置不完全相同
+	if ui._hand_slot_panels.size() >= 2:
+		var a: Vector2 = ui._hand_slot_panels[0].position
+		var b: Vector2 = ui._hand_slot_panels[1].position
+		assert_ne(a, b, "hand balls should scatter")

@@ -211,6 +211,7 @@ alignment = 1
 
 [node name="MagCol" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection"]
 layout_mode = 2
+size_flags_horizontal = 0
 size_flags_vertical = 4
 theme_override_constants/separation = 6
 
@@ -239,24 +240,41 @@ theme_override_colors/font_color = Color(1, 0.2, 0.15, 1)
 theme_override_font_sizes/font_size = 20
 horizontal_alignment = 1
 
-[node name="HandPanel" type="PanelContainer" parent="Margin/RootVBox/MidPanel/MidSection"]
+[node name="RightCol" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(220, 200)
 layout_mode = 2
+size_flags_horizontal = 3
 size_flags_vertical = 3
+theme_override_constants/separation = 8
 
-[node name="HandMargin" type="MarginContainer" parent="Margin/RootVBox/MidPanel/MidSection/HandPanel"]
+[node name="BagPanel" type="PanelContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(280, 160)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.15
+
+[node name="HandPanel" type="PanelContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(280, 150)
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+size_flags_stretch_ratio = 1.0
+
+[node name="HandMargin" type="MarginContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/HandPanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 6
 theme_override_constants/margin_top = 4
 theme_override_constants/margin_right = 6
 theme_override_constants/margin_bottom = 4
 
-[node name="HandVBox" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/HandPanel/HandMargin"]
+[node name="HandVBox" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/HandPanel/HandMargin"]
 layout_mode = 2
 theme_override_constants/separation = 4
 
-[node name="HandHeaderLabel" type="Label" parent="Margin/RootVBox/MidPanel/MidSection/HandPanel/HandMargin/HandVBox"]
+[node name="HandHeaderLabel" type="Label" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/HandPanel/HandMargin/HandVBox"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 28)
 layout_mode = 2
@@ -266,34 +284,29 @@ text = "手"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="HandSlots" type="HBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/HandPanel/HandMargin/HandVBox"]
+[node name="HandSlots" type="Control" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/HandPanel/HandMargin/HandVBox"]
 unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 110)
 layout_mode = 2
+size_flags_horizontal = 3
 size_flags_vertical = 3
-theme_override_constants/separation = 4
-alignment = 1
+clip_contents = true
 
-[node name="BagPanel" type="PanelContainer" parent="Margin/RootVBox/MidPanel/MidSection"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(200, 200)
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="BagMargin" type="MarginContainer" parent="Margin/RootVBox/MidPanel/MidSection/BagPanel"]
+[node name="BagMargin" type="MarginContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel"]
 layout_mode = 2
 theme_override_constants/margin_left = 8
 theme_override_constants/margin_top = 6
 theme_override_constants/margin_right = 8
 theme_override_constants/margin_bottom = 6
 
-[node name="BagVBox" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/BagPanel/BagMargin"]
+[node name="BagVBox" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="BagHeader" type="HBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/BagPanel/BagMargin/BagVBox"]
+[node name="BagHeader" type="HBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox"]
 layout_mode = 2
 
-[node name="BagHeaderLabel" type="Label" parent="Margin/RootVBox/MidPanel/MidSection/BagPanel/BagMargin/BagVBox/BagHeader"]
+[node name="BagHeaderLabel" type="Label" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagHeader"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 28)
 layout_mode = 2
@@ -304,12 +317,12 @@ theme_override_colors/font_color = Color(1, 0.92, 0.55, 1)
 text = "弹药袋"
 vertical_alignment = 1
 
-[node name="BagScroll" type="ScrollContainer" parent="Margin/RootVBox/MidPanel/MidSection/BagPanel/BagMargin/BagVBox"]
+[node name="BagScroll" type="ScrollContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox"]
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
 
-[node name="BagList" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/BagPanel/BagMargin/BagVBox/BagScroll"]
+[node name="BagList" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagScroll"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -341,25 +354,17 @@ theme_override_constants/separation = 16
 
 [node name="BtnManualLoad" type="Button" parent="Margin/RootVBox/BottomPanel/BottomSection/ActionRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(160, 160)
+custom_minimum_size = Vector2(200, 160)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
 theme_override_font_sizes/font_size = 40
 text = "倒出"
 
-[node name="BtnAutoLoad" type="Button" parent="Margin/RootVBox/BottomPanel/BottomSection/ActionRow"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(160, 160)
-layout_mode = 2
-size_flags_horizontal = 3
-size_flags_vertical = 3
-theme_override_font_sizes/font_size = 32
-text = "自动装入"
 
 [node name="BtnFire" type="Button" parent="Margin/RootVBox/BottomPanel/BottomSection/ActionRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(160, 160)
+custom_minimum_size = Vector2(200, 160)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3

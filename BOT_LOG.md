@@ -1,3 +1,9 @@
+# 2026-11-07 gameplay-redo UI2
+
+- Mid: left wheel / right bag(top)+hand(bottom). Removed 自动装入 button.
+- Hand balls random scatter; empty-chamber drag snap magnet.
+- GUT 481.
+
 # 2026-11-06 Pages /redo/ preview
 
 - Same-repo GitHub Pages dual-build: root=main, `/redo/`=feat/gameplay-redo.

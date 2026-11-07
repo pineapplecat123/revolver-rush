@@ -1,5 +1,5 @@
 extends GutTest
-## RR v0.3.0：唯一模式 rush! + 竖屏三等分 + 操作区三颗按钮（倒出/自动装入/射击） + 无战斗日志。
+## RR v0.3.0：唯一模式 rush! + 竖屏三等分 + 操作区两颗按钮（倒出/射击） + 无战斗日志。
 
 const CombatScene := preload("res://scenes/combat.tscn")
 
@@ -28,18 +28,20 @@ func test_combat_scene_thirds_two_buttons_no_log() -> void:
 	assert_true(ui.get_node("Margin/RootVBox/TopPanel").is_ancestor_of(ui.get_node("%BoardRow")), "board in top third")
 	var mid: Node = ui.get_node("Margin/RootVBox/MidPanel")
 	assert_true(mid.is_ancestor_of(ui.get_node("%MagWheel")), "cylinder in middle third")
-	assert_true(mid.is_ancestor_of(ui.get_node("%BagPanel")), "ammo bag in middle third")
-	assert_true(mid.is_ancestor_of(ui.get_node("%HandPanel")), "hand in middle third")
+	var right: Node = ui.get_node("%RightCol")
+	assert_true(mid.is_ancestor_of(right), "right col in middle third")
+	assert_true(right.is_ancestor_of(ui.get_node("%BagPanel")), "bag above in right col")
+	assert_true(right.is_ancestor_of(ui.get_node("%HandPanel")), "hand below in right col")
+	assert_true(ui.get_node("%BagPanel").get_index() < ui.get_node("%HandPanel").get_index(), "bag above hand")
 	var row: Node = ui.get_node("%ActionRow")
 	assert_true(ui.get_node("Margin/RootVBox/BottomPanel").is_ancestor_of(row), "controls in bottom third")
 	var btns: Array = []
 	for ch in row.get_children():
-		if ch is Button:
+		if ch is Button and ch.visible:
 			btns.append(ch)
-	assert_eq(btns.size(), 3, "dump / auto-load / fire")
+	assert_eq(btns.size(), 2, "dump / fire only")
 	assert_eq(btns[0].text, "倒出")
-	assert_eq(btns[1].text, "自动装入")
-	assert_eq(btns[2].text, "射击")
+	assert_eq(btns[1].text, "射击")
 
 
 func test_manual_load_adds_one_then_fire_empties() -> void:

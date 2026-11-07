@@ -148,6 +148,13 @@ var _drag_kind: String = ""  # "hand" | "chamber"
 var _drag_index: int = -1
 var _drag_ghost: Control = null
 var _drag_active: bool = false
+var _drag_snap_chamber: int = -1
+var _drag_snap_hand: bool = false
+## 手区散落位置（内容签名变化才重抽，避免每帧乱跳）
+var _hand_scatter_sig: String = ""
+var _hand_scatter_positions: Array = []  # Vector2
+const HAND_BALL_SIZE := 48.0
+const DRAG_SNAP_PX := 42.0
 var _sin_panel: PanelContainer = null
 var _sin_pick_open: bool = false
 var _bag_refreshing: bool = false
@@ -271,11 +278,10 @@ var _btn_shop_leave: Button = null
 @onready var mag_wheel: Control = %MagWheel
 @onready var fire_marker: Label = %FireMarker
 @onready var btn_manual_load: Button = %BtnManualLoad
-@onready var btn_auto_load: Button = %BtnAutoLoad
 @onready var btn_fire: Button = %BtnFire
 @onready var hand_panel: PanelContainer = %HandPanel
 @onready var hand_header_label: Label = %HandHeaderLabel
-@onready var hand_slots: HBoxContainer = %HandSlots
+@onready var hand_slots: Control = %HandSlots
 @onready var btn_dev: Button = %BtnDev
 @onready var btn_menu: Button = %BtnMenu
 @onready var result_label: Label = %ResultLabel
@@ -308,8 +314,6 @@ func _ready() -> void:
 	state.gold_drop_spawned.connect(_on_gold_drop_spawned)
 	state.xp_orb_spawned.connect(_on_xp_orb_spawned)
 	btn_manual_load.pressed.connect(_on_manual_load)
-	if btn_auto_load != null:
-		btn_auto_load.pressed.connect(_on_auto_load)
 	btn_fire.pressed.connect(_on_fire)
 	btn_dev.pressed.connect(_toggle_dev)
 	btn_next_wave.pressed.connect(_on_next_wave)
@@ -321,7 +325,7 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "倒出：从袋随机抽最多 6 发到手。拖动手弹进弹仓，或点自动装入。可拖弹仓对调顺序。射击打光已装弹。敌人会自动推进。"
+		hint_lab.text = "倒出：袋→手（最多 6）。拖动手里的弹进空仓（靠近会吸附）。可拖弹仓对调。射击打光已装弹。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
@@ -524,31 +528,39 @@ func _ensure_combat_layout() -> void:
 	var mag_col: VBoxContainer = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as VBoxContainer
 	if mag_col != null:
 		mag_col.add_theme_constant_override("separation", 6)
+	var right_col: VBoxContainer = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/RightCol") as VBoxContainer
+	if right_col != null:
+		right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if bag_panel != null:
-		bag_panel.custom_minimum_size = Vector2(200, 200)
-		bag_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		bag_panel.custom_minimum_size = Vector2(280, 150)
+		bag_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bag_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		bag_panel.size_flags_stretch_ratio = 1.15
 	if hand_panel != null:
-		hand_panel.custom_minimum_size = Vector2(220, 200)
-		hand_panel.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		hand_panel.custom_minimum_size = Vector2(280, 140)
+		hand_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		hand_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		hand_panel.size_flags_stretch_ratio = 1.0
 		hand_panel.visible = true
 	_ensure_action_buttons()
 
 
 func _ensure_action_buttons() -> void:
-	## feat/gameplay-redo：倒出 / 自动装入 / 射击。
-	for btn in [btn_manual_load, btn_auto_load, btn_fire]:
+	## feat/gameplay-redo：倒出 / 射击（自动装入已移除，靠拖装）。
+	var gone := get_node_or_null("%BtnAutoLoad")
+	if gone != null:
+		gone.visible = false
+		gone.disabled = true
+	for btn in [btn_manual_load, btn_fire]:
 		if btn == null:
 			continue
-		btn.add_theme_font_size_override("font_size", 32)
+		btn.add_theme_font_size_override("font_size", ACTION_BTN_FONT)
 		btn.clip_text = false
 		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		btn.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		_style_square_action_button(btn)
 	btn_manual_load.text = "倒出"
-	if btn_auto_load != null:
-		btn_auto_load.text = "自动装入"
 	btn_fire.text = "射击"
 	# 射击键偏红，便于单手快速区分
 	var fire_normal := btn_fire.get_theme_stylebox("normal")
@@ -1336,19 +1348,6 @@ func _on_manual_load() -> void:
 	_refresh()
 
 
-func _on_auto_load() -> void:
-	## 自动装入：手中子弹按顺序填入空仓。
-	if is_shooting():
-		return
-	_snap_fire_disk()
-	if _busy():
-		return
-	if not state.can_auto_load_from_hand():
-		_refresh()
-		return
-	state.auto_load_from_hand()
-	_apply_disk_rotation(float(state.magazine.start_index))
-	_refresh()
 
 
 func _run_manual_load_one() -> void:
@@ -4561,53 +4560,102 @@ func _bag_inventory_fingerprint(inv: Dictionary) -> String:
 
 
 func _refresh_hand_list() -> void:
-	## 刷新「手」区 6 格。
+	## 刷新「手」区：子弹随机散落，不整齐排列。
 	if hand_slots == null or state == null:
 		return
 	if hand_header_label != null:
 		hand_header_label.text = "手 · %d/%d" % [state.hand.size(), CombatConstants.HAND_SIZE]
-	# 重建槽（手最多 6，小）
 	for c in hand_slots.get_children():
 		c.queue_free()
 	_hand_slot_panels.clear()
 	state._sync_hand_arrays()
-	var show_n: int = maxi(state.hand.size(), 1) if state.hand.is_empty() else state.hand.size()
-	# Always show up to HAND_SIZE empty slots for drop targets
-	for i in CombatConstants.HAND_SIZE:
-		var panel := Panel.new()
-		panel.name = "HandSlot%d" % i
-		panel.custom_minimum_size = Vector2(48, 48)
-		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		panel.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		panel.mouse_filter = Control.MOUSE_FILTER_STOP
-		panel.gui_input.connect(_on_hand_slot_gui_input.bind(i))
-		var style := StyleBoxFlat.new()
-		style.set_corner_radius_all(999)
-		style.set_border_width_all(2)
-		var info := Label.new()
-		info.name = "Info"
-		info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-		info.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		info.add_theme_font_size_override("font_size", 12)
-		if i < state.hand.size():
-			var aid: int = int(state.hand[i])
-			var colors := _ammo_colors(aid)
-			style.bg_color = colors["bg"]
-			style.border_color = Color(0.2, 0.2, 0.25)
-			var def: Dictionary = DataRegistry.get_ammo(aid)
-			var short: String = str(def.get("name", aid)).replace("子弹", "").replace("弹药", "")
-			info.text = short
-			info.add_theme_color_override("font_color", colors["fg"])
-		else:
-			style.bg_color = Color(0.14, 0.16, 0.2, 0.7)
-			style.border_color = Color(0.35, 0.4, 0.45, 0.6)
-			info.text = ""
-		panel.add_theme_stylebox_override("panel", style)
-		panel.add_child(info)
+	_ensure_hand_scatter_positions(state.hand.size())
+	# 等一帧布局尺寸就绪后再摆位置；先建节点
+	for i in state.hand.size():
+		var panel := _make_hand_ball_panel(i, int(state.hand[i]))
 		hand_slots.add_child(panel)
 		_hand_slot_panels.append(panel)
+	# 空手也可接收拖入：整块区域可点（不建假槽）
+	hand_slots.mouse_filter = Control.MOUSE_FILTER_STOP
+	if not hand_slots.gui_input.is_connected(_on_hand_area_gui_input):
+		hand_slots.gui_input.connect(_on_hand_area_gui_input)
+	call_deferred("_layout_hand_scatter")
+
+
+func _make_hand_ball_panel(hand_index: int, aid: int) -> Panel:
+	var panel := Panel.new()
+	panel.name = "HandBall%d" % hand_index
+	panel.custom_minimum_size = Vector2(HAND_BALL_SIZE, HAND_BALL_SIZE)
+	panel.size = Vector2(HAND_BALL_SIZE, HAND_BALL_SIZE)
+	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	panel.gui_input.connect(_on_hand_slot_gui_input.bind(hand_index))
+	var style := StyleBoxFlat.new()
+	style.set_corner_radius_all(999)
+	style.set_border_width_all(2)
+	var colors := _ammo_colors(aid)
+	style.bg_color = colors["bg"]
+	style.border_color = Color(0.2, 0.2, 0.25)
+	panel.add_theme_stylebox_override("panel", style)
+	var info := Label.new()
+	info.name = "Info"
+	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	info.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	info.add_theme_font_size_override("font_size", 12)
+	var def: Dictionary = DataRegistry.get_ammo(aid)
+	var short: String = str(def.get("name", aid)).replace("子弹", "").replace("弹药", "")
+	info.text = short
+	info.add_theme_color_override("font_color", colors["fg"])
+	panel.add_child(info)
+	return panel
+
+
+func _ensure_hand_scatter_positions(n: int) -> void:
+	var parts: PackedStringArray = PackedStringArray()
+	for i in n:
+		parts.append("%d" % int(state.hand[i]))
+	var sig := "%d|%s" % [n, "|".join(parts)]
+	if sig == _hand_scatter_sig and _hand_scatter_positions.size() == n:
+		return
+	_hand_scatter_sig = sig
+	_hand_scatter_positions.clear()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash(sig) & 0x7fffffff
+	for _i in n:
+		# 归一化坐标，真正像素位在 _layout_hand_scatter 按区域尺寸缩放
+		_hand_scatter_positions.append(Vector2(rng.randf(), rng.randf()))
+
+
+func _layout_hand_scatter() -> void:
+	if hand_slots == null or not is_instance_valid(hand_slots):
+		return
+	var area: Vector2 = hand_slots.size
+	if area.x < 8.0 or area.y < 8.0:
+		area = hand_slots.get_rect().size
+	if area.x < 8.0 or area.y < 8.0:
+		return
+	var pad := 4.0
+	var max_x: float = maxf(area.x - HAND_BALL_SIZE - pad, pad)
+	var max_y: float = maxf(area.y - HAND_BALL_SIZE - pad, pad)
+	for i in mini(_hand_slot_panels.size(), _hand_scatter_positions.size()):
+		var panel: Control = _hand_slot_panels[i]
+		if panel == null or not is_instance_valid(panel):
+			continue
+		var uv: Vector2 = _hand_scatter_positions[i]
+		panel.position = Vector2(
+			pad + uv.x * (max_x - pad),
+			pad + uv.y * (max_y - pad)
+		)
+
+
+func _on_hand_area_gui_input(event: InputEvent) -> void:
+	## 点在手区空白处：拖拽释放仍走全局 _input；这里只避免吞事件。
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed and _drag_active:
+			_drag_end(mb.global_position)
+			accept_event()
 
 
 func _on_hand_slot_gui_input(event: InputEvent, hand_index: int) -> void:
@@ -4655,6 +4703,8 @@ func _drag_begin(kind: String, index: int, global_pos: Vector2) -> void:
 	_drag_kind = kind
 	_drag_index = index
 	_drag_active = true
+	_drag_snap_chamber = -1
+	_drag_snap_hand = false
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		_drag_ghost.queue_free()
 	_drag_ghost = Panel.new()
@@ -4686,7 +4736,48 @@ func _drag_begin(kind: String, index: int, global_pos: Vector2) -> void:
 func _drag_move(global_pos: Vector2) -> void:
 	if _drag_ghost == null or not is_instance_valid(_drag_ghost):
 		return
+	_update_drag_snap(global_pos)
+	if _drag_snap_chamber >= 0 and _drag_snap_chamber < _chamber_panels.size():
+		var panel: Control = _chamber_panels[_drag_snap_chamber]
+		var c: Vector2 = panel.get_global_rect().get_center()
+		_drag_ghost.global_position = c - _drag_ghost.size * 0.5
+		_drag_ghost.modulate = Color(1.15, 1.15, 0.85, 1.0)
+		return
+	if _drag_snap_hand and hand_slots != null:
+		var hc: Vector2 = hand_slots.get_global_rect().get_center()
+		_drag_ghost.global_position = hc - _drag_ghost.size * 0.5
+		_drag_ghost.modulate = Color(0.85, 1.15, 1.0, 1.0)
+		return
+	_drag_ghost.modulate = Color(1, 1, 1, 0.85)
 	_drag_ghost.global_position = global_pos - _drag_ghost.size * 0.5
+
+
+func _update_drag_snap(global_pos: Vector2) -> void:
+	_drag_snap_chamber = -1
+	_drag_snap_hand = false
+	var best_d := DRAG_SNAP_PX
+	# 优先吸附空仓；仓↔仓对调时也吸附任意仓
+	for i in _chamber_panels.size():
+		var panel: Control = _chamber_panels[i]
+		if panel == null or not is_instance_valid(panel):
+			continue
+		var empty: bool = state.magazine != null and state.magazine.slots[i] == Magazine.EMPTY
+		if _drag_kind == "hand" and not empty:
+			# 手→仓：空仓强吸附；占用仓需更近才吸附（互换）
+			pass
+		var c: Vector2 = panel.get_global_rect().get_center()
+		var d: float = c.distance_to(global_pos)
+		var lim: float = DRAG_SNAP_PX if (empty or _drag_kind == "chamber") else DRAG_SNAP_PX * 0.55
+		if d <= lim and d < best_d:
+			best_d = d
+			_drag_snap_chamber = i
+	if _drag_snap_chamber >= 0:
+		return
+	# 仓→手：靠近手区空白吸附
+	if _drag_kind == "chamber" and hand_slots != null and state.hand.size() < CombatConstants.HAND_SIZE:
+		var hr: Rect2 = hand_slots.get_global_rect().grow(DRAG_SNAP_PX * 0.35)
+		if hr.has_point(global_pos):
+			_drag_snap_hand = true
 
 
 func _drag_end(global_pos: Vector2) -> void:
@@ -4694,20 +4785,25 @@ func _drag_end(global_pos: Vector2) -> void:
 		return
 	var kind := _drag_kind
 	var index := _drag_index
+	var snap_ch := _drag_snap_chamber
+	var snap_hand := _drag_snap_hand
 	_drag_active = false
 	_drag_kind = ""
 	_drag_index = -1
+	_drag_snap_chamber = -1
+	_drag_snap_hand = false
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		_drag_ghost.queue_free()
 		_drag_ghost = null
-	var chamber_hit: int = _chamber_index_at(global_pos)
-	var hand_hit: int = _hand_index_at(global_pos)
+	var chamber_hit: int = snap_ch if snap_ch >= 0 else _chamber_index_at(global_pos)
+	var hand_area_hit: bool = snap_hand or _hand_area_contains(global_pos)
 	if kind == "hand":
 		if chamber_hit >= 0:
 			state.load_hand_index_into_chamber(index, chamber_hit)
 			_refresh()
 			return
-		# 拖回手其它格：简单交换手内顺序
+		# 手内换位：落在另一颗球上
+		var hand_hit: int = _hand_index_at(global_pos)
 		if hand_hit >= 0 and hand_hit != index and hand_hit < state.hand.size():
 			var a = state.hand[index]
 			var at = state.hand_temp[index] if index < state.hand_temp.size() else 0.0
@@ -4720,6 +4816,11 @@ func _drag_end(global_pos: Vector2) -> void:
 				state.hand_envy_copy[index] = state.hand_envy_copy[hand_hit]
 				state.hand_envy_copy[hand_hit] = ae
 			state.hand[hand_hit] = a
+			# 交换散落位，保持手感
+			if index < _hand_scatter_positions.size() and hand_hit < _hand_scatter_positions.size():
+				var tmp = _hand_scatter_positions[index]
+				_hand_scatter_positions[index] = _hand_scatter_positions[hand_hit]
+				_hand_scatter_positions[hand_hit] = tmp
 			state._emit()
 			_refresh()
 	elif kind == "chamber":
@@ -4727,8 +4828,7 @@ func _drag_end(global_pos: Vector2) -> void:
 			state.swap_magazine_slots(index, chamber_hit)
 			_refresh()
 			return
-		# 拖回手空位：卸到手上（若手未满）
-		if hand_hit >= 0 and state.hand.size() < CombatConstants.HAND_SIZE:
+		if hand_area_hit and state.hand.size() < CombatConstants.HAND_SIZE:
 			if state.magazine.slots[index] != Magazine.EMPTY:
 				var aid2: int = state.magazine.slots[index]
 				var t2 = state.magazine.slot_temp_life(index)
@@ -4755,6 +4855,14 @@ func _hand_index_at(global_pos: Vector2) -> int:
 	return -1
 
 
+func _hand_area_contains(global_pos: Vector2) -> bool:
+	if hand_slots != null and is_instance_valid(hand_slots) and hand_slots.get_global_rect().has_point(global_pos):
+		return true
+	if hand_panel != null and is_instance_valid(hand_panel) and hand_panel.get_global_rect().has_point(global_pos):
+		return true
+	return false
+
+
 func _refresh_bag_list() -> void:
 	var inv: Dictionary = state.ammo_inventory_by_id()
 	var fp := _bag_inventory_fingerprint(inv)
@@ -4779,7 +4887,7 @@ func _refresh_bag_list() -> void:
 		_bag_physics.name = "BagPhysicsBox"
 		_bag_physics.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_bag_physics.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_bag_physics.custom_minimum_size = Vector2(140, 140)
+		_bag_physics.custom_minimum_size = Vector2(240, 120)
 		_bag_physics.color_lookup = Callable(self, "_ammo_colors")
 		_bag_physics.name_lookup = Callable(self, "_ammo_bag_glyph")
 		_bag_physics.ball_hover.connect(_on_bag_physics_hover)
@@ -6011,8 +6119,6 @@ func _refresh() -> void:
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or is_shooting() or not state.can_dump_to_hand()
-	if btn_auto_load != null:
-		btn_auto_load.disabled = busy or is_shooting() or not state.can_auto_load_from_hand()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
@@ -6424,8 +6530,6 @@ func _refresh_hud_only() -> void:
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or is_shooting() or not state.can_dump_to_hand()
-	if btn_auto_load != null:
-		btn_auto_load.disabled = busy or is_shooting() or not state.can_auto_load_from_hand()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()

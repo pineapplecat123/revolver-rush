@@ -122,13 +122,14 @@ func test_load_ignored_and_button_disabled_while_shooting() -> void:
 		assert_false(ui._volley_ui_running, "不软锁 delay=%.2f" % delay)
 		assert_false(cs.is_volley_pending())
 		assert_false(ui._wheel_animating, "转盘动画已收束")
-		# 恢复：能倒出、能自动装入
+		# 恢复：能倒出，再经状态 API 装入（UI 无自动装入键，靠拖装）
 		ui._refresh()
 		assert_false(ui.btn_manual_load.disabled, "打完后倒出键恢复")
 		ui._on_manual_load()
 		await wait_process_frames(2)
-		assert_false(ui.btn_auto_load.disabled, "手有弹时可自动装入")
-		ui._on_auto_load()
+		assert_gt(cs.hand.size(), 0, "倒出后手里有弹")
+		cs.auto_load_from_hand()
+		ui._refresh()
 		var w := 0
 		while (ui._loading or ui._wheel_animating) and w < 100:
 			w += 1
