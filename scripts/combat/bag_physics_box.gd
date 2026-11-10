@@ -154,8 +154,47 @@ func _update_radii_for_count() -> void:
 	var r: float = DEFAULT_RADIUS
 	if n > MAX_BALLS_SOFT:
 		r = maxf(MIN_RADIUS, DEFAULT_RADIUS * float(MAX_BALLS_SOFT) / float(n))
+	var sz := size
+	if sz.x < 8.0 or sz.y < 8.0:
+		sz = custom_minimum_size
+	if n > 0 and sz.x >= 8.0 and sz.y >= 8.0:
+		var inner_w: float = maxf(sz.x - WALL_PAD * 2.0, 8.0)
+		var inner_h: float = maxf(sz.y - WALL_PAD * 2.0, 8.0)
+		var aspect: float = inner_w / maxf(inner_h, 1.0)
+		var cols: int = maxi(1, int(ceil(sqrt(float(n) * aspect))))
+		var rows: int = maxi(1, int(ceil(float(n) / float(cols))))
+		var cell: float = minf(inner_w / float(cols), inner_h / float(rows))
+		# 0.46 leaves a hair of air so the whole circle stays inside the box.
+		r = minf(r, maxf(4.0, cell * 0.46))
+	var changed := false
 	for b in _balls:
+		if absf(float(b["r"]) - r) > 0.05:
+			changed = true
 		b["r"] = r
+	if changed:
+		for b2 in _balls:
+			b2["asleep"] = false
+			b2["freeze"] = 0
+		_clamp_balls_inside()
+		_dirty = true
+
+
+func _clamp_balls_inside() -> void:
+	var sz := size
+	if sz.x < 8.0 or sz.y < 8.0:
+		sz = custom_minimum_size
+	if sz.x < 8.0 or sz.y < 8.0:
+		return
+	var left := WALL_PAD
+	var right := sz.x - WALL_PAD
+	var top := WALL_PAD
+	var bottom := sz.y - WALL_PAD
+	for b in _balls:
+		var rad: float = float(b["r"])
+		var pos: Vector2 = b["pos"]
+		pos.x = clampf(pos.x, left + rad, maxf(left + rad, right - rad))
+		pos.y = clampf(pos.y, top + rad, maxf(top + rad, bottom - rad))
+		b["pos"] = pos
 
 
 func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false) -> void:
@@ -534,7 +573,11 @@ func _gui_input(event: InputEvent) -> void:
 
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_MOUSE_EXIT:
+	if what == NOTIFICATION_RESIZED:
+		_update_radii_for_count()
+		_clamp_balls_inside()
+		_dirty = true
+	elif what == NOTIFICATION_MOUSE_EXIT:
 		if _hover_ammo >= 0:
 			ball_hover_exit.emit(_hover_ammo)
 			_hover_ammo = -1

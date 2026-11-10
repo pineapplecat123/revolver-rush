@@ -321,6 +321,7 @@ vertical_alignment = 1
 layout_mode = 2
 size_flags_vertical = 3
 horizontal_scroll_mode = 0
+vertical_scroll_mode = 0
 
 [node name="BagList" type="VBoxContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagScroll"]
 unique_name_in_owner = true
