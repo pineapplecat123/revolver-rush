@@ -101,6 +101,13 @@ const Z_BLOOD_STAIN := 12
 const Z_BLOOD_TRAIL := 40
 const Z_BLOOD_DROP := 41
 const Z_SHOT_VFX := 42
+## pixelfx（BAKED）：只换枪口闪光和子弹命中。血/碎块/弹道不动。
+const PIXELFX_SCALE := 1.75
+const PIXELFX_MUZZLE_ID := "projectiles/muzzle-pistol"
+const PIXELFX_HIT_ID := "impacts/bullet-impact"
+## 特效原点在「地面」，闪光/命中点在它上方这么多像素（特效自己的 meta.options.height）。
+const PIXELFX_MUZZLE_HEIGHT := 26.0
+const PIXELFX_HIT_HEIGHT := 24.0
 const Z_DMG_FLOAT := 43
 const Z_PICKUP := 58
 const Z_SCREEN_FX := 64
@@ -367,6 +374,7 @@ func _ready() -> void:
 	btn_menu.text = "返回主菜单"
 	state.pace_after_fire = true
 	state.defer_impacts = true
+	call_deferred("_prewarm_pixelfx")
 	var want_sandbox: bool = CombatState.boot_sandbox
 	CombatState.boot_sandbox = false
 	if want_sandbox:
@@ -3330,7 +3338,33 @@ func _spawn_blood_stain(at_g: Vector2, src_col: Color, amount_t: float) -> void:
 	tw.tween_callback(stain.queue_free)
 
 
-## 本发仓黄色闪光 + 正上红圈脉冲（无白色蒙版）。闪光在盘上仓格，转盘前必须清掉。
+func _prewarm_pixelfx() -> void:
+	## 加载时先算好这两段，第一发不再在 CPU 上现画（Web 必须 BAKED）。
+	if not ResourceLoader.exists("res://addons/pixelfx/nodes/pixel_fx_2d.gd"):
+		return
+	PixelFx2D.prebake(PIXELFX_MUZZLE_ID)
+	PixelFx2D.prebake(PIXELFX_HIT_ID)
+
+
+func _play_pixelfx(effect_id: String, world_pos: Vector2, lift_px: float) -> void:
+	## 原点在特效的「地面」；闪光/命中点在它上方 lift_px，所以把节点放低一截，让那一点落在 world_pos。
+	if world_pos == Vector2.ZERO:
+		return
+	if not ResourceLoader.exists("res://addons/pixelfx/fx/%s.gd" % effect_id):
+		return
+	var fx := PixelFx2D.new()
+	fx.effect = effect_id
+	fx.mode = PixelFx2D.Mode.BAKED
+	fx.free_when_done = true
+	fx.autoplay = true
+	fx.z_index = Z_SHOT_VFX
+	fx.scale = Vector2(PIXELFX_SCALE, PIXELFX_SCALE)
+	add_child(fx)
+	fx.global_position = world_pos + Vector2(0.0, lift_px * PIXELFX_SCALE)
+
+
+## 本发仓标记 + 正上红圈脉冲（无白色蒙版）。枪口闪光改用 pixelfx 手枪焰，播在枪口。
+## 仓格不再染黄；转盘前仍清掉脉冲，避免随大圈转到别的仓。
 func _begin_fire_flash(slot_i: int) -> void:
 	_clear_fire_flash(false)
 	_fire_flash_slot = slot_i
@@ -3343,11 +3377,7 @@ func _begin_fire_flash(slot_i: int) -> void:
 	if _fire_ring != null and is_instance_valid(_fire_ring):
 		_fire_ring.modulate = flash_col
 		_fire_flash_tween.tween_property(_fire_ring, "modulate", Color.WHITE, 0.28)
-	if slot_i >= 0 and slot_i < _chamber_panels.size():
-		var panel: Panel = _chamber_panels[slot_i]
-		panel.modulate = flash_col
-		# Color.WHITE = modulate identity（无着色），不是白色蒙版
-		_fire_flash_tween.tween_property(panel, "modulate", Color.WHITE, 0.28)
+	_play_pixelfx(PIXELFX_MUZZLE_ID, _player_shot_origin_global(), PIXELFX_MUZZLE_HEIGHT)
 
 
 func _clear_fire_flash(repaint: bool = true) -> void:
@@ -3840,6 +3870,7 @@ func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) 
 		# v0.4.30：命中瞬间碎块爆炸，本体立刻消失（不播死亡动画）
 		_spawn_damage_float(cell, amount, kind, at_g)
 		if amount > 0:
+			_play_pixelfx(PIXELFX_HIT_ID, at_g, PIXELFX_HIT_HEIGHT)
 			_spawn_blood_burst(at_g, amount, Vector2.ZERO, true)
 		_spawn_gore_for_enemy(en, at_g)
 		if sk != null and is_instance_valid(sk):
@@ -3854,6 +3885,7 @@ func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) 
 	_spawn_damage_float(cell, amount, kind, at_g)
 	if amount <= 0:
 		return
+	_play_pixelfx(PIXELFX_HIT_ID, at_g, PIXELFX_HIT_HEIGHT)
 	var dir := Vector2.ZERO
 	if _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
 		dir = _blood_spray_dir

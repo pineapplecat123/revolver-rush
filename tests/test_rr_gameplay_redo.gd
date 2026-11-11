@@ -502,3 +502,51 @@ func test_ui_damage_waits_until_bullet_arrives() -> void:
 	assert_eq(ui.hit_fx_log.size(), 1, "只在命中的那一发喷血")
 	assert_true(bool(ui.hit_fx_log[0].get("lethal", false)))
 	assert_eq(ui.air_blood_skipped, 0)
+
+
+func _pixelfx_nodes(ui) -> Array:
+	var out: Array = []
+	for c in ui.get_children():
+		if c is PixelFx2D:
+			out.append(c)
+	return out
+
+
+func test_pixelfx_muzzle_and_hit_are_baked_at_the_right_time() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(3)
+	var cs: CombatState = ui.state
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
+	var e: EnemyInstance = cs.enemies[0]
+	e.hp = 30
+	e.max_hp = 30
+	e.atk = 0
+	e.cell = 4
+	e.pos_x = 4.0
+	cs.dev_force_load([CombatConstants.WHITE_AMMO_ID] as Array[int])
+	ui._wave_bannering = false
+	ui._combat_speed = 4.0
+	ui._on_fire()
+	var saw_muzzle := false
+	for fx in _pixelfx_nodes(ui):
+		assert_eq(fx.mode, PixelFx2D.Mode.BAKED)
+		if fx.effect == "projectiles/muzzle-pistol":
+			saw_muzzle = true
+			assert_gt(fx.global_position.distance_to(Vector2.ZERO), 1.0)
+	assert_true(saw_muzzle, "出膛时播手枪枪口焰")
+	for _i in 360:
+		if e.hp < 30 and cs.pending_impact_count() == 0:
+			break
+		await get_tree().process_frame
+	assert_lt(e.hp, 30)
+	var saw_hit := false
+	for fx2 in _pixelfx_nodes(ui):
+		assert_eq(fx2.mode, PixelFx2D.Mode.BAKED)
+		if fx2.effect == "impacts/bullet-impact":
+			saw_hit = true
+	assert_true(saw_hit, "子弹打到才播命中火花")
+	for _j in 180:
+		if not ui._volley_ui_running and not ui.is_shooting():
+			break
+		await get_tree().process_frame
