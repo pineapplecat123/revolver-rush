@@ -248,9 +248,8 @@ func test_bag_style_cached_and_no_redraw_when_settled_common() -> void:
 	ids = []
 	for i in 30:
 		ids.append(WHITE)
-	ids.append(FireResolver.ID_WRATH)
 	box.sync_ammo_ids(ids)
-	assert_true(box.needs_redraw_every_frame(), "有罪孽/稀有特效就每帧画")
+	assert_false(box.needs_redraw_every_frame(), "只剩平庸时不每帧重画")
 
 
 func test_bag_broadphase_separates_overlaps() -> void:
@@ -281,17 +280,16 @@ func test_sin_star_fill_no_triangulation_path() -> void:
 
 func test_shop_state_remove_from_discard() -> void:
 	var sh := ShopState.new()
-	sh.begin(500, [WHITE, FireResolver.ID_WRATH], 1, 7, [WHITE, 22, 22])
+	sh.begin(500, [WHITE, WHITE], 1, 7, [WHITE, WHITE, WHITE])
 	assert_eq(sh.discard.size(), 3)
 	assert_true(sh.can_remove_from("discard", 1))
 	assert_true(sh.remove_from("discard", 1))
-	assert_eq(sh.discard, [WHITE, 22] as Array[int])
+	assert_eq(sh.discard.size(), 2)
 	assert_eq(sh.bag.size(), 2, "袋不动")
 	assert_true(sh.remove_from("bag", 0))
-	assert_eq(sh.bag, [FireResolver.ID_WRATH] as Array[int])
-	assert_false(sh.can_remove_from("bag", 0), "罪孽不可删")
+	assert_eq(sh.bag.size(), 1)
 	var payload: Dictionary = sh.end_session()
-	assert_eq(payload["discard"], [WHITE, 22])
+	assert_eq(payload["discard"].size(), 2)
 
 
 func test_apply_shop_session_rebuilds_discard_and_baseline() -> void:

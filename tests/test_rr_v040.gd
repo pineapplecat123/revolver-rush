@@ -173,10 +173,8 @@ func test_hooks_bus_emits_lifecycle_events() -> void:
 
 
 func test_sin_bag_still_five() -> void:
-	assert_eq(CombatConstants.STARTER_SIN_COUNT, 5)
+	assert_eq(CombatConstants.STARTER_SIN_COUNT, 0)
 	var cs := _rush(4080)
-	var sins := 0
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	for id in cs.bag:
-		if int(id) == W:
-			sins += 1
-	assert_eq(sins, 5)
+		assert_eq(int(id), WHITE)

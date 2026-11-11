@@ -15,18 +15,13 @@ const SANDBOX_DUMMY_DEFAULT_HP := 999
 const SANDBOX_DEFAULT_DUMMY_CELLS: Array[int] = [3, 5, 7]
 ## v0.4.20 沙盒伤害统计：DPS 与「最近单次最大」都看最近这么多战斗秒。
 const SANDBOX_DPS_WINDOW_SEC := 5.0
-## 灰盒开局：平庸弹 + 所选罪孽弹。
-const STARTER_WHITE_COUNT := 10
-const STARTER_SIN_COUNT := 5
-const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + STARTER_SIN_COUNT
-
-## feat/gameplay-redo：运行时只露平庸弹（袋开局/店/奖励/图鉴/沙盒列表）；测试仍可直接塞其它 id。
-## 运行时默认 true（combat_ui / main 也会钉死）；GUT 用 test_00 关掉，避免旧测试炸开局袋。
-static var GAMEPLAY_REDO_PLAIN_ONLY: bool = true
+## 本分支开局袋只有平庸弹。
+const STARTER_WHITE_COUNT := 24
+const STARTER_SIN_COUNT := 0
+const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT
 ## 「手」区容量；倒出最多抽这么多。
 const HAND_SIZE := 6
-## plain-only 开局袋：足够多的平庸，方便测倒出/装入手感。
-const STARTER_PLAIN_ONLY_COUNT := 24
+const STARTER_PLAIN_ONLY_COUNT := STARTER_BAG_TOTAL
 
 ## 战斗胜利奖励（灰盒）
 const REWARD_BASE_GOLD := 10

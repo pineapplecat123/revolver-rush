@@ -101,6 +101,13 @@ const Z_BLOOD_STAIN := 12
 const Z_BLOOD_TRAIL := 40
 const Z_BLOOD_DROP := 41
 const Z_SHOT_VFX := 42
+## pixelfx（BAKED）：只换枪口闪光和子弹命中。血/碎块/弹道不动。
+const PIXELFX_SCALE := 1.75
+const PIXELFX_MUZZLE_ID := "projectiles/muzzle-pistol"
+const PIXELFX_HIT_ID := "impacts/bullet-impact"
+## 特效原点在「地面」，闪光/命中点在它上方这么多像素（特效自己的 meta.options.height）。
+const PIXELFX_MUZZLE_HEIGHT := 26.0
+const PIXELFX_HIT_HEIGHT := 24.0
 const Z_DMG_FLOAT := 43
 const Z_PICKUP := 58
 const Z_SCREEN_FX := 64
@@ -150,10 +157,11 @@ var _drag_ghost: Control = null
 var _drag_active: bool = false
 var _drag_snap_chamber: int = -1
 var _drag_snap_hand: bool = false
-## 手区散落位置（同一种弹换序时保留；发数变了才重抽）
+## 手区散落：按 hand_uid 记住位置。倒出（dirty）或手区尺寸变了才整手重撒。
 var _hand_scatter_sig: String = ""
 var _hand_scatter_multi: String = ""
-var _hand_scatter_positions: Array = []  # Vector2 top-left
+var _hand_scatter_positions: Array = []  # Vector2 top-left，与当前手序对齐
+var _hand_pos_by_uid: Dictionary = {}
 var _hand_scatter_dirty: bool = true
 var _hand_layout_area: Vector2 = Vector2.ZERO
 var _hand_ball_px: float = 48.0
@@ -365,6 +373,8 @@ func _ready() -> void:
 	_fit_modals_portrait()
 	btn_menu.text = "返回主菜单"
 	state.pace_after_fire = true
+	state.defer_impacts = true
+	call_deferred("_prewarm_pixelfx")
 	var want_sandbox: bool = CombatState.boot_sandbox
 	CombatState.boot_sandbox = false
 	if want_sandbox:
@@ -384,13 +394,11 @@ func _ready() -> void:
 		call_deferred("_fit_sandbox_panel")  # 首帧布局后按 TopPanel 实际高度再贴一次
 	else:
 		btn_next_wave.text = "重新开始 rush!"
-		# rush!：先选罪孽，再开第 1 波。plain-only 原型跳过选罪，直接平庸袋开局。
-		if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY:
-			state.start_rush(0, FireResolver.ID_WRATH)
-			state.pace_after_fire = true
-			_refresh()
-		else:
-			_open_sin_pick()
+		# 本分支只有平庸弹，开局直接进战斗。
+		state.start_rush(0, FireResolver.ID_WRATH)
+		state.pace_after_fire = true
+		state.defer_impacts = true
+		_refresh()
 
 
 func _style_overlay_panels() -> void:
@@ -1421,6 +1429,8 @@ func _on_manual_load() -> void:
 	if not state.can_dump_to_hand():
 		_refresh()
 		return
+	# 倒出是新的一手：其余路径（拖走一发、仓弹回到手）不得整手重撒。
+	_hand_scatter_dirty = true
 	state.dump_to_hand()
 	_refresh()
 
@@ -2017,16 +2027,22 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 				if eg != Vector2.ZERO:
 					wg = eg
 				break
+		var impact_id := int(rec.get("impact_id", -1))
 		waypoints.append({
 			"g": wg, "cell": c,
 			"amount": int(hit_amts[i]) if i < hit_amts.size() else 0,
-			"hit_index": -1, "events": evs,
+			"hit_index": i if impact_id >= 0 else -1,
+			"impact_id": impact_id,
+			"events": evs,
 		})
 	if not waypoints.is_empty() and Vector2(waypoints[waypoints.size() - 1]["g"]) != Vector2.ZERO:
 		to_g = waypoints[waypoints.size() - 1]["g"]  # v0.4.29：飞向那只敌人此刻的位置，不是格子中心
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder: bool = shot_has_powder(ammo_id, rec.get("muzzle_outline_ids", []))
 	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder, DataRegistry.is_sin_ammo(ammo_id))
+	var landed_impact := int(rec.get("impact_id", -1))
+	if landed_impact >= 0 and state != null:
+		state.finalize_pending_impact(landed_impact)
 	# 非命中格的伤害（雷链等）在落地时播
 	for ev in remaining:
 		_spawn_hit_event(ev)
@@ -2568,7 +2584,10 @@ func _animate_shot_projectile(
 			continue
 		var wp2: Dictionary = waypoints[wi]
 		var hi2: int = int(wp2.get("hit_index", -1))
-		if hi2 >= 0 and state != null and state.has_paced_shot_pending():
+		var iid2: int = int(wp2.get("impact_id", -1))
+		if iid2 >= 0 and hi2 >= 0 and state != null:
+			state.resolve_pending_impact_hit(iid2, hi2)
+		elif hi2 >= 0 and state != null and state.has_paced_shot_pending():
 			state.resolve_paced_hit(hi2)
 		for ev2 in wp2.get("events", []):
 			_spawn_hit_event(ev2)
@@ -3046,8 +3065,11 @@ func _shot_projectile_step(t: float, ctx: Dictionary) -> void:
 		if t + 0.02 >= wt:
 			fired[wi] = true
 			var hi: int = int(wp.get("hit_index", -1))
-			if hi >= 0 and state != null and state.has_paced_shot_pending():
-				# 视觉命中瞬间结算伤害（飘字由 enemy_damaged 触发）
+			var iid: int = int(wp.get("impact_id", -1))
+			if iid >= 0 and hi >= 0 and state != null:
+				#  gameplay：飞到这一下才扣血 / 击杀 / 经验
+				state.resolve_pending_impact_hit(iid, hi)
+			elif hi >= 0 and state != null and state.has_paced_shot_pending():
 				state.resolve_paced_hit(hi)
 			_release_hp_hold_at_cell(int(wp.get("cell", -1)))
 			for ev in wp.get("events", []):
@@ -3316,7 +3338,33 @@ func _spawn_blood_stain(at_g: Vector2, src_col: Color, amount_t: float) -> void:
 	tw.tween_callback(stain.queue_free)
 
 
-## 本发仓黄色闪光 + 正上红圈脉冲（无白色蒙版）。闪光在盘上仓格，转盘前必须清掉。
+func _prewarm_pixelfx() -> void:
+	## 加载时先算好这两段，第一发不再在 CPU 上现画（Web 必须 BAKED）。
+	if not ResourceLoader.exists("res://addons/pixelfx/nodes/pixel_fx_2d.gd"):
+		return
+	PixelFx2D.prebake(PIXELFX_MUZZLE_ID)
+	PixelFx2D.prebake(PIXELFX_HIT_ID)
+
+
+func _play_pixelfx(effect_id: String, world_pos: Vector2, lift_px: float) -> void:
+	## 原点在特效的「地面」；闪光/命中点在它上方 lift_px，所以把节点放低一截，让那一点落在 world_pos。
+	if world_pos == Vector2.ZERO:
+		return
+	if not ResourceLoader.exists("res://addons/pixelfx/fx/%s.gd" % effect_id):
+		return
+	var fx := PixelFx2D.new()
+	fx.effect = effect_id
+	fx.mode = PixelFx2D.Mode.BAKED
+	fx.free_when_done = true
+	fx.autoplay = true
+	fx.z_index = Z_SHOT_VFX
+	fx.scale = Vector2(PIXELFX_SCALE, PIXELFX_SCALE)
+	add_child(fx)
+	fx.global_position = world_pos + Vector2(0.0, lift_px * PIXELFX_SCALE)
+
+
+## 本发仓标记 + 正上红圈脉冲（无白色蒙版）。枪口闪光改用 pixelfx 手枪焰，播在枪口。
+## 仓格不再染黄；转盘前仍清掉脉冲，避免随大圈转到别的仓。
 func _begin_fire_flash(slot_i: int) -> void:
 	_clear_fire_flash(false)
 	_fire_flash_slot = slot_i
@@ -3329,11 +3377,7 @@ func _begin_fire_flash(slot_i: int) -> void:
 	if _fire_ring != null and is_instance_valid(_fire_ring):
 		_fire_ring.modulate = flash_col
 		_fire_flash_tween.tween_property(_fire_ring, "modulate", Color.WHITE, 0.28)
-	if slot_i >= 0 and slot_i < _chamber_panels.size():
-		var panel: Panel = _chamber_panels[slot_i]
-		panel.modulate = flash_col
-		# Color.WHITE = modulate identity（无着色），不是白色蒙版
-		_fire_flash_tween.tween_property(panel, "modulate", Color.WHITE, 0.28)
+	_play_pixelfx(PIXELFX_MUZZLE_ID, _player_shot_origin_global(), PIXELFX_MUZZLE_HEIGHT)
 
 
 func _clear_fire_flash(repaint: bool = true) -> void:
@@ -3826,6 +3870,7 @@ func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) 
 		# v0.4.30：命中瞬间碎块爆炸，本体立刻消失（不播死亡动画）
 		_spawn_damage_float(cell, amount, kind, at_g)
 		if amount > 0:
+			_play_pixelfx(PIXELFX_HIT_ID, at_g, PIXELFX_HIT_HEIGHT)
 			_spawn_blood_burst(at_g, amount, Vector2.ZERO, true)
 		_spawn_gore_for_enemy(en, at_g)
 		if sk != null and is_instance_valid(sk):
@@ -3840,6 +3885,7 @@ func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) 
 	_spawn_damage_float(cell, amount, kind, at_g)
 	if amount <= 0:
 		return
+	_play_pixelfx(PIXELFX_HIT_ID, at_g, PIXELFX_HIT_HEIGHT)
 	var dir := Vector2.ZERO
 	if _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
 		dir = _blood_spray_dir
@@ -4696,23 +4742,14 @@ func _make_hand_ball_panel(hand_index: int, aid: int) -> Panel:
 
 
 func _ensure_hand_scatter_positions(n: int) -> void:
+	## 只记录当前手序签名。位置按 hand_uid 保留；不要因为少了一发就整手重撒。
+	state._sync_hand_arrays()
 	var ids := PackedStringArray()
 	for i in n:
-		ids.append("%d" % int(state.hand[i]))
-	var order_sig := "%d|%s" % [n, "|".join(ids)]
-	var sorted_ids := ids.duplicate()
-	sorted_ids.sort()
-	var multi := "%d|%s" % [n, "|".join(sorted_ids)]
-	if order_sig == _hand_scatter_sig and _hand_scatter_positions.size() == n and not _hand_scatter_dirty:
-		return
-	# Same multiset (reorder / chamber swap): keep the scattered slots.
-	var keep := multi == _hand_scatter_multi and _hand_scatter_positions.size() == n and not _hand_scatter_dirty
-	_hand_scatter_sig = order_sig
-	_hand_scatter_multi = multi
-	if keep:
-		return
-	_hand_scatter_dirty = true
-	_hand_scatter_positions.clear()
+		var uid := int(state.hand_uid[i]) if i < state.hand_uid.size() else i
+		ids.append("%d:%d" % [uid, int(state.hand[i])])
+	_hand_scatter_sig = "%d|%s" % [n, "|".join(ids)]
+	_hand_scatter_multi = _hand_scatter_sig
 
 
 func _hand_grid_capacity(avail: Vector2, cell: float) -> int:
@@ -4805,25 +4842,121 @@ func _layout_hand_scatter() -> void:
 		area = hand_slots.get_rect().size
 	if area.x < 8.0 or area.y < 8.0:
 		return
-	var area_changed := _hand_layout_area.distance_to(area) > 1.0
-	if _hand_scatter_dirty or area_changed or _hand_scatter_positions.size() != n:
-		var seed := hash(_hand_scatter_multi if _hand_scatter_multi != "" else str(n))
-		var packed: Dictionary = _compute_hand_scatter(n, area, seed)
+	state._sync_hand_arrays()
+	var uids: Array[int] = []
+	var known := 0
+	for i in n:
+		var uid := int(state.hand_uid[i]) if i < state.hand_uid.size() else i
+		uids.append(uid)
+		if _hand_pos_by_uid.has(uid):
+			known += 1
+	# 倒出（dirty）或这一手全是新子弹才整手重撒。
+	# 拖走一发 / 仓弹回到手：旧坐标不动。手区变小到装不下时才重排，避免画出界。
+	var overflow := false
+	if known > 0 and not _hand_scatter_dirty:
+		for uid_k in uids:
+			if not _hand_pos_by_uid.has(uid_k):
+				continue
+			var pp: Vector2 = _hand_pos_by_uid[uid_k]
+			if pp.x < -1.0 or pp.y < -1.0 or pp.x + _hand_ball_px > area.x + 1.0 or pp.y + _hand_ball_px > area.y + 1.0:
+				overflow = true
+				break
+	var full := _hand_scatter_dirty or known == 0 or overflow
+	if full:
+		var seed_src := ""
+		for uid in uids:
+			seed_src += "%d|" % uid
+		var packed: Dictionary = _compute_hand_scatter(n, area, hash(seed_src if seed_src != "" else str(n)))
 		_hand_ball_px = float(packed["ball"])
-		_hand_scatter_positions = packed["points"]
+		var pts: Array = packed["points"]
+		_hand_pos_by_uid.clear()
+		for i in n:
+			_hand_pos_by_uid[uids[i]] = pts[i]
 		_hand_scatter_dirty = false
 		_hand_layout_area = area
+	else:
+		for i in n:
+			var uid2: int = uids[i]
+			if _hand_pos_by_uid.has(uid2):
+				continue
+			var taken: Array = []
+			for uid3 in uids:
+				if _hand_pos_by_uid.has(uid3):
+					taken.append(_hand_pos_by_uid[uid3])
+			_hand_pos_by_uid[uid2] = _find_free_hand_spot(area, _hand_ball_px, taken, uid2)
+		var keep := {}
+		for uid4 in uids:
+			keep[uid4] = _hand_pos_by_uid[uid4]
+		_hand_pos_by_uid = keep
+	_hand_scatter_positions.clear()
 	var ball := _hand_ball_px
-	for i in mini(n, _hand_scatter_positions.size()):
+	for i in n:
 		var panel: Control = _hand_slot_panels[i]
+		var pos: Vector2 = _hand_pos_by_uid[uids[i]]
+		_hand_scatter_positions.append(pos)
 		if panel == null or not is_instance_valid(panel):
 			continue
 		panel.custom_minimum_size = Vector2(ball, ball)
 		panel.size = Vector2(ball, ball)
-		panel.position = _hand_scatter_positions[i]
+		panel.position = pos
 		var info := panel.get_node_or_null("Info") as Label
 		if info != null:
 			info.add_theme_font_size_override("font_size", clampi(int(ball * 0.28), 9, 14))
+
+
+func _hand_spot_overlaps(p: Vector2, taken: Array, ball: float) -> bool:
+	var min_d := ball - 0.75
+	for q in taken:
+		if p.distance_to(q as Vector2) < min_d:
+			return true
+	return false
+
+
+func _find_free_hand_spot(area: Vector2, ball: float, taken: Array, salt: int) -> Vector2:
+	## 在现有子弹不动的前提下，找一个落在手区内且不重叠的左上角。
+	var pad := 3.0
+	var avail := Vector2(maxf(area.x - pad * 2.0, 4.0), maxf(area.y - pad * 2.0, 4.0))
+	var ball_use := minf(maxf(ball, 4.0), minf(avail.x, avail.y))
+	var cols := maxi(1, int(floor(avail.x / maxf(ball_use, 1.0))))
+	var rows := maxi(1, int(floor(avail.y / maxf(ball_use, 1.0))))
+	if cols * rows < taken.size() + 1:
+		cols = maxi(cols, int(ceil(sqrt(float(taken.size() + 1)))))
+		rows = maxi(1, int(ceil(float(taken.size() + 1) / float(cols))))
+	var cell_w := avail.x / float(cols)
+	var cell_h := avail.y / float(rows)
+	ball_use = minf(ball_use, minf(cell_w, cell_h))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(salt) & 0x7fffffff
+	var slots: Array[Vector2i] = []
+	for r in rows:
+		for c in cols:
+			slots.append(Vector2i(c, r))
+	for i in range(slots.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp := slots[i]
+		slots[i] = slots[j]
+		slots[j] = tmp
+	var best := Vector2(pad, pad)
+	var best_d := -1.0
+	for s in slots:
+		var slack_x := maxf(cell_w - ball_use, 0.0)
+		var slack_y := maxf(cell_h - ball_use, 0.0)
+		var x := pad + float(s.x) * cell_w + rng.randf() * slack_x
+		var y := pad + float(s.y) * cell_h + rng.randf() * slack_y
+		x = clampf(x, pad, maxf(pad, pad + avail.x - ball_use))
+		y = clampf(y, pad, maxf(pad, pad + avail.y - ball_use))
+		var p := Vector2(x, y)
+		if not _hand_spot_overlaps(p, taken, ball_use):
+			return p
+		var md := 99999.0
+		for q in taken:
+			md = minf(md, p.distance_to(q as Vector2))
+		if taken.is_empty():
+			md = 99999.0
+		if md > best_d:
+			best_d = md
+			best = p
+	return best
 
 
 func _use_screen_pointer() -> bool:
@@ -5083,11 +5216,11 @@ func _drag_end(global_pos: Vector2) -> void:
 				state.hand_envy_copy[index] = state.hand_envy_copy[hand_hit]
 				state.hand_envy_copy[hand_hit] = ae
 			state.hand[hand_hit] = a
-			# 交换散落位，保持手感
-			if index < _hand_scatter_positions.size() and hand_hit < _hand_scatter_positions.size():
-				var tmp = _hand_scatter_positions[index]
-				_hand_scatter_positions[index] = _hand_scatter_positions[hand_hit]
-				_hand_scatter_positions[hand_hit] = tmp
+			state._sync_hand_arrays()
+			if index < state.hand_uid.size() and hand_hit < state.hand_uid.size():
+				var uid_tmp: int = int(state.hand_uid[index])
+				state.hand_uid[index] = state.hand_uid[hand_hit]
+				state.hand_uid[hand_hit] = uid_tmp
 			state._emit()
 			_refresh()
 	elif kind == "chamber":
@@ -5679,7 +5812,7 @@ func _build_sin_pick_panel() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.45))
 	vbox.add_child(title)
 	var hint := Label.new()
-	hint.text = ("开局弹药袋：平庸子弹 ×%d（功能测试）" % CombatConstants.STARTER_PLAIN_ONLY_COUNT) if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY else "开局弹药袋：平庸子弹 ×10 + 所选罪孽弹 ×5"
+	hint.text = "开局弹药袋：平庸子弹 ×%d" % CombatConstants.STARTER_PLAIN_ONLY_COUNT
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)

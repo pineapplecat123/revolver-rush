@@ -67,9 +67,7 @@ func is_ammo_enabled(ammo_id: int) -> bool:
 
 
 func is_ammo_runtime_visible(ammo_id: int) -> bool:
-	## feat/gameplay-redo：PLAIN_ONLY 时运行时只露平庸（图鉴/店/奖励/沙盒列表）。
-	if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY:
-		return ammo_id == CombatConstants.WHITE_AMMO_ID and is_ammo_enabled(ammo_id)
+	## 运行时列表（图鉴/店/奖励/沙盒）只含 data 里启用的弹。本分支只有平庸。
 	return is_ammo_enabled(ammo_id)
 
 

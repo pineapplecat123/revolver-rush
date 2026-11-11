@@ -16,44 +16,15 @@ func test_changelog_has_0_4_15_entry() -> void:
 
 
 func test_shop_pool_rarity_table_snapshot() -> void:
-	## 商店池关键档位契约（改档须同步本表与设计表）。
-	var expect := {
-		1: "common",
-		8: "uncommon",
-		16: "epic",
-		17: "rare",
-		18: "rare",
-		19: "epic",
-		22: "uncommon",
-		24: "epic",
-		25: "uncommon",
-		26: "rare",
-		27: "epic",
-		28: "uncommon",
-		29: "common",
-		30: "uncommon",
-		31: "uncommon",
-		33: "epic",
-		34: "rare",
-		35: "rare",
-		36: "rare",
-		37: "rare",
-	}
-	var sins := [16, 17, 18, 34, 35, 36, 37]
-	for aid in expect.keys():
-		if int(aid) in sins:
-			assert_false(DataRegistry.is_ammo_reward_eligible(int(aid)), "sin stays out of shop %s" % aid)
-		else:
-			assert_true(DataRegistry.is_ammo_reward_eligible(int(aid)), "eligible %s" % aid)
-		assert_eq(DataRegistry.get_ammo_rarity(int(aid)), expect[aid], "rarity id=%s" % aid)
+	## 本分支商店池只剩平庸。
+	assert_eq(DataRegistry.all_ammo().size(), 1)
+	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WHITE_AMMO_ID))
+	assert_eq(DataRegistry.get_ammo_rarity(CombatConstants.WHITE_AMMO_ID), "common")
 
 
 func test_price_formula_matches_constants() -> void:
 	var shop := ShopState.new()
 	assert_eq(shop.ammo_price(1), 5)
-	assert_eq(shop.ammo_price(22), 8)
-	assert_eq(shop.ammo_price(24), 22)
-	assert_eq(shop.ammo_price(19), 22)
 	assert_eq(ShopConstants.price_for_rarity("common"), 5)
 	assert_eq(ShopConstants.price_for_rarity("uncommon"), 8)
 	assert_eq(ShopConstants.price_for_rarity("rare"), 14)

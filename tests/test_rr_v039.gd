@@ -206,9 +206,12 @@ func _start_ui_and_kill(levels: int):
 	cs.xp = need - 1
 	ui._on_fire()
 	await wait_process_frames(3)
-	# v0.4.29：击发位是空仓时先空响整拍（不再快跳），等到真正打出那一发
+	# 伤害在子弹打到时才入账；空仓先空响。等到升级三选一，或弹道和连射都结束。
 	var w := 0
-	while not cs.reward_pending and (ui._volley_ui_running or cs.is_volley_pending()) and w < 120:
+	while not cs.reward_pending and w < 200:
+		var flying: bool = ui._volley_ui_running or cs.is_volley_pending() or cs.pending_impact_count() > 0 or ui._in_flight_shots > 0
+		if not flying:
+			break
 		w += 1
 		await wait_seconds(0.03)
 	return ui

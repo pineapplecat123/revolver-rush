@@ -158,35 +158,23 @@ func test_removed_ammo_ids_are_gone() -> void:
 
 
 func test_shop_and_rewards_never_offer_sins() -> void:
-	for aid in SINS:
-		assert_true(DataRegistry.is_sin_ammo(aid))
-		assert_true(DataRegistry.is_ammo_enabled(aid))
-		assert_false(DataRegistry.is_ammo_reward_eligible(aid))
 	for seed_v in range(1, 41):
 		var shop := ShopState.new()
 		shop.begin(999, [CombatConstants.WHITE_AMMO_ID], 1, seed_v * 17)
 		for aid in shop.stock:
-			assert_false(DataRegistry.is_sin_ammo(int(aid)), "shop seed %d stock %s" % [seed_v, aid])
-		shop.reroll()
-		for aid2 in shop.stock:
-			assert_false(DataRegistry.is_sin_ammo(int(aid2)))
+			assert_eq(int(aid), CombatConstants.WHITE_AMMO_ID)
 		var cs := CombatState.new(seed_v + 9000)
 		cs.start_sandbox(seed_v + 9000, FireResolver.ID_WRATH)
-		for _i in 8:
-			for choice in cs.generate_reward_choices():
-				assert_false(DataRegistry.is_sin_ammo(int(choice)), "reward %s" % choice)
-	# 开局仍有 5 颗所选罪孽；沙盒仍可手动塞
+		for choice in cs.generate_reward_choices():
+			assert_eq(int(choice), CombatConstants.WHITE_AMMO_ID)
 	var rush := CombatState.new(42110)
 	rush.start_rush(42110, FireResolver.ID_LUST)
-	var n := 0
 	for x in rush.bag:
-		if int(x) == FireResolver.ID_LUST:
-			n += 1
-	assert_eq(n, CombatConstants.STARTER_SIN_COUNT)
+		assert_eq(int(x), CombatConstants.WHITE_AMMO_ID)
 	var sb := _sandbox(42111)
 	sb.dev_clear_bag()
 	sb.sandbox_add_ammo(FireResolver.ID_ENVY, 1, 0.0)
-	assert_true(FireResolver.ID_ENVY in sb.bag)
+	assert_false(FireResolver.ID_ENVY in sb.bag, "已删除的弹种不能再塞进沙盒")
 
 
 func test_kill_gold_chance_override_and_dummies() -> void:

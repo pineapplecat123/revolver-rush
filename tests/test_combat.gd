@@ -928,6 +928,11 @@ func test_board_ground_segs_and_unit_rest_on_ground() -> void:
 	var CombatScene := load("res://scenes/combat.tscn")
 	var ui = add_child_autofree(CombatScene.instantiate())
 	await get_tree().process_frame
+	ui.state.spawn_paused = true
+	ui.state.auto_enemy_advance = false
+	ui.state.enemies.clear()
+	ui._refresh_board()
+	await get_tree().process_frame
 	var board: HBoxContainer = ui.get_node("%BoardRow")
 	assert_eq(board.get_theme_constant("separation"), 0)
 	var parent: Node = board.get_parent()

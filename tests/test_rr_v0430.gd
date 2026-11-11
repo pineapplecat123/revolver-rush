@@ -237,11 +237,7 @@ func test_envy_copy_on_actual_hit() -> void:
 
 
 func test_envy_ammo_text_matches_hit_copy() -> void:
-	var def: Dictionary = DataRegistry.get_ammo(ENVY)
-	assert_true("25%" in str(def.get("special", "")) or "25％" in str(def.get("special", "")))
-	assert_true("一次性" in str(def.get("special", "")))
-	assert_false("击杀" in str(def.get("blurb", "")) and "复制" in str(def.get("blurb", "")))
-	assert_true("命中" in str(def.get("blurb", "")))
+	assert_true(DataRegistry.get_ammo(ENVY).is_empty(), "嫉妒弹已从本分支删除")
 
 
 # --- 4 codex ---
