@@ -25,6 +25,8 @@ func test_codex_drag_starting_on_cell_scrolls() -> void:
 			break
 	assert_not_null(cell)
 	assert_false(cell is Button, "方格不应再是 Button")
+	list.custom_minimum_size = Vector2(0, 2400)
+	await wait_process_frames(2)
 	var before: int = scroll.scroll_vertical
 	# 模拟从方格起手的拖拽（超过 tap 阈值）
 	var press := InputEventMouseButton.new()

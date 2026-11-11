@@ -67,13 +67,14 @@ func test_hp_shown_only_when_bullet_lands() -> void:
 	ui._combat_speed = 0.5
 	ui._on_fire()
 	await wait_process_frames(1)
-	assert_lt(e.hp, 50, "逻辑当场结算（确定性不变）")
-	assert_eq(ui.display_hp(e), 50, "子弹还在飞：画面血量不变")
+	assert_eq(e.hp, 50, "按下射击不扣血，等子弹打到")
+	assert_eq(ui.display_hp(e), 50)
 	var t := 0.0
-	while t < 5.0 and (ui._volley_ui_running or ui._in_flight_shots > 0):
+	while t < 8.0 and (ui._volley_ui_running or ui._in_flight_shots > 0 or cs.pending_impact_count() > 0):
 		await wait_seconds(0.05)
 		t += 0.05
-	assert_eq(ui.display_hp(e), e.hp, "打到之后画面才掉血")
+	assert_lt(e.hp, 50, "子弹打到才扣血")
+	assert_eq(ui.display_hp(e), e.hp)
 	assert_false(ui.has_hp_hold())
 
 
@@ -131,34 +132,6 @@ func test_logic_mode_still_one_per_cell() -> void:
 	for e in cs.enemies:
 		assert_false(cells.has(e.cell))
 		cells[e.cell] = true
-
-
-func test_sin_tier_overrides_rarity() -> void:
-	for sid in [16, 17, 18, 34, 35, 36, 37]:
-		assert_eq(RarityFx.tier_for_ammo(sid), RarityFx.TIER_SIN, "罪孽 %d 用危险特效" % sid)
-	assert_eq(RarityFx.tier_for_ammo(24), RarityFx.TIER_EPIC)
-
-
-func test_sin_fx_on_chamber_and_projectile() -> void:
-	var ui = await _ui_sandbox()
-	var cs: CombatState = ui.state
-	cs.dev_force_load([16, 1, E, E, E, E] as Array[int])
-	ui._refresh()
-	await wait_process_frames(2)
-	var fx: RarityFx = (ui._chamber_panels[0] as Control).get_node_or_null(RarityFx.NODE_NAME) as RarityFx
-	assert_not_null(fx)
-	assert_eq(fx.tier, RarityFx.TIER_SIN)
-	var info: Label = (ui._chamber_panels[0] as Control).get_node("Info")
-	assert_gt(info.get_theme_constant("outline_size"), 0, "罪孽字体暗红描边")
-	var from_g := Vector2(100, 300)
-	ui._animate_shot_projectile(from_g, from_g + Vector2(600, 0), Color.RED, [] as Array[Color], [], 0.6, false, true)
-	await wait_process_frames(4)
-	var names := {}
-	for c in ui.get_children():
-		if c is Control and c.z_index == ui.Z_SHOT_VFX:
-			for cc in c.get_children():
-				names[str(cc.name)] = true
-	assert_true(names.has("SinSmoke") and names.has("SinEmbers") and names.has("SinDanger"), "飞行中带危险光带 + 黑烟余烬")
 
 
 func test_powder_brighter_two_layers() -> void:

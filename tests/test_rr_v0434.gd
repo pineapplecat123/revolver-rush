@@ -96,9 +96,7 @@ func test_gap_still_breaks_merge() -> void:
 
 
 func test_pebble_text_mentions_step_merge() -> void:
-	var peb: Dictionary = DataRegistry.get_ammo(PEBBLE)
-	assert_true("逐步" in str(peb.get("special", "")) or "合成石头" in str(peb.get("special", "")))
-	assert_true("合成" in str(peb.get("blurb", "")))
+	assert_true(DataRegistry.get_ammo(PEBBLE).is_empty(), "小石头已从本分支删除")
 
 
 func test_burn_vfx_script_has_full_body_api() -> void:

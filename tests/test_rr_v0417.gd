@@ -60,7 +60,7 @@ func test_sandbox_bag_inject_with_temp_ttl() -> void:
 	var cs := CombatState.new(41703)
 	cs.start_sandbox(41703)
 	cs.dev_clear_bag()
-	cs.sandbox_add_ammo(FireResolver.ID_WRATH, 2, 9.0)
+	cs.sandbox_add_ammo(CombatConstants.WHITE_AMMO_ID, 2, 9.0)
 	assert_eq(cs.bag.size(), 2)
 	assert_eq(Magazine.temp_value(cs.bag_temp[0]), 9.0)
 	assert_eq(Magazine.temp_value(cs.bag_temp[1]), 9.0)

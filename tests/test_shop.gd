@@ -28,10 +28,8 @@ func test_buy_adds_ammo_and_spends_gold() -> void:
 func test_ammo_price_scales_by_rarity() -> void:
 	var shop := ShopState.new()
 	assert_eq(shop.ammo_price(CombatConstants.WHITE_AMMO_ID), int(ShopConstants.RARITY_PRICE["common"]))
-	assert_eq(shop.ammo_price(8), int(ShopConstants.RARITY_PRICE["uncommon"]))  # 金币
-	assert_eq(shop.ammo_price(24), int(ShopConstants.RARITY_PRICE["epic"]))  # 回声
-	assert_eq(shop.ammo_price(19), int(ShopConstants.RARITY_PRICE["epic"]))  # 墓碑
-	assert_eq(shop.ammo_price(33), int(ShopConstants.RARITY_PRICE["epic"]))  # 正义
+	assert_eq(ShopConstants.price_for_rarity("uncommon"), int(ShopConstants.RARITY_PRICE["uncommon"]))
+	assert_eq(ShopConstants.price_for_rarity("epic"), int(ShopConstants.RARITY_PRICE["epic"]))
 
 
 func test_all_enabled_reward_ammo_have_rarity() -> void:
@@ -104,32 +102,3 @@ func test_reroll_free_then_paid() -> void:
 		assert_false(s)
 	first_stock = first_stock
 
-
-func test_cannot_remove_sin_ammo() -> void:
-	var shop := ShopState.new()
-	var bag: Array[int] = [
-		CombatConstants.WHITE_AMMO_ID,
-		FireResolver.ID_WRATH,
-		FireResolver.ID_PRIDE,
-		FireResolver.ID_GREED,
-	]
-	shop.begin(100, bag, 3, 66)
-	assert_false(DataRegistry.is_sin_ammo(CombatConstants.WHITE_AMMO_ID))
-	assert_true(DataRegistry.is_sin_ammo(FireResolver.ID_WRATH))
-	assert_true(DataRegistry.is_sin_ammo(FireResolver.ID_PRIDE))
-	assert_true(DataRegistry.is_sin_ammo(FireResolver.ID_GREED))
-	assert_false(shop.can_remove_at(1))
-	assert_false(shop.remove_at(1))
-	assert_string_contains(shop.last_message, "罪孽")
-	assert_eq(shop.bag.size(), 4)
-	assert_eq(shop.gold, 100)
-	assert_eq(shop.removes_done, 0)
-	assert_false(shop.remove_at(2))
-	assert_false(shop.remove_at(3))
-	assert_true(shop.can_remove_at(0))
-	assert_true(shop.remove_at(0))
-	assert_eq(shop.bag.size(), 3)
-	assert_eq(shop.removes_done, 1)
-	assert_eq(shop.gold, 100 - ShopConstants.REMOVE_BASE_COST)
-	assert_false(shop.can_remove_at(0))
-	assert_false(shop.remove_at(0))

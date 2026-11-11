@@ -66,6 +66,9 @@ var bag_envy_copy: Array = []
 var hand: Array[int] = []
 var hand_temp: Array = []
 var hand_envy_copy: Array = []
+## 手牌稳定身份：倒出时换新 id；拖走一发只删该 id，其余位置不动。
+var hand_uid: Array[int] = []
+var _hand_uid_seq: int = 1
 var magazine: Magazine = Magazine.new()
 var enemies: Array = []
 var turn_index: int = 0
@@ -426,6 +429,10 @@ var _pending_tombstone_ghost_shots: Array = []
 var _extra_autofires_granted_this_chain: int = 0
 ## UI 逐步表现：为 true 时整匣结束后不立刻跑金色额外轮/怪回合，由 UI 消费。
 var pace_after_fire: bool = false
+## UI 连射：伤害/击杀/经验留到子弹画面命中再结算，不在按下射击时入账。
+var defer_impacts: bool = false
+var _pending_impacts: Dictionary = {}
+var _impact_seq: int = 1
 ## rush!：敌人按计时器自动向左走，不因玩家每发射击才推进一步。
 var auto_enemy_advance: bool = false
 ## v0.4.28 自由行走（实战 UI 打开）：刷怪在视野外、走进来；个体速度 ±13%；不再一格一怪，可以重叠。
@@ -488,6 +495,8 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	bag_temp.clear()
 	discard.clear()
 	discard_temp.clear()
+	hand_uid.clear()
+	_pending_impacts.clear()
 	bag_reset_count = 0
 	_apply_sin_choice(sin_ammo_id, false)
 	_fill_starter_bag()
@@ -948,25 +957,18 @@ func _sync_temp_arrays() -> void:
 		discard_temp.pop_back()
 
 
-func _fill_starter_bag(extra_sin: int = 0) -> void:
-	## 灌入 10 平庸 + 5 本局罪孽 + extra_sin 发临时额外罪孽（半透明）。
-	## feat/gameplay-redo：PLAIN_ONLY 时只灌平庸 × STARTER_PLAIN_ONLY_COUNT，并清空手。
+func _fill_starter_bag(_extra_sin: int = 0) -> void:
+	## 本分支开局只有平庸弹。
 	bag.clear()
 	bag_temp.clear()
 	bag_envy_copy.clear()
 	hand.clear()
 	hand_temp.clear()
 	hand_envy_copy.clear()
-	if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY:
-		for _i in CombatConstants.STARTER_PLAIN_ONLY_COUNT:
-			_bag_append(CombatConstants.WHITE_AMMO_ID, false)
-		return
-	for _i in CombatConstants.STARTER_WHITE_COUNT:
+	hand_uid.clear()
+	# 本分支只留平庸弹。extra_sin 参数保留给旧调用，不再塞其它弹种。
+	for _i in CombatConstants.STARTER_PLAIN_ONLY_COUNT:
 		_bag_append(CombatConstants.WHITE_AMMO_ID, false)
-	for _i in CombatConstants.STARTER_SIN_COUNT:
-		_bag_append(selected_sin_ammo_id, false)
-	for _i in maxi(extra_sin, 0):
-		_bag_append(selected_sin_ammo_id, true)
 
 
 func _counts_as_permanent(ammo_id: int, temporary) -> bool:
@@ -2124,6 +2126,16 @@ func _sync_hand_arrays() -> void:
 		hand_envy_copy.append(false)
 	while hand_envy_copy.size() > hand.size():
 		hand_envy_copy.pop_back()
+	while hand_uid.size() < hand.size():
+		hand_uid.append(_alloc_hand_uid())
+	while hand_uid.size() > hand.size():
+		hand_uid.pop_back()
+
+
+func _alloc_hand_uid() -> int:
+	var uid := _hand_uid_seq
+	_hand_uid_seq += 1
+	return uid
 
 
 func _hand_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
@@ -2133,6 +2145,7 @@ func _hand_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> v
 		tv = CombatConstants.FIRE_ONCE_TEMP
 	hand_temp.append(tv)
 	hand_envy_copy.append(bool(envy_copy))
+	hand_uid.append(_alloc_hand_uid())
 
 
 func _hand_remove_at(idx: int) -> Dictionary:
@@ -2149,6 +2162,8 @@ func _hand_remove_at(idx: int) -> Dictionary:
 		hand_temp.remove_at(idx)
 	if idx < hand_envy_copy.size():
 		hand_envy_copy.remove_at(idx)
+	if idx < hand_uid.size():
+		hand_uid.remove_at(idx)
 	return entry
 
 
@@ -2161,6 +2176,7 @@ func return_hand_to_bag() -> int:
 	hand.clear()
 	hand_temp.clear()
 	hand_envy_copy.clear()
+	hand_uid.clear()
 	return n
 
 
@@ -3246,7 +3262,8 @@ func resolve_paced_hit(hit_index: int) -> int:
 		return int(h.get("dealt", 0))
 	var e: EnemyInstance = h.get("enemy") as EnemyInstance
 	var dealt := 0
-	if e != null:
+	# 目标已在前一发命中时死掉：这发不扣血、不挂状态、不发伤害信号（避免空中飙血）。
+	if e != null and e.is_alive():
 		dealt = _hit_enemy_with_elements(
 			e,
 			int(h.get("dmg", 0)),
@@ -3351,6 +3368,59 @@ func finalize_paced_shot() -> void:
 	if await_finish:
 		_finish_fire()
 		return
+	_emit()
+
+
+func park_paced_impact() -> int:
+	## 把已规划、尚未扣血的一发从 _paced_shot 摘下，结束 FIRING，等画面命中再结算。
+	if _paced_shot.is_empty():
+		return -1
+	var shot: Dictionary = _paced_shot.duplicate(true)
+	var await_finish := bool(shot.get("await_finish", false))
+	_paced_shot.clear()
+	var id := _impact_seq
+	_impact_seq += 1
+	_pending_impacts[id] = shot
+	if await_finish:
+		_finish_fire()
+	return id
+
+
+func resolve_pending_impact_hit(impact_id: int, hit_index: int) -> int:
+	## 子弹飞到第 hit_index 个目标时才扣血。返回实际伤害。
+	if not _pending_impacts.has(impact_id):
+		return 0
+	var saved: Dictionary = _paced_shot
+	_paced_shot = _pending_impacts[impact_id]
+	var dealt := resolve_paced_hit(hit_index)
+	_pending_impacts[impact_id] = _paced_shot
+	_paced_shot = saved
+	return dealt
+
+
+func finalize_pending_impact(impact_id: int) -> void:
+	## 这发弹道落地：补上没经过的命中，发经验，清尸体。连射未完时不因此停射或刷下一波。
+	if not _pending_impacts.has(impact_id):
+		return
+	var saved: Dictionary = _paced_shot
+	_paced_shot = _pending_impacts[impact_id]
+	var hits: Array = _paced_shot.get("hits", [])
+	for i in hits.size():
+		if not bool(hits[i].get("resolved", false)):
+			resolve_paced_hit(i)
+	if not bool(_paced_shot.get("thunder_done", false)):
+		_resolve_paced_thunder_chain()
+	var total: int = int(_paced_shot.get("resolved_total", 0))
+	_fire_total_damage += total
+	if total > 0:
+		_try_envy_copy_on_hit(int(_paced_shot.get("ammo_id", -1)))
+	_maybe_spawn_pebbles_from_stone(int(_paced_shot.get("ammo_id", -1)), total)
+	_pending_impacts.erase(impact_id)
+	_paced_shot = saved
+	_remove_dead()
+	if not _volley_pending and _pending_impacts.is_empty():
+		if phase != Phase.WON and phase != Phase.LOST:
+			_check_end_after_player()
 	_emit()
 
 
@@ -3810,6 +3880,10 @@ func _volley_should_continue() -> bool:
 		return false
 	return true
 
+
+
+func pending_impact_count() -> int:
+	return _pending_impacts.size()
 
 
 func pending_gold_autofires() -> int:
@@ -4344,10 +4418,19 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 				"hit_cells": last_shot_hit_cells.duplicate(),
 				"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
 				"pierce": last_shot_was_pierce,
+				"impact_id": -1,
 			}
-			finalize_paced_shot()
-			rec["hit_amounts"] = last_shot_hit_amounts.duplicate()
-			rec["start_after"] = magazine.start_index if magazine != null else 0
+			if defer_impacts:
+				rec["impact_id"] = park_paced_impact()
+				var zeros: Array = []
+				for _hi in (rec["hit_cells"] as Array).size():
+					zeros.append(0)
+				rec["hit_amounts"] = zeros
+				rec["start_after"] = magazine.start_index if magazine != null else 0
+			else:
+				finalize_paced_shot()
+				rec["hit_amounts"] = last_shot_hit_amounts.duplicate()
+				rec["start_after"] = magazine.start_index if magazine != null else 0
 			shots.append(rec)
 			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": int(rec["ammo_id"]), "virtual": false, "dealt": _sum_hit_amounts(rec)})
 			_append_echo_twin_shot(shots, rec)
@@ -5119,8 +5202,6 @@ func generate_reward_choices() -> Array[int]:
 	var pool: Array[int] = []
 	for item in DataRegistry.all_ammo():
 		var aid: int = int(item.get("id", 0))
-		if CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY and aid != CombatConstants.WHITE_AMMO_ID:
-			continue
 		if DataRegistry.is_ammo_reward_eligible(aid):
 			pool.append(aid)
 	if pool.is_empty():

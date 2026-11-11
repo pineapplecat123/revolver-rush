@@ -297,7 +297,7 @@ func test_bag_reset_adds_no_temp() -> void:
 			cs.bag_temp.pop_back()
 		cs._reset_bag_in_combat()
 	assert_eq(cs.count_temporary_in_bag(), 0)
-	assert_eq(cs.total_ammo_count(W), 5, "整池只回基础")
+	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_BAG_TOTAL, "整池只回平庸基础")
 
 
 # ——— 枪口多层条数据 ———

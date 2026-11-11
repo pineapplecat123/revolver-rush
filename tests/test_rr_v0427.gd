@@ -104,34 +104,20 @@ func test_gore_spawns_once_on_kill_and_is_capped() -> void:
 
 func test_rarity_tiers() -> void:
 	assert_eq(RarityFx.tier_for_ammo(1), RarityFx.TIER_COMMON)
-	assert_eq(RarityFx.tier_for_ammo(22), RarityFx.TIER_UNCOMMON)
-	assert_eq(RarityFx.tier_for_ammo(26), RarityFx.TIER_RARE)
-	assert_eq(RarityFx.tier_for_ammo(24), RarityFx.TIER_EPIC)
 
 
 func test_rarity_fx_attached_on_chambers_and_chips() -> void:
 	var ui = await _ui_sandbox()
 	var cs: CombatState = ui.state
-	cs.dev_force_load([1, 22, 26, 24, E, 1] as Array[int])
+	cs.dev_force_load([1, 1, 1, 1, E, 1] as Array[int])
 	ui._refresh()
 	await wait_process_frames(2)
-	var tiers: Array = []
 	for i in 6:
 		var p: Control = ui._chamber_panels[i]
-		var fx: RarityFx = p.get_node_or_null(RarityFx.NODE_NAME) as RarityFx
-		tiers.append(-1 if fx == null else fx.tier)
-	# 逻辑槽 0..5 → 普通无 / 稀有 / 更稀有 / 最稀有 / 空无 / 普通无
-	assert_eq(tiers, [-1, 1, 2, 3, -1, -1])
-	var epic_info: Label = (ui._chamber_panels[3] as Control).get_node("Info")
-	await wait_process_frames(2)
-	assert_gt(epic_info.get_theme_constant("outline_size"), 0, "最稀有字体发亮")
-	cs.dev_force_load([1, 1, 1, 1, 1, 1] as Array[int])
-	ui._refresh()
-	await wait_process_frames(1)
-	assert_null((ui._chamber_panels[3] as Control).get_node_or_null(RarityFx.NODE_NAME), "换成普通弹后特效摘掉")
-	var chip: Panel = ui.make_ammo_chip(24)
+		assert_null(p.get_node_or_null(RarityFx.NODE_NAME), "平庸弹不挂稀有度特效")
+	var chip: Panel = ui.make_ammo_chip(1)
 	add_child_autofree(chip)
-	assert_not_null(chip.get_node_or_null(RarityFx.NODE_NAME))
+	assert_null(chip.get_node_or_null(RarityFx.NODE_NAME))
 	var chip2: Panel = ui.make_ammo_chip(1)
 	add_child_autofree(chip2)
 	assert_null(chip2.get_node_or_null(RarityFx.NODE_NAME))

@@ -95,9 +95,7 @@ func test_chamber_uses_ring_not_seconds_text() -> void:
 
 
 func test_ammo_text_mentions_new_numbers() -> void:
-	var lust: Dictionary = DataRegistry.get_ammo(FireResolver.ID_LUST)
-	assert_true("5秒" in str(lust.get("special", "")) or "混乱5" in str(lust.get("blurb", "")))
-	var sloth: Dictionary = DataRegistry.get_ammo(FireResolver.ID_SLOTH)
-	assert_true("禁枪" in str(sloth.get("special", "")) or "禁枪" in str(sloth.get("blurb", "")))
-	var ghost: Dictionary = DataRegistry.get_ammo(GHOST)
-	assert_true("30" in str(ghost.get("special", "")))
+	assert_true(DataRegistry.get_ammo(FireResolver.ID_LUST).is_empty())
+	assert_true(DataRegistry.get_ammo(FireResolver.ID_SLOTH).is_empty())
+	assert_true(DataRegistry.get_ammo(GHOST).is_empty())
+	assert_eq(str(DataRegistry.get_ammo(CombatConstants.WHITE_AMMO_ID).get("name", "")), "平庸子弹")

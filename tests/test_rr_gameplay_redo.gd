@@ -3,12 +3,7 @@ extends GutTest
 
 
 func before_each() -> void:
-	CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY = true
 	DataRegistry.reload()
-
-
-func after_each() -> void:
-	CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY = false
 
 
 func test_plain_only_starter_bag() -> void:
@@ -355,3 +350,155 @@ func test_bag_shows_every_bullet_without_scroll() -> void:
 		else:
 			assert_lt(margin.scale.x, 0.999)
 	assert_eq(scroll.vertical_scroll_mode, ScrollContainer.SCROLL_MODE_DISABLED)
+
+
+func test_removing_one_hand_bullet_does_not_move_the_rest() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(3)
+	ui.state.dump_to_hand()
+	ui._refresh()
+	await wait_process_frames(2)
+	var area := Vector2(320, 170)
+	ui.hand_slots.custom_minimum_size = area
+	ui.hand_slots.size = area
+	ui._hand_scatter_dirty = true
+	ui._hand_layout_area = Vector2.ZERO
+	ui._layout_hand_scatter()
+	_assert_hand_separated(ui, ui.hand_slots.size)
+	var before := {}
+	for i in ui.state.hand.size():
+		before[int(ui.state.hand_uid[i])] = ui._hand_slot_panels[i].position
+	var removed: int = int(ui.state.hand_uid[0])
+	assert_true(ui.state.load_hand_index_into_chamber(0, 0))
+	ui.hand_slots.custom_minimum_size = area
+	ui.hand_slots.size = area
+	ui._hand_scatter_dirty = false
+	ui._hand_layout_area = area
+	ui._refresh()
+	await wait_process_frames(2)
+	ui.hand_slots.size = area
+	ui._hand_scatter_dirty = false
+	ui._hand_layout_area = area
+	ui._layout_hand_scatter()
+	assert_eq(ui.state.hand.size(), before.size() - 1)
+	for i in ui.state.hand.size():
+		var uid := int(ui.state.hand_uid[i])
+		assert_true(before.has(uid), "survivor uid stays")
+		assert_eq(ui._hand_slot_panels[i].position, before[uid], "survivor stays put")
+	assert_false(ui._hand_pos_by_uid.has(removed))
+	ui.state._hand_append(CombatConstants.WHITE_AMMO_ID, false)
+	ui.hand_slots.size = area
+	ui._hand_scatter_dirty = false
+	ui._hand_layout_area = area
+	ui._refresh()
+	await wait_process_frames(1)
+	ui.hand_slots.size = area
+	ui._hand_scatter_dirty = false
+	ui._hand_layout_area = area
+	ui._layout_hand_scatter()
+	var newcomers := 0
+	for i in ui.state.hand.size():
+		var uid2 := int(ui.state.hand_uid[i])
+		if before.has(uid2):
+			assert_eq(ui._hand_slot_panels[i].position, before[uid2], "return does not shove others")
+		else:
+			newcomers += 1
+	assert_eq(newcomers, 1)
+	_assert_hand_separated(ui, ui.hand_slots.size)
+	ui._hand_pos_by_uid[int(ui.state.hand_uid[0])] = Vector2(1, 1)
+	ui._hand_scatter_dirty = false
+	ui._hand_layout_area = ui.hand_slots.size
+	ui._layout_hand_scatter()
+	assert_eq(ui._hand_slot_panels[0].position, Vector2(1, 1), "layout keeps an existing spot")
+	ui._on_manual_load()
+	await wait_process_frames(2)
+	ui.hand_slots.size = area
+	ui._layout_hand_scatter()
+	var all_stacked := true
+	for p in ui._hand_slot_panels:
+		if (p as Control).position != Vector2(1, 1):
+			all_stacked = false
+	assert_false(all_stacked, "倒出重新散开")
+	_assert_hand_separated(ui, ui.hand_slots.size)
+
+
+func test_shot_damage_resolves_on_impact_not_on_press() -> void:
+	var cs := CombatState.new()
+	cs.start_rush(21, FireResolver.ID_WRATH)
+	cs.defer_impacts = true
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
+	var e: EnemyInstance = cs.enemies[0]
+	e.hp = 3
+	e.max_hp = 3
+	e.atk = 0
+	cs.dev_force_load([
+		CombatConstants.WHITE_AMMO_ID,
+		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
+	] as Array[int])
+	var hits := {"n": 0}
+	cs.enemy_damaged.connect(func(_c, _a, _k): hits["n"] = int(hits["n"]) + 1)
+	var xp_before: int = cs.xp
+	var first: Array = cs.fire_tap(false)
+	assert_eq(first.size(), 1)
+	assert_eq(e.hp, 3, "按下射击不扣血")
+	assert_eq(int(hits["n"]), 0)
+	assert_eq(cs.pending_impact_count(), 1)
+	assert_true(cs.is_volley_pending())
+	var second: Array = cs.take_volley_shot()
+	assert_eq(second.size(), 1)
+	assert_eq(e.hp, 3, "下一仓击发也不扣血")
+	assert_eq(cs.pending_impact_count(), 2)
+	assert_false(cs.is_volley_pending(), "最后一发实弹后连射结束")
+	var dealt1: int = cs.resolve_pending_impact_hit(int(first[0]["impact_id"]), 0)
+	assert_eq(dealt1, 3)
+	assert_eq(e.hp, 0)
+	assert_eq(int(hits["n"]), 1)
+	cs.finalize_pending_impact(int(first[0]["impact_id"]))
+	assert_gt(cs.xp, xp_before, "击杀经验在命中时入账")
+	var dealt2 := 0
+	var cells: Array = second[0].get("hit_cells", [])
+	if not cells.is_empty():
+		dealt2 = cs.resolve_pending_impact_hit(int(second[0]["impact_id"]), 0)
+	cs.finalize_pending_impact(int(second[0]["impact_id"]))
+	assert_eq(dealt2, 0, "目标已死，后一发不造成伤害")
+	assert_eq(int(hits["n"]), 1, "后一发不发伤害信号")
+	assert_eq(cs.pending_impact_count(), 0)
+
+
+func test_ui_damage_waits_until_bullet_arrives() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(3)
+	var cs: CombatState = ui.state
+	assert_true(cs.defer_impacts)
+	while cs.enemies.size() > 1:
+		cs.enemies.pop_back()
+	var e: EnemyInstance = cs.enemies[0]
+	e.hp = 3
+	e.max_hp = 3
+	e.atk = 0
+	e.cell = 4
+	e.pos_x = 4.0
+	cs.dev_force_load([
+		CombatConstants.WHITE_AMMO_ID,
+		CombatConstants.WHITE_AMMO_ID,
+		Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY, Magazine.EMPTY,
+	] as Array[int])
+	ui._wave_bannering = false
+	ui._combat_speed = 4.0
+	assert_true(cs.can_fire())
+	ui.hit_fx_log.clear()
+	ui.air_blood_skipped = 0
+	ui._on_fire()
+	assert_eq(e.hp, 3, "射击键按下当帧不扣血")
+	assert_eq(ui.hit_fx_log.size(), 0, "按下时不喷血")
+	for _i in 360:
+		if cs.pending_impact_count() == 0 and not ui._volley_ui_running and not ui.is_shooting():
+			break
+		await get_tree().process_frame
+	assert_eq(cs.pending_impact_count(), 0)
+	assert_eq(e.hp, 0)
+	assert_eq(ui.hit_fx_log.size(), 1, "只在命中的那一发喷血")
+	assert_true(bool(ui.hit_fx_log[0].get("lethal", false)))
+	assert_eq(ui.air_blood_skipped, 0)

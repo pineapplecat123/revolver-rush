@@ -57,18 +57,16 @@ func test_sin_total_matches_design_after_every_reset() -> void:
 	## 设计（v0.3.8 起）：重置后整池 = 10 平庸 + 5 罪孽 + 惩罚产生的临时罪孽（袋+膛+弃合计）。
 	## 旧 bug：重置时膛内弹再被整份基线复制一次 → 第 3 次重置时罪孽合计 12（设计 8）。
 	var cs := _rush()
-	assert_eq(cs.total_ammo_count(W), 5)
+	assert_eq(cs.total_ammo_count(W), 0)
+	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_BAG_TOTAL)
 	var seen := 0
 	for _cycle in 60:
 		_load_full(cs)
 		if cs.bag_reset_count != seen:
 			seen = cs.bag_reset_count
-			# v0.3.8：整池 = 基础 15 + 惩罚生成的临时罪孽（本测不推进时间，不会到期）
-			# v0.4.0：临时罪来自装入 33%，不再来自三罪孽惩罚
-			# v0.4.36：装入临时打出即毁，池内只剩尚未打出的；spawned 是累计值
 			var temps_now: int = _total_temp(cs)
-			assert_eq(cs.total_ammo_count(W), 5 + temps_now, "第 %d 次重置：永久5 + 现存临时" % seen)
-			assert_eq(_total_ammo(cs), 15 + temps_now, "整池 = 15 + 现存临时，膛内弹不复制")
+			assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_BAG_TOTAL + temps_now, "第 %d 次重置：平庸基础池 + 现存临时" % seen)
+			assert_eq(_total_ammo(cs), CombatConstants.STARTER_BAG_TOTAL + temps_now, "整池不复制膛内弹")
 			assert_lte(temps_now, cs.load_temp_sins_spawned)
 			assert_eq(cs.penalty_temp_sins_spawned, 0)
 		while cs.can_fire():
@@ -94,8 +92,9 @@ func test_reset_with_full_magazine_does_not_duplicate() -> void:
 		cs.magazine.set_slot(i, W if i < 3 else WHITE)
 	assert_true(cs.ensure_bag_refilled_if_empty())
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), 15 - 6)
-	assert_eq(cs.total_ammo_count(W), 5, "3 颗在膛 + 袋 2 颗 = 5（v0.3.8 重置不再 +N）")
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - 3, "基线里的 3 发平庸已在膛，不重复补")
+	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_BAG_TOTAL)
+	assert_eq(cs.total_ammo_count(W), 3, "塞进膛的非基线弹不会被复制进袋")
 
 
 func test_temp_sin_in_magazine_counts_toward_next_reset() -> void:
@@ -107,11 +106,11 @@ func test_temp_sin_in_magazine_counts_toward_next_reset() -> void:
 	cs.discard.clear()
 	cs.discard_temp.clear()
 	cs.magazine.clear()
-	cs.magazine.set_slot(0, W, true)
+	cs.magazine.set_slot(0, WHITE, true)
 	assert_true(cs.ensure_bag_refilled_if_empty())
 	assert_eq(cs.bag_reset_count, 2)
 	assert_eq(_total_temp(cs), 1)
-	assert_eq(cs.total_ammo_count(W), 5 + 1)
+	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_BAG_TOTAL + 1)
 
 
 func test_can_manual_load_is_pure_query() -> void:

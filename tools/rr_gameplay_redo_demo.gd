@@ -8,7 +8,6 @@ var _cursor: ColorRect
 
 
 func _initialize() -> void:
-	CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY = true
 	call_deferred("_run")
 
 
@@ -75,7 +74,6 @@ func _run() -> void:
 	if _ui._dev_open:
 		_ui._toggle_dev()
 	var st = _ui.state
-	CombatConstants.GAMEPLAY_REDO_PLAIN_ONLY = true
 	st.player_hp = 99999
 	st.sandbox_clear_enemies()
 	st.sandbox_spawn_dummy(200, 5)
