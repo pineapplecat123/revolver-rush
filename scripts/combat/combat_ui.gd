@@ -150,11 +150,18 @@ var _drag_ghost: Control = null
 var _drag_active: bool = false
 var _drag_snap_chamber: int = -1
 var _drag_snap_hand: bool = false
-## 手区散落位置（内容签名变化才重抽，避免每帧乱跳）
+## 手区散落位置（同一种弹换序时保留；发数变了才重抽）
 var _hand_scatter_sig: String = ""
-var _hand_scatter_positions: Array = []  # Vector2
+var _hand_scatter_multi: String = ""
+var _hand_scatter_positions: Array = []  # Vector2 top-left
+var _hand_scatter_dirty: bool = true
+var _hand_layout_area: Vector2 = Vector2.ZERO
+var _hand_ball_px: float = 48.0
+var _fit_settle_queued: bool = false
 const HAND_BALL_SIZE := 48.0
 const DRAG_SNAP_PX := 42.0
+## Below this viewport the fixed mins (wheel, board, buttons) would clip. Layout at this size and scale down.
+const UI_FIT_MIN := Vector2(704, 980)
 var _sin_panel: PanelContainer = null
 var _sin_pick_open: bool = false
 var _bag_refreshing: bool = false
@@ -325,7 +332,7 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "倒出：袋→手（最多 6）。拖动手里的弹进空仓（靠近会吸附）。可拖弹仓对调。射击打光已装弹。"
+		hint_lab.text = "倒出：袋→手（最多 6）。拖进空仓会吸附。射击时没装上的自动回袋，再打已装弹。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_long_press_timer()
@@ -350,6 +357,9 @@ func _ready() -> void:
 		_dev_ci.z_index = Z_MODAL_PANEL
 	_ensure_top_labels_uncropped()
 	_ensure_combat_layout()
+	if not resized.is_connected(_on_combat_resized):
+		resized.connect(_on_combat_resized)
+	call_deferred("_fit_combat_viewport")
 	_ensure_muzzle_hud()
 	_ensure_speed_hud()
 	_fit_modals_portrait()
@@ -543,7 +553,76 @@ func _ensure_combat_layout() -> void:
 		hand_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		hand_panel.size_flags_stretch_ratio = 1.0
 		hand_panel.visible = true
+	var bag_scroll := get_node_or_null("Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagScroll") as ScrollContainer
+	if bag_scroll != null:
+		# 袋内球全部落在可见盒里，不再靠上下滚动露出。
+		bag_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		bag_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_ensure_action_buttons()
+
+
+func _on_combat_resized() -> void:
+	_fit_combat_viewport()
+
+
+func _fit_combat_viewport(forced: Vector2 = Vector2.INF) -> void:
+	## 720x1280 keeps scale 1 (shop glide and the board assume that). Smaller desktop or phone windows scale that same layout to fit.
+	var margin := get_node_or_null("Margin") as Control
+	if margin == null:
+		return
+	var avail := size
+	if forced != Vector2.INF:
+		avail = forced
+	if avail.x < 32.0 or avail.y < 32.0:
+		return
+	var design := Vector2(720, 1280)
+	if avail.x + 1.0 >= design.x and avail.y + 1.0 >= design.y:
+		_apply_design_fit(margin)
+		if not _fit_settle_queued:
+			_fit_settle_queued = true
+			call_deferred("_settle_design_fit")
+		return
+	var s: float = maxf(minf(avail.x / design.x, avail.y / design.y), 0.05)
+	margin.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	margin.anchor_left = 0.0
+	margin.anchor_top = 0.0
+	margin.anchor_right = 0.0
+	margin.anchor_bottom = 0.0
+	margin.offset_left = 0.0
+	margin.offset_top = 0.0
+	margin.offset_right = design.x
+	margin.offset_bottom = design.y
+	margin.custom_minimum_size = Vector2.ZERO
+	margin.size = design
+	var lay := margin.size
+	if lay.x > 8.0 and lay.y > 8.0:
+		s = maxf(minf(avail.x / lay.x, avail.y / lay.y), 0.05)
+	margin.pivot_offset = Vector2.ZERO
+	margin.scale = Vector2(s, s)
+	margin.position = (avail - lay * s) * 0.5
+
+
+func _apply_design_fit(margin: Control) -> void:
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.offset_left = 0.0
+	margin.offset_top = 0.0
+	margin.offset_right = 0.0
+	margin.offset_bottom = 0.0
+	margin.scale = Vector2.ONE
+	margin.pivot_offset = Vector2.ZERO
+	margin.custom_minimum_size = Vector2.ZERO
+	margin.position = Vector2.ZERO
+
+
+func _settle_design_fit() -> void:
+	_fit_settle_queued = false
+	if size.x + 1.0 < 720.0 or size.y + 1.0 < 1280.0:
+		_fit_combat_viewport()
+		return
+	var margin := get_node_or_null("Margin") as Control
+	if margin == null:
+		return
+	_apply_design_fit(margin)
 
 
 func _ensure_action_buttons() -> void:
@@ -1314,13 +1393,11 @@ func _input(event: InputEvent) -> void:
 	## 拖拽在控件外松开时也要落下。
 	if not _drag_active:
 		return
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed:
-			_drag_end(mb.global_position)
-			get_viewport().set_input_as_handled()
-	elif event is InputEventMouseMotion and _drag_active:
-		_drag_move((event as InputEventMouseMotion).global_position)
+	if _pointer_up(event):
+		_drag_end(_pointer_global(event, self))
+		get_viewport().set_input_as_handled()
+	elif _pointer_move(event):
+		_drag_move(_pointer_global(event, self))
 
 
 func _busy() -> bool:
@@ -1459,6 +1536,11 @@ func _on_fire() -> void:
 		return
 	if state != null and state.player_fire_gate_remaining > 0.0:
 		return
+	if state == null or not state.can_fire():
+		return
+	# Trigger: 射击 ends the loading selection. Leftover Hand returns to the bag, then loaded chambers fire.
+	# Not after each drag — the player still needs to load several rounds.
+	state.commit_unused_hand_for_fire()
 	_volley_ui_running = true
 	_run_fire_press()
 
@@ -4579,6 +4661,8 @@ func _refresh_hand_list() -> void:
 	hand_slots.mouse_filter = Control.MOUSE_FILTER_STOP
 	if not hand_slots.gui_input.is_connected(_on_hand_area_gui_input):
 		hand_slots.gui_input.connect(_on_hand_area_gui_input)
+	if not hand_slots.resized.is_connected(_layout_hand_scatter):
+		hand_slots.resized.connect(_layout_hand_scatter)
 	call_deferred("_layout_hand_scatter")
 
 
@@ -4612,91 +4696,275 @@ func _make_hand_ball_panel(hand_index: int, aid: int) -> Panel:
 
 
 func _ensure_hand_scatter_positions(n: int) -> void:
-	var parts: PackedStringArray = PackedStringArray()
+	var ids := PackedStringArray()
 	for i in n:
-		parts.append("%d" % int(state.hand[i]))
-	var sig := "%d|%s" % [n, "|".join(parts)]
-	if sig == _hand_scatter_sig and _hand_scatter_positions.size() == n:
+		ids.append("%d" % int(state.hand[i]))
+	var order_sig := "%d|%s" % [n, "|".join(ids)]
+	var sorted_ids := ids.duplicate()
+	sorted_ids.sort()
+	var multi := "%d|%s" % [n, "|".join(sorted_ids)]
+	if order_sig == _hand_scatter_sig and _hand_scatter_positions.size() == n and not _hand_scatter_dirty:
 		return
-	_hand_scatter_sig = sig
+	# Same multiset (reorder / chamber swap): keep the scattered slots.
+	var keep := multi == _hand_scatter_multi and _hand_scatter_positions.size() == n and not _hand_scatter_dirty
+	_hand_scatter_sig = order_sig
+	_hand_scatter_multi = multi
+	if keep:
+		return
+	_hand_scatter_dirty = true
 	_hand_scatter_positions.clear()
+
+
+func _hand_grid_capacity(avail: Vector2, cell: float) -> int:
+	if cell <= 0.5:
+		return 9999
+	return int(floor(avail.x / cell)) * int(floor(avail.y / cell))
+
+
+func _largest_hand_ball(avail: Vector2, n: int) -> float:
+	if n <= 1:
+		return minf(HAND_BALL_SIZE, minf(avail.x, avail.y))
+	var hi := minf(HAND_BALL_SIZE, minf(avail.x, avail.y))
+	if _hand_grid_capacity(avail, hi) >= n:
+		return hi
+	var lo := 8.0
+	if _hand_grid_capacity(avail, lo) < n:
+		var cols: int = maxi(1, int(ceil(sqrt(float(n) * avail.x / maxf(avail.y, 1.0)))))
+		var rows: int = maxi(1, int(ceil(float(n) / float(cols))))
+		return maxf(4.0, minf(avail.x / float(cols), avail.y / float(rows)))
+	var best := lo
+	for _i in 18:
+		var mid := (lo + hi) * 0.5
+		if _hand_grid_capacity(avail, mid) >= n:
+			best = mid
+			lo = mid
+		else:
+			hi = mid
+	return best
+
+
+func _compute_hand_scatter(n: int, area: Vector2, seed: int) -> Dictionary:
+	## Shuffled cells plus jitter: random, inside the area, circles never overlap.
+	var pad := 3.0
+	var avail := Vector2(maxf(area.x - pad * 2.0, 4.0), maxf(area.y - pad * 2.0, 4.0))
+	if n <= 0:
+		return {"ball": HAND_BALL_SIZE, "points": []}
+	var fitted := _largest_hand_ball(avail, n)
+	var ball := fitted
+	var guard := 0
+	while guard < 14 and ball > maxf(16.0, fitted * 0.72):
+		var cols0 := int(floor(avail.x / maxf(ball, 1.0)))
+		var rows0 := int(floor(avail.y / maxf(ball, 1.0)))
+		var spare := cols0 * rows0 - n
+		var slack_x := avail.x / float(maxi(cols0, 1)) - ball
+		var slack_y := avail.y / float(maxi(rows0, 1)) - ball
+		if spare >= 1 or (slack_x >= 6.0 and slack_y >= 4.0):
+			break
+		ball = maxf(16.0, ball - 2.0)
+		guard += 1
+	if _hand_grid_capacity(avail, ball) < n:
+		ball = fitted
+	var cols := maxi(1, int(floor(avail.x / maxf(ball, 1.0))))
+	var rows := maxi(1, int(floor(avail.y / maxf(ball, 1.0))))
+	if cols * rows < n:
+		cols = n
+		rows = 1
+	var cell_w := avail.x / float(cols)
+	var cell_h := avail.y / float(rows)
+	ball = minf(ball, minf(cell_w, cell_h))
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash(sig) & 0x7fffffff
-	for _i in n:
-		# 归一化坐标，真正像素位在 _layout_hand_scatter 按区域尺寸缩放
-		_hand_scatter_positions.append(Vector2(rng.randf(), rng.randf()))
+	rng.seed = int(seed) & 0x7fffffff
+	var slots: Array[Vector2i] = []
+	for r in rows:
+		for c in cols:
+			slots.append(Vector2i(c, r))
+	for i in range(slots.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp := slots[i]
+		slots[i] = slots[j]
+		slots[j] = tmp
+	var pts: Array = []
+	for i in n:
+		var s: Vector2i = slots[i]
+		var slack_x2 := maxf(cell_w - ball, 0.0)
+		var slack_y2 := maxf(cell_h - ball, 0.0)
+		var x := pad + float(s.x) * cell_w + rng.randf() * slack_x2
+		var y := pad + float(s.y) * cell_h + rng.randf() * slack_y2
+		x = clampf(x, pad, pad + avail.x - ball)
+		y = clampf(y, pad, pad + avail.y - ball)
+		pts.append(Vector2(x, y))
+	return {"ball": ball, "points": pts}
 
 
 func _layout_hand_scatter() -> void:
 	if hand_slots == null or not is_instance_valid(hand_slots):
 		return
+	var n: int = _hand_slot_panels.size()
 	var area: Vector2 = hand_slots.size
 	if area.x < 8.0 or area.y < 8.0:
 		area = hand_slots.get_rect().size
 	if area.x < 8.0 or area.y < 8.0:
 		return
-	var pad := 4.0
-	var max_x: float = maxf(area.x - HAND_BALL_SIZE - pad, pad)
-	var max_y: float = maxf(area.y - HAND_BALL_SIZE - pad, pad)
-	for i in mini(_hand_slot_panels.size(), _hand_scatter_positions.size()):
+	var area_changed := _hand_layout_area.distance_to(area) > 1.0
+	if _hand_scatter_dirty or area_changed or _hand_scatter_positions.size() != n:
+		var seed := hash(_hand_scatter_multi if _hand_scatter_multi != "" else str(n))
+		var packed: Dictionary = _compute_hand_scatter(n, area, seed)
+		_hand_ball_px = float(packed["ball"])
+		_hand_scatter_positions = packed["points"]
+		_hand_scatter_dirty = false
+		_hand_layout_area = area
+	var ball := _hand_ball_px
+	for i in mini(n, _hand_scatter_positions.size()):
 		var panel: Control = _hand_slot_panels[i]
 		if panel == null or not is_instance_valid(panel):
 			continue
-		var uv: Vector2 = _hand_scatter_positions[i]
-		panel.position = Vector2(
-			pad + uv.x * (max_x - pad),
-			pad + uv.y * (max_y - pad)
-		)
+		panel.custom_minimum_size = Vector2(ball, ball)
+		panel.size = Vector2(ball, ball)
+		panel.position = _hand_scatter_positions[i]
+		var info := panel.get_node_or_null("Info") as Label
+		if info != null:
+			info.add_theme_font_size_override("font_size", clampi(int(ball * 0.28), 9, 14))
+
+
+func _use_screen_pointer() -> bool:
+	return not bool(ProjectSettings.get_setting("input_devices/pointing/emulate_mouse_from_touch", true))
+
+
+func _pointer_global(event: InputEvent, host: Control) -> Vector2:
+	## Mouse global_position already includes parent rotation and scale.
+	## Screen events in gui_input are local; map them through the same transform as the hole.
+	if event is InputEventMouse:
+		return (event as InputEventMouse).global_position
+	if event is InputEventScreenTouch or event is InputEventScreenDrag:
+		if host != null and is_instance_valid(host):
+			return host.get_global_transform() * event.position
+		return event.position
+	return Vector2.ZERO
+
+
+func _pointer_down(event: InputEvent) -> bool:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		return mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed
+	if event is InputEventScreenTouch and _use_screen_pointer():
+		return (event as InputEventScreenTouch).pressed
+	return false
+
+
+func _pointer_up(event: InputEvent) -> bool:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		return mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed
+	if event is InputEventScreenTouch and _use_screen_pointer():
+		return not (event as InputEventScreenTouch).pressed
+	return false
+
+
+func _pointer_move(event: InputEvent) -> bool:
+	if event is InputEventMouseMotion:
+		return true
+	if event is InputEventScreenDrag and _use_screen_pointer():
+		return true
+	return false
 
 
 func _on_hand_area_gui_input(event: InputEvent) -> void:
 	## 点在手区空白处：拖拽释放仍走全局 _input；这里只避免吞事件。
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_LEFT and not mb.pressed and _drag_active:
-			_drag_end(mb.global_position)
-			accept_event()
+	if _pointer_up(event) and _drag_active:
+		_drag_end(_pointer_global(event, hand_slots))
+		accept_event()
 
 
 func _on_hand_slot_gui_input(event: InputEvent, hand_index: int) -> void:
 	if _busy() or is_shooting():
 		return
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index != MOUSE_BUTTON_LEFT:
+	var host: Control = _hand_slot_panels[hand_index] if hand_index >= 0 and hand_index < _hand_slot_panels.size() else hand_slots
+	if _pointer_down(event):
+		if hand_index < 0 or hand_index >= state.hand.size():
 			return
-		if mb.pressed:
-			if hand_index < 0 or hand_index >= state.hand.size():
-				return
-			_drag_begin("hand", hand_index, mb.global_position)
-			accept_event()
-		elif _drag_active:
-			_drag_end(mb.global_position)
-			accept_event()
-	elif event is InputEventMouseMotion and _drag_active:
-		_drag_move((event as InputEventMouseMotion).global_position)
+		_drag_begin("hand", hand_index, _pointer_global(event, host))
+		accept_event()
+	elif _pointer_up(event) and _drag_active:
+		_drag_end(_pointer_global(event, host))
+		accept_event()
+	elif _pointer_move(event) and _drag_active:
+		_drag_move(_pointer_global(event, host))
 		accept_event()
 
 
 func _on_chamber_gui_input(event: InputEvent, slot_i: int) -> void:
 	if _busy() or is_shooting() or _loading or _wheel_animating:
 		return
-	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index != MOUSE_BUTTON_LEFT:
+	var host: Control = _chamber_panels[slot_i] if slot_i >= 0 and slot_i < _chamber_panels.size() else null
+	if _pointer_down(event):
+		# 只从有弹的仓开始拖
+		if state.magazine == null or state.magazine.slots[slot_i] == Magazine.EMPTY:
 			return
-		if mb.pressed:
-			# 只从有弹的仓开始拖
-			if state.magazine == null or state.magazine.slots[slot_i] == Magazine.EMPTY:
-				return
-			_drag_begin("chamber", slot_i, mb.global_position)
-			accept_event()
-		elif _drag_active:
-			_drag_end(mb.global_position)
-			accept_event()
-	elif event is InputEventMouseMotion and _drag_active:
-		_drag_move((event as InputEventMouseMotion).global_position)
+		_drag_begin("chamber", slot_i, _pointer_global(event, host))
 		accept_event()
+	elif _pointer_up(event) and _drag_active:
+		_drag_end(_pointer_global(event, host))
+		accept_event()
+	elif _pointer_move(event) and _drag_active:
+		_drag_move(_pointer_global(event, host))
+		accept_event()
+
+
+func chamber_visual_center(slot_i: int) -> Vector2:
+	## Center of the rendered hole. Parent disk rotation is in the global transform;
+	## get_global_rect() ignores that rotation and drifts after the cylinder turns.
+	if slot_i < 0 or slot_i >= _chamber_panels.size():
+		return Vector2.ZERO
+	var panel: Control = _chamber_panels[slot_i]
+	if panel == null or not is_instance_valid(panel):
+		return Vector2.ZERO
+	return panel.get_global_transform() * (panel.size * 0.5)
+
+
+func _control_contains_global(c: Control, global_pos: Vector2) -> bool:
+	if c == null or not is_instance_valid(c):
+		return false
+	var xf := c.get_global_transform()
+	if absf(xf.determinant()) < 0.000001:
+		return false
+	var local: Vector2 = xf.affine_inverse() * global_pos
+	return Rect2(Vector2.ZERO, c.size).grow(1.0).has_point(local)
+
+
+func _chamber_snap_limit(panel: Control, generous: bool) -> float:
+	var half: float = panel.get_global_transform().basis_xform(Vector2(panel.size.x * 0.5, 0.0)).length()
+	if half < 1.0:
+		half = panel.size.x * 0.5
+	if generous:
+		return maxf(half * 1.45, 16.0)
+	return maxf(half * 0.8, 10.0)
+
+
+func _set_snap_highlight(slot: int) -> void:
+	for i in _chamber_panels.size():
+		var panel: Control = _chamber_panels[i]
+		if panel == null or not is_instance_valid(panel):
+			continue
+		var ring := panel.get_node_or_null("SnapHighlight") as Panel
+		var on := i == slot
+		if on and ring == null:
+			ring = Panel.new()
+			ring.name = "SnapHighlight"
+			ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			ring.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+			ring.offset_left = -4.0
+			ring.offset_top = -4.0
+			ring.offset_right = 4.0
+			ring.offset_bottom = 4.0
+			var style := StyleBoxFlat.new()
+			style.bg_color = Color(0, 0, 0, 0)
+			style.set_border_width_all(3)
+			style.border_color = Color(1.0, 0.92, 0.35, 0.95)
+			style.set_corner_radius_all(999)
+			ring.add_theme_stylebox_override("panel", style)
+			panel.add_child(ring)
+		if ring != null:
+			ring.visible = on
 
 
 func _drag_begin(kind: String, index: int, global_pos: Vector2) -> void:
@@ -4705,6 +4973,7 @@ func _drag_begin(kind: String, index: int, global_pos: Vector2) -> void:
 	_drag_active = true
 	_drag_snap_chamber = -1
 	_drag_snap_hand = false
+	_set_snap_highlight(-1)
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		_drag_ghost.queue_free()
 	_drag_ghost = Panel.new()
@@ -4738,13 +5007,12 @@ func _drag_move(global_pos: Vector2) -> void:
 		return
 	_update_drag_snap(global_pos)
 	if _drag_snap_chamber >= 0 and _drag_snap_chamber < _chamber_panels.size():
-		var panel: Control = _chamber_panels[_drag_snap_chamber]
-		var c: Vector2 = panel.get_global_rect().get_center()
+		var c: Vector2 = chamber_visual_center(_drag_snap_chamber)
 		_drag_ghost.global_position = c - _drag_ghost.size * 0.5
 		_drag_ghost.modulate = Color(1.15, 1.15, 0.85, 1.0)
 		return
 	if _drag_snap_hand and hand_slots != null:
-		var hc: Vector2 = hand_slots.get_global_rect().get_center()
+		var hc: Vector2 = hand_slots.get_global_transform() * (hand_slots.size * 0.5)
 		_drag_ghost.global_position = hc - _drag_ghost.size * 0.5
 		_drag_ghost.modulate = Color(0.85, 1.15, 1.0, 1.0)
 		return
@@ -4755,28 +5023,26 @@ func _drag_move(global_pos: Vector2) -> void:
 func _update_drag_snap(global_pos: Vector2) -> void:
 	_drag_snap_chamber = -1
 	_drag_snap_hand = false
-	var best_d := DRAG_SNAP_PX
-	# 优先吸附空仓；仓↔仓对调时也吸附任意仓
+	var best_d := INF
+	# 优先吸附空仓；仓对调时也吸附任意仓。距离用转盘后的圆心，不用轴对齐包围盒。
 	for i in _chamber_panels.size():
 		var panel: Control = _chamber_panels[i]
 		if panel == null or not is_instance_valid(panel):
 			continue
 		var empty: bool = state.magazine != null and state.magazine.slots[i] == Magazine.EMPTY
-		if _drag_kind == "hand" and not empty:
-			# 手→仓：空仓强吸附；占用仓需更近才吸附（互换）
-			pass
-		var c: Vector2 = panel.get_global_rect().get_center()
+		var generous: bool = empty or _drag_kind == "chamber"
+		var c: Vector2 = chamber_visual_center(i)
 		var d: float = c.distance_to(global_pos)
-		var lim: float = DRAG_SNAP_PX if (empty or _drag_kind == "chamber") else DRAG_SNAP_PX * 0.55
+		var lim: float = _chamber_snap_limit(panel, generous)
 		if d <= lim and d < best_d:
 			best_d = d
 			_drag_snap_chamber = i
+	_set_snap_highlight(_drag_snap_chamber)
 	if _drag_snap_chamber >= 0:
 		return
 	# 仓→手：靠近手区空白吸附
 	if _drag_kind == "chamber" and hand_slots != null and state.hand.size() < CombatConstants.HAND_SIZE:
-		var hr: Rect2 = hand_slots.get_global_rect().grow(DRAG_SNAP_PX * 0.35)
-		if hr.has_point(global_pos):
+		if _control_contains_global(hand_slots, global_pos) or _control_contains_global(hand_panel, global_pos):
 			_drag_snap_hand = true
 
 
@@ -4792,6 +5058,7 @@ func _drag_end(global_pos: Vector2) -> void:
 	_drag_index = -1
 	_drag_snap_chamber = -1
 	_drag_snap_hand = false
+	_set_snap_highlight(-1)
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		_drag_ghost.queue_free()
 		_drag_ghost = null
@@ -4840,11 +5107,17 @@ func _drag_end(global_pos: Vector2) -> void:
 
 
 func _chamber_index_at(global_pos: Vector2) -> int:
+	var best := -1
+	var best_d := INF
 	for i in _chamber_panels.size():
 		var panel: Control = _chamber_panels[i]
-		if panel != null and is_instance_valid(panel) and panel.get_global_rect().has_point(global_pos):
-			return i
-	return -1
+		if not _control_contains_global(panel, global_pos):
+			continue
+		var d: float = chamber_visual_center(i).distance_to(global_pos)
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
 
 
 func _hand_index_at(global_pos: Vector2) -> int:
@@ -4887,7 +5160,7 @@ func _refresh_bag_list() -> void:
 		_bag_physics.name = "BagPhysicsBox"
 		_bag_physics.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_bag_physics.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		_bag_physics.custom_minimum_size = Vector2(240, 120)
+		_bag_physics.custom_minimum_size = Vector2(0, 0)
 		_bag_physics.color_lookup = Callable(self, "_ammo_colors")
 		_bag_physics.name_lookup = Callable(self, "_ammo_bag_glyph")
 		_bag_physics.ball_hover.connect(_on_bag_physics_hover)
@@ -6270,7 +6543,22 @@ func map_shop_global_x() -> float:
 	var slot: Control = board_row.get_child(i) as Control
 	if slot == null:
 		return -1.0
-	return slot.global_position.x + _unit_rest_position().x - state.shop_glide_fraction() * float(CELL_W)
+	var rest := _unit_rest_position()
+	var rest_g: Vector2 = slot.get_global_transform() * rest - slot.get_global_transform() * Vector2.ZERO
+	var pitch := float(CELL_W) * slot.get_global_transform().get_scale().x
+	if i + 1 < board_row.get_child_count():
+		var nxt: Control = board_row.get_child(i + 1) as Control
+		if nxt != null:
+			var dx: float = nxt.global_position.x - slot.global_position.x
+			if absf(dx) > 1.0:
+				pitch = dx
+	elif i > 0:
+		var prv: Control = board_row.get_child(i - 1) as Control
+		if prv != null:
+			var dx2: float = slot.global_position.x - prv.global_position.x
+			if absf(dx2) > 1.0:
+				pitch = dx2
+	return slot.global_position.x + rest_g.x - state.shop_glide_fraction() * pitch
 
 
 func _position_map_shop() -> void:
@@ -6284,7 +6572,8 @@ func _position_map_shop() -> void:
 	var slot: Control = board_row.get_child(state.shop_cell) as Control
 	ov.visible = true
 	ov.size = Vector2(UNIT_W, UNIT_H)
-	ov.global_position = Vector2(gx, slot.global_position.y + _unit_rest_position().y)
+	var rest_y: Vector2 = slot.get_global_transform() * Vector2(0.0, _unit_rest_position().y) - slot.get_global_transform() * Vector2.ZERO
+	ov.global_position = Vector2(gx, slot.global_position.y + rest_y.y)
 
 
 func _acquire_burn_vfx() -> Node2D:

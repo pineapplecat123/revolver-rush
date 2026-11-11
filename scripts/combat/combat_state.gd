@@ -2164,6 +2164,17 @@ func return_hand_to_bag() -> int:
 	return n
 
 
+func commit_unused_hand_for_fire() -> int:
+	## 按下射击 = 选弹结束。剩余手牌整批退回袋，已装弹仓不动。
+	## 不在每一发拖装后调用：玩家还要继续装几发。
+	if hand.is_empty():
+		return 0
+	var n := return_hand_to_bag()
+	_log("射击前退回：%d 发回袋（手 %d / 袋 %d）。" % [n, hand.size(), bag.size()])
+	_emit()
+	return n
+
+
 func can_dump_to_hand() -> bool:
 	## 倒出：袋有弹，且不在开火/敌方/胜负/奖励中。
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
