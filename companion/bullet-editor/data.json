@@ -1,6 +1,19 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T10:30:00+08:00",
-  "bullets": []
+  "updated_at": "2026-11-13T10:43:48+08:00",
+  "bullets": [
+    {
+      "id": "b20261113-104900-test",
+      "name": "流程测试（可删）",
+      "type": "测试",
+      "damage": "1",
+      "rarity": "普通",
+      "effect": "",
+      "notes": "",
+      "in_game": false,
+      "created_at": "2026-11-13T10:49:00+08:00",
+      "updated_at": "2026-11-13T10:43:48+08:00"
+    }
+  ]
 }
