@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T13:31:05+08:00",
+  "updated_at": "2026-11-13T13:35:44+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -14,6 +14,18 @@
       "in_game": false,
       "created_at": "2026-11-13T13:31:05+08:00",
       "updated_at": "2026-11-13T13:31:05+08:00"
+    },
+    {
+      "id": "b20261113-133535-ztag",
+      "name": "蓄力弹",
+      "type": "开始",
+      "damage": "0",
+      "rarity": "",
+      "effect": "发射后，下一颗子弹伤害×1.5。多个本子弹效果可以叠加，例如两颗本子弹连在一起，效果为下一颗子弹伤害×2.25",
+      "notes": "",
+      "in_game": false,
+      "created_at": "2026-11-13T13:35:44+08:00",
+      "updated_at": "2026-11-13T13:35:44+08:00"
     }
   ]
 }
