@@ -13,8 +13,8 @@ func before_each() -> void:
 	DataRegistry.reload()
 
 
-func test_version_is_0_4_37() -> void:
-	assert_eq(GameVersion.STRING, "0.4.37")
+func test_version_is_at_least_0_4_37() -> void:
+	assert_true(GameVersion.STRING >= "0.4.37")
 	assert_true("0.4.37" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
@@ -61,10 +61,10 @@ func test_xuli_chain_2_25() -> void:
 	# 空仓不消耗蓄力
 	var with_empty: Array[float] = FireResolver.compute_volley_damages([XULI, EMPTY, EMPTY, WHITE])
 	assert_almost_eq(with_empty[3], 4.5, 0.0001)
-	# 蓄力打到起势（0 基础）会消耗倍率（浪费）
-	var wasted: Array[float] = FireResolver.compute_volley_damages([XULI, QISHI, WHITE])
-	assert_almost_eq(wasted[1], 0.0, 0.0001)
-	assert_almost_eq(wasted[2], 3.3, 0.0001, "起势吃掉蓄力后，平庸只吃起势+10%")
+	# v0.4.38：开始弹互不影响，蓄力穿过起势落到平庸（×1.5×1.1）
+	var pass_through: Array[float] = FireResolver.compute_volley_damages([XULI, QISHI, WHITE])
+	assert_almost_eq(pass_through[1], 0.0, 0.0001)
+	assert_almost_eq(pass_through[2], 3.0 * 1.5 * 1.1, 0.0001, "蓄力穿过起势，平庸吃 ×1.5×1.1")
 
 
 func test_dizeng_slot_counts_empty_chambers() -> void:

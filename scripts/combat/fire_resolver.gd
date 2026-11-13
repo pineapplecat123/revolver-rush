@@ -90,10 +90,22 @@ static func round_damage(value: float) -> int:
 	return int(round(value))
 
 
+static func is_start_type(ammo_id: int) -> bool:
+	## 按弹药 tags 判断是否为「开始」类型，不写死 id。
+	var tags = DataRegistry.get_ammo(ammo_id).get("tags", [])
+	if tags is Array:
+		for t in tags:
+			if str(t).strip_edges() == "开始":
+				return true
+	return false
+
+
 static func compute_volley_damages(order: Array[int]) -> Array[float]:
 	## 按连射顺序算每格「计算伤害」（空仓为 0）。起势加法叠层，蓄力连乘挂起，
 	## 递增按 1 起槽位（空仓也占格），终审为此前计算伤害之和的一半。
 	## 最终伤害 = 基础或公式 × (1 + 0.1×此前起势数) × 待消耗蓄力倍率。
+	## 「开始」类型子弹互不影响：起势加成与蓄力倍率都不作用在开始弹上；
+	## 蓄力倍率穿过开始弹与空仓，由下一发非开始弹消耗。
 	var qishi := 0
 	var xuli := 1.0
 	var prior := 0.0
@@ -105,11 +117,13 @@ static func compute_volley_damages(order: Array[int]) -> Array[float]:
 			out.append(0.0)
 			continue
 		var base := _formula_base(ammo_id, slot, prior)
-		var pending: float = 1.0 if ammo_id == ID_XULI else xuli
-		var dmg: float = base * (1.0 + QISHI_BONUS * float(qishi)) * pending
+		var start := is_start_type(ammo_id)
+		var qishi_mult: float = 1.0 if start else (1.0 + QISHI_BONUS * float(qishi))
+		var pending: float = 1.0 if start else xuli
+		var dmg: float = base * qishi_mult * pending
 		if ammo_id == ID_XULI:
 			xuli *= XULI_MULT
-		else:
+		elif not start:
 			xuli = 1.0
 		if ammo_id == ID_QISHI:
 			qishi += 1
