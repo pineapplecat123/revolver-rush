@@ -11,7 +11,7 @@
   var DIR = 'companion/bullet-editor';
   var GATE = '6f1e76e002ffa351d514e393ef9b95a13a7609ae91688194a62dc5a3903afd32';
   var SALT = 'rr-bullets-v1:';
-  var POLL_MS = 10000, API_EVERY_MS = 60000, STALE_PENDING_MS = 20 * 60 * 1000;
+  var POLL_MS = 10000, API_EVERY_MS = 30000, STALE_PENDING_MS = 20 * 60 * 1000;
   var K_UNLOCK = 'rrb_unlock', K_PENDING = 'rrb_pending', K_DRAFT = 'rrb_draft';
 
   var RAW_URL = 'https://raw.githubusercontent.com/' + OWNER + '/' + REPO + '/' + BRANCH + '/' + DIR + '/data.json';
