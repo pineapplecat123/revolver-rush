@@ -1,9 +1,11 @@
 /* RR bullet-data editor (companion tool, not part of the game export).
  * Read: data.json on feat/gameplay-redo via raw.githubusercontent (no API quota)
  *       + GitHub Contents API (ETag revalidate) when quota allows; newest updated_at wins.
- * Write: no secret in this page. Submit opens GitHub's "new file" page pre-filled with
- *       inbox/<id>.json; one "Commit changes" tap by a logged-in owner commits it, and
- *       .github/workflows/bullet-editor-ingest.yml merges inbox files into data.json.
+ * Write (one tap): submit-key.json holds a PIN-sealed fine-grained token whose only
+ *       permission is Actions:write on this repo. The page calls workflow_dispatch on
+ *       bullet-editor-ingest.yml with the bullet JSON; the workflow can only ADD a row.
+ * Fallback (no key / key rejected): GitHub "new file" page pre-filled with inbox/<id>.json,
+ *       one "Commit changes" tap by the logged-in owner.
  */
 (function () {
   'use strict';
@@ -12,7 +14,10 @@
   var GATE = '6f1e76e002ffa351d514e393ef9b95a13a7609ae91688194a62dc5a3903afd32';
   var SALT = 'rr-bullets-v1:';
   var POLL_MS = 10000, API_EVERY_MS = 30000, STALE_PENDING_MS = 20 * 60 * 1000;
-  var K_UNLOCK = 'rrb_unlock', K_PENDING = 'rrb_pending', K_DRAFT = 'rrb_draft';
+  var K_UNLOCK = 'rrb_unlock', K_PENDING = 'rrb_pending', K_DRAFT = 'rrb_draft', K_TOK = 'rrb_tok';
+  var DISPATCH_URL = 'https://api.github.com/repos/' + OWNER + '/' + REPO + '/actions/workflows/bullet-editor-ingest.yml/dispatches';
+  var RAW_BASE = 'https://raw.githubusercontent.com/' + OWNER + '/' + REPO + '/' + BRANCH + '/' + DIR + '/';
+  var sealed = null, sealedChecked = false;
 
   var RAW_URL = 'https://raw.githubusercontent.com/' + OWNER + '/' + REPO + '/' + BRANCH + '/' + DIR + '/data.json';
   var API_URL = 'https://api.github.com/repos/' + OWNER + '/' + REPO + '/contents/' + DIR + '/data.json?ref=' + encodeURIComponent(BRANCH);
@@ -43,13 +48,46 @@
     });
   }
   function unlock() { $('gate').classList.add('hidden'); $('app').classList.remove('hidden'); start(); }
+  function b64(s) { var bin = atob(s), u = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u; }
+  function loadSealed() {
+    if (sealedChecked) return Promise.resolve(sealed);
+    var get = function (u) { return fetch(u + '?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.json(); }); };
+    return get('submit-key.json').catch(function () { return get(RAW_BASE + 'submit-key.json'); })
+      .then(function (k) { sealed = (k && k.ct) ? k : null; }, function () { sealed = null; })
+      .then(function () { sealedChecked = true; return sealed; });
+  }
+  function openSealed(pin) {
+    return loadSealed().then(function (k) {
+      if (!k || !(window.crypto && crypto.subtle)) return null;
+      var enc = new TextEncoder();
+      return crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveKey']).then(function (base) {
+        return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: b64(k.salt), iterations: k.iter || 200000 }, base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+      }).then(function (key) {
+        return crypto.subtle.decrypt({ name: 'AES-GCM', iv: b64(k.iv) }, key, b64(k.ct));
+      }).then(function (buf) { var t = new TextDecoder().decode(buf); save(K_TOK, t); return t; }, function () { return null; });
+    });
+  }
   $('gateForm').addEventListener('submit', function (e) {
     e.preventDefault();
-    sha256hex(SALT + normPin($('pin').value)).then(function (h) {
-      if (h === GATE) { save(K_UNLOCK, h); unlock(); } else { $('pinErr').classList.remove('hidden'); $('pin').select(); }
+    var pin = normPin($('pin').value);
+    sha256hex(SALT + pin).then(function (h) {
+      if (h !== GATE) { $('pinErr').classList.remove('hidden'); $('pin').select(); return; }
+      save(K_UNLOCK, h);
+      openSealed(pin).then(function () { if ($('app').classList.contains('hidden')) unlock(); else $('gate').classList.add('hidden'); updateSubmitHint(); });
     }, function () { $('pinErr').textContent = '浏览器不支持校验，请用 https 打开'; $('pinErr').classList.remove('hidden'); });
   });
-  if (load(K_UNLOCK, '') === GATE) unlock(); else setTimeout(function () { $('pin').focus(); }, 50);
+  if (load(K_UNLOCK, '') === GATE) {
+    unlock();
+    // Unlocked before one-tap existed: ask the PIN once more to open the sealed token.
+    loadSealed().then(function (k) {
+      if (k && !load(K_TOK, '')) {
+        $('gate').classList.remove('hidden'); $('app').classList.add('hidden');
+        $('gate').querySelector('.sub').textContent = '开启一键提交：请再输一次口令（只需一次）';
+        setTimeout(function () { $('pin').focus(); }, 50);
+      }
+      updateSubmitHint();
+    });
+  } else setTimeout(function () { $('pin').focus(); }, 50);
 
   // ---------- data ----------
   function parseDoc(text) {
@@ -143,9 +181,14 @@
   }
   function pendingHtml(p) {
     var h = itemHtml(p.rec, true);
-    var stale = Date.now() - p.at > STALE_PENDING_MS;
-    var tail = '<div class="meta">' + (stale ? '还没收到，可能 GitHub 页面没点「Commit changes」' : '提交于 ' + hms(new Date(p.at)) + '，确认后约 10–60 秒出现') + '</div>' +
-      '<div class="actions"><a class="btn small" href="' + esc(p.url) + '" target="_blank" rel="noopener">重新打开确认页</a>' +
+    if (p.auto) h = h.replace('等待确认', '收录中');
+    var stale = Date.now() - p.at > (p.auto ? 5 * 60 * 1000 : STALE_PENDING_MS);
+    var msg = p.auto
+      ? (stale ? '还没收录，可以点「重试」' : '已上传 ' + hms(new Date(p.at)) + '，正在收录，一般 20–60 秒')
+      : (stale ? '还没收到，可能 GitHub 页面没点「Commit changes」' : '提交于 ' + hms(new Date(p.at)) + '，确认后约 10–60 秒出现');
+    var tail = '<div class="meta">' + msg + '</div><div class="actions">' +
+      (p.auto ? '<button type="button" class="small" data-retry="' + esc(p.rec.id) + '">重试</button>'
+              : '<a class="btn small" href="' + esc(p.url) + '" target="_blank" rel="noopener">重新打开确认页</a>') +
       '<button type="button" class="small" data-drop="' + esc(p.rec.id) + '">移除</button></div>';
     return h.replace(/<\/div>$/, tail + '</div>');
   }
@@ -168,6 +211,12 @@
     setStatus(!!doc);
   }
   $('list').addEventListener('click', function (e) {
+    var rid = e.target && e.target.getAttribute && e.target.getAttribute('data-retry');
+    if (rid) {
+      var p0 = pending.filter(function (p) { return p.rec.id === rid; })[0];
+      if (p0) { e.target.disabled = true; dispatch(p0.rec).then(function () { p0.at = Date.now(); save(K_PENDING, pending); render(); refresh(true); }, function (err) { e.target.disabled = false; showNotice('', '重试失败：' + esc(err.message)); }); }
+      return;
+    }
     var id = e.target && e.target.getAttribute && e.target.getAttribute('data-drop');
     if (!id) return;
     pending = pending.filter(function (p) { return p.rec.id !== id; }); save(K_PENDING, pending); render();
@@ -206,16 +255,57 @@
     if (!v.name) { $('formErr').textContent = '名称必须填写'; $('formErr').classList.remove('hidden'); $('f_name').focus(); return; }
     var now = iso8(new Date());
     var rec = { id: newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, effect: v.effect, notes: v.notes, in_game: false, created_at: now, updated_at: now };
+    var btn = $('submitBtn');
+    if (load(K_TOK, '')) {
+      btn.disabled = true; btn.textContent = '上传中…';
+      dispatch(rec).then(function () {
+        btn.disabled = false; btn.textContent = '提交到云端';
+        pending.unshift({ rec: rec, at: Date.now(), auto: true }); save(K_PENDING, pending);
+        $('bulletForm').reset(); save(K_DRAFT, null); checkDup();
+        showNotice('ok', '<b>「' + esc(rec.name) + '」已上传</b>，正在收录，一般 20–60 秒后在下面变成「未入库」。');
+        render(); refresh(true);
+      }, function (err) {
+        btn.disabled = false; btn.textContent = '提交到云端';
+        if (err.auth) { try { localStorage.removeItem(K_TOK); } catch (x) {} updateSubmitHint(); manualSubmit(rec, '一键提交的钥匙失效了，这次改用 GitHub 确认页。'); }
+        else showNotice('', '上传失败（' + esc(err.message) + '），草稿还在，稍后再点一次提交。');
+      });
+      return;
+    }
+    manualSubmit(rec, '');
+  });
+
+  function dispatch(rec) {
+    var tok = load(K_TOK, '');
+    if (!tok) { var e0 = new Error('no-key'); e0.auth = true; return Promise.reject(e0); }
+    return fetch(DISPATCH_URL, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + tok, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: BRANCH, inputs: { bullet: JSON.stringify(rec) } })
+    }).then(function (r) {
+      if (r.ok) return true;
+      var err = new Error('HTTP ' + r.status); err.auth = (r.status === 401 || r.status === 403 || r.status === 404); throw err;
+    }, function () { throw new Error('网络不通'); });
+  }
+
+  function manualSubmit(rec, why) {
     var url = NEW_URL + '?filename=' + encodeURIComponent(rec.id + '.json') + '&value=' + encodeURIComponent(JSON.stringify(rec, null, 2) + '\n');
     var win = null;
     try { win = window.open(url, '_blank'); if (win) win.opener = null; } catch (err) {}
     pending.unshift({ rec: rec, url: url, at: Date.now() }); save(K_PENDING, pending);
     $('bulletForm').reset(); save(K_DRAFT, null); checkDup();
-    showNotice('', '<b>「' + esc(rec.name) + '」还差一步：</b>在打开的 GitHub 页面点绿色的「Commit changes」按钮（第一次需要先登录 GitHub）。确认后这里会自动显示，一般 10–60 秒。' +
+    showNotice('', (why ? esc(why) + '<br>' : '') + '<b>「' + esc(rec.name) + '」还差一步：</b>在打开的 GitHub 页面点绿色的「Commit changes」按钮（第一次需要先登录 GitHub）。确认后这里会自动显示，一般 10–60 秒。' +
       (win ? '' : '<br>页面没自动打开？<a href="' + esc(url) + '" target="_blank" rel="noopener">点这里打开确认页</a>'));
     render();
     refresh(true);
-  });
+  }
+
+  function updateSubmitHint() {
+    var el = $('submitHint'); if (!el) return;
+    el.textContent = load(K_TOK, '')
+      ? '一键提交：点一下就上传到云端，不用离开这个页面。'
+      : '提交会打开 GitHub 确认页：需要已登录的 GitHub 账号，在那里点一次绿色的「Commit changes」按钮就算交上去了。';
+  }
+  updateSubmitHint();
 
   // ---------- polling ----------
   function start() {
