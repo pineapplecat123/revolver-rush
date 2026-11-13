@@ -2250,36 +2250,68 @@ func can_auto_load_from_hand() -> bool:
 
 
 func auto_load_from_hand() -> int:
-	## 自动装入：按手顺序装进第一个空仓，直到手空或匣满。
+	## 自动装填：把手中的弹按「开始 → 中间 → 结束 → 无标签」装进空仓。
+	## 空仓顺序 = 自当前击发位起的开火顺序；已装仓不动。同标签保持手中相对顺序。
 	if not can_auto_load_from_hand():
 		return 0
 	_reset_focus_shot_counter()
+	var empties: Array[int] = _empty_slots_in_fire_order()
+	if empties.is_empty():
+		return 0
+	var buckets: Array = [[], [], [], []]
+	for i in hand.size():
+		var rank: int = FireResolver.load_type_rank(int(hand[i]))
+		buckets[rank].append(i)
+	var order: Array[int] = []
+	for bucket in buckets:
+		for i in bucket:
+			order.append(int(i))
+	var n: int = mini(empties.size(), order.size())
+	if n <= 0:
+		return 0
+	var pick: Array[int] = []
+	for i in n:
+		pick.append(int(order[i]))
+	var extracted: Dictionary = {}
+	var desc: Array[int] = pick.duplicate()
+	desc.sort()
+	desc.reverse()
+	for idx in desc:
+		extracted[idx] = _hand_remove_at(idx)
 	var loaded_n := 0
-	while not hand.is_empty() and magazine.loaded_count() < CombatConstants.MAGAZINE_SIZE:
-		var empty_slot := -1
-		for i in CombatConstants.MAGAZINE_SIZE:
-			if magazine.slots[i] == Magazine.EMPTY:
-				empty_slot = i
-				break
-		if empty_slot < 0:
-			break
-		if not _load_hand_front_into_slot(empty_slot):
-			break
-		loaded_n += 1
+	for i in n:
+		var entry: Dictionary = extracted.get(pick[i], {})
+		if _load_entry_into_slot(entry, empties[i]):
+			loaded_n += 1
 	if loaded_n > 0 and phase == Phase.AWAIT_LOAD:
 		_set_phase(Phase.AWAIT_ACTION)
-	_log("自动装入：%d 发 → 匣（手剩 %d）。" % [loaded_n, hand.size()])
+	_log("自动装填：%d 发 → 匣（手剩 %d，按开始/中间/结束）。" % [loaded_n, hand.size()])
 	_emit()
 	return loaded_n
 
 
+func _empty_slots_in_fire_order() -> Array[int]:
+	var out: Array[int] = []
+	if magazine == null:
+		return out
+	var fire0: int = magazine.chamber_at_fire_port()
+	for k in CombatConstants.MAGAZINE_SIZE:
+		var slot: int = posmod(fire0 + k, CombatConstants.MAGAZINE_SIZE)
+		if magazine.slots[slot] == Magazine.EMPTY:
+			out.append(slot)
+	return out
+
+
 func _load_hand_front_into_slot(slot: int) -> bool:
-	if hand.is_empty() or slot < 0 or slot >= CombatConstants.MAGAZINE_SIZE:
+	if hand.is_empty():
+		return false
+	return _load_entry_into_slot(_hand_remove_at(0), slot)
+
+
+func _load_entry_into_slot(entry: Dictionary, slot: int) -> bool:
+	if entry.is_empty() or slot < 0 or slot >= CombatConstants.MAGAZINE_SIZE:
 		return false
 	if magazine.slots[slot] != Magazine.EMPTY:
-		return false
-	var entry: Dictionary = _hand_remove_at(0)
-	if entry.is_empty():
 		return false
 	var resolved: int = int(entry["id"])
 	var raw_temp = entry.get("temp", 0.0)
@@ -3854,6 +3886,17 @@ func _queue_extra_autofire_from_shot(ammo_id: int) -> void:
 
 
 
+func _loaded_start_type_slots() -> Array[int]:
+	var out: Array[int] = []
+	if magazine == null:
+		return out
+	for i in magazine.size():
+		var ammo_id: int = magazine.slots[i]
+		if ammo_id != Magazine.EMPTY and FireResolver.is_start_type(ammo_id):
+			out.append(i)
+	return out
+
+
 func is_volley_pending() -> bool:
 	return _volley_pending
 
@@ -3869,7 +3912,15 @@ func spin_cylinder_for_volley() -> int:
 		return 0
 	var before: int = magazine.start_index
 	var steps: int
-	if magazine.loaded_count() < magazine.size():
+	var start_slots: Array[int] = _loaded_start_type_slots()
+	if start_slots.size() > 0:
+		# 有「开始」弹：落点在其中均匀随机；抽到当前仓 → 整圈（逻辑锤位不变）。
+		steps = magazine.random_roll_to_one_of(rng, start_slots)
+		if steps < 0:
+			return 0
+		if steps == 0:
+			steps = magazine.size()
+	elif magazine.loaded_count() < magazine.size():
 		# v0.4.27 未装满：落点在有弹仓里均匀随机，绝不停在空仓。抽到当前仓 → 整圈（6 步，逻辑锤位不变）。
 		steps = magazine.random_roll_to_loaded(rng)
 		if steps < 0:

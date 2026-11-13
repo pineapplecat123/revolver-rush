@@ -8,6 +8,7 @@ const ShopState = preload("res://scripts/shop/shop_state.gd")
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 const BagPhysicsBox = preload("res://scripts/combat/bag_physics_box.gd")
 const ExplosionVfxScript = preload("res://scripts/combat/explosion_vfx.gd")
+const PixelFxSpawnScript = preload("res://scripts/combat/pixelfx_spawn.gd")
 const BurnVfxScript = preload("res://scripts/combat/burn_vfx.gd")
 const GoldCoinVfxScript = preload("res://scripts/combat/gold_coin_vfx.gd")
 const XpOrbVfxScript = preload("res://scripts/combat/xp_orb_vfx.gd")
@@ -293,6 +294,7 @@ var _btn_shop_leave: Button = null
 @onready var mag_wheel: Control = %MagWheel
 @onready var fire_marker: Label = %FireMarker
 @onready var btn_manual_load: Button = %BtnManualLoad
+@onready var btn_auto_load: Button = %BtnAutoLoad
 @onready var btn_fire: Button = %BtnFire
 @onready var hand_panel: PanelContainer = %HandPanel
 @onready var hand_header_label: Label = %HandHeaderLabel
@@ -329,6 +331,7 @@ func _ready() -> void:
 	state.gold_drop_spawned.connect(_on_gold_drop_spawned)
 	state.xp_orb_spawned.connect(_on_xp_orb_spawned)
 	btn_manual_load.pressed.connect(_on_manual_load)
+	btn_auto_load.pressed.connect(_on_auto_load)
 	btn_fire.pressed.connect(_on_fire)
 	btn_dev.pressed.connect(_toggle_dev)
 	btn_next_wave.pressed.connect(_on_next_wave)
@@ -634,12 +637,11 @@ func _settle_design_fit() -> void:
 
 
 func _ensure_action_buttons() -> void:
-	## feat/gameplay-redo：倒出 / 射击（自动装入已移除，靠拖装）。
-	var gone := get_node_or_null("%BtnAutoLoad")
-	if gone != null:
-		gone.visible = false
-		gone.disabled = true
-	for btn in [btn_manual_load, btn_fire]:
+	## 倒出 / 自动装填 / 射击。
+	if btn_auto_load != null:
+		btn_auto_load.visible = true
+		btn_auto_load.text = "自动装填"
+	for btn in [btn_manual_load, btn_auto_load, btn_fire]:
 		if btn == null:
 			continue
 		btn.add_theme_font_size_override("font_size", ACTION_BTN_FONT)
@@ -1376,6 +1378,18 @@ func _on_manual_load() -> void:
 	_refresh()
 
 
+func _on_auto_load() -> void:
+	## 按开始/中间/结束标签把手指空仓装上。
+	if is_shooting():
+		return
+	_snap_fire_disk()
+	if _busy():
+		return
+	if not state.can_auto_load_from_hand():
+		_refresh()
+		return
+	state.auto_load_from_hand()
+	_refresh()
 
 
 func _run_manual_load_one() -> void:
@@ -3280,28 +3294,16 @@ func _spawn_blood_stain(at_g: Vector2, src_col: Color, amount_t: float) -> void:
 
 
 func _prewarm_pixelfx() -> void:
-	## 加载时先算好这两段，第一发不再在 CPU 上现画（Web 必须 BAKED）。
-	if not ResourceLoader.exists("res://addons/pixelfx/nodes/pixel_fx_2d.gd"):
-		return
-	PixelFx2D.prebake(PIXELFX_MUZZLE_ID)
-	PixelFx2D.prebake(PIXELFX_HIT_ID)
+	## 加载时预烘枪口焰和飚血命中的若干 seed 变体（Web 必须 BAKED）。
+	PixelFxSpawnScript.prewarm()
 
 
-func _play_pixelfx(effect_id: String, world_pos: Vector2, lift_px: float) -> void:
-	## 原点在特效的「地面」；闪光/命中点在它上方 lift_px，所以把节点放低一截，让那一点落在 world_pos。
-	if world_pos == Vector2.ZERO:
-		return
-	if not ResourceLoader.exists("res://addons/pixelfx/fx/%s.gd" % effect_id):
-		return
-	var fx := PixelFx2D.new()
-	fx.effect = effect_id
-	fx.mode = PixelFx2D.Mode.BAKED
-	fx.free_when_done = true
-	fx.autoplay = true
-	fx.z_index = Z_SHOT_VFX
-	fx.scale = Vector2(PIXELFX_SCALE, PIXELFX_SCALE)
-	add_child(fx)
-	fx.global_position = world_pos + Vector2(0.0, lift_px * PIXELFX_SCALE)
+func _play_pixelfx(effect_id: String, world_pos: Vector2, _lift_px: float) -> void:
+	## 兼容旧调用：枪口 / 命中都走 PixelFxSpawn（命中已改为血红飚血）。
+	if effect_id == PIXELFX_MUZZLE_ID:
+		PixelFxSpawnScript.play_muzzle(self, world_pos)
+	else:
+		PixelFxSpawnScript.play_hit(self, world_pos)
 
 
 ## 本发仓标记 + 正上红圈脉冲（无白色蒙版）。枪口闪光改用 pixelfx 手枪焰，播在枪口。
@@ -6466,6 +6468,8 @@ func _refresh() -> void:
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or is_shooting() or not state.can_dump_to_hand()
+	if btn_auto_load != null:
+		btn_auto_load.disabled = busy or is_shooting() or not state.can_auto_load_from_hand()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
@@ -6893,6 +6897,8 @@ func _refresh_hud_only() -> void:
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
 	btn_manual_load.disabled = busy or is_shooting() or not state.can_dump_to_hand()
+	if btn_auto_load != null:
+		btn_auto_load.disabled = busy or is_shooting() or not state.can_auto_load_from_hand()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()

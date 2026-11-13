@@ -90,14 +90,33 @@ static func round_damage(value: float) -> int:
 	return int(round(value))
 
 
-static func is_start_type(ammo_id: int) -> bool:
-	## 按弹药 tags 判断是否为「开始」类型，不写死 id。
+static func type_tag(ammo_id: int) -> String:
+	## 弹药的开始/中间/结束标签；无则空串。按 tags 读取，不写死 id。
 	var tags = DataRegistry.get_ammo(ammo_id).get("tags", [])
 	if tags is Array:
+		var found: Dictionary = {}
 		for t in tags:
-			if str(t).strip_edges() == "开始":
-				return true
-	return false
+			found[str(t).strip_edges()] = true
+		for name in ["开始", "中间", "结束"]:
+			if found.has(name):
+				return name
+	return ""
+
+
+static func is_start_type(ammo_id: int) -> bool:
+	return type_tag(ammo_id) == "开始"
+
+
+static func load_type_rank(ammo_id: int) -> int:
+	## 自动装填优先级：开始 0、中间 1、结束 2、无标签 3。
+	var tag := type_tag(ammo_id)
+	if tag == "开始":
+		return 0
+	if tag == "中间":
+		return 1
+	if tag == "结束":
+		return 2
+	return 3
 
 
 static func compute_volley_damages(order: Array[int]) -> Array[float]:

@@ -1,5 +1,5 @@
 extends GutTest
-## RR v0.3.0：唯一模式 rush! + 竖屏三等分 + 操作区两颗按钮（倒出/射击） + 无战斗日志。
+## RR v0.3.0：唯一模式 rush! + 竖屏三等分 + 操作区按钮（倒出/自动装填/射击） + 无战斗日志。
 
 const CombatScene := preload("res://scenes/combat.tscn")
 
@@ -39,9 +39,10 @@ func test_combat_scene_thirds_two_buttons_no_log() -> void:
 	for ch in row.get_children():
 		if ch is Button and ch.visible:
 			btns.append(ch)
-	assert_eq(btns.size(), 2, "dump / fire only")
+	assert_eq(btns.size(), 3, "dump / auto-load / fire")
 	assert_eq(btns[0].text, "倒出")
-	assert_eq(btns[1].text, "射击")
+	assert_eq(btns[1].text, "自动装填")
+	assert_eq(btns[2].text, "射击")
 
 
 func test_manual_load_adds_one_then_fire_empties() -> void:

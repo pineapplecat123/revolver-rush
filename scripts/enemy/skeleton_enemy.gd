@@ -4,6 +4,7 @@ extends Node2D
 ## 动画：idle / walk（循环）/ attack / hurt / death。
 ## 用法：setup(def_id) 建外形；set_moving / play_attack / play_hurt / play_death；set_hp。
 
+const _CharacterPixel := preload("res://scripts/combat/character_pixel.gd")
 const ANIM_IDLE := &"idle"
 const ANIM_WALK := &"walk"
 const ANIM_ATTACK := &"attack"
@@ -318,7 +319,7 @@ func _build_rig() -> void:
 	rig = Node2D.new()
 	rig.name = "Rig"
 	rig.z_index = 1
-	add_child(rig)
+	_CharacterPixel.attach(self, rig)
 	skeleton = Skeleton2D.new()
 	skeleton.name = "Skeleton"
 	rig.add_child(skeleton)
@@ -687,8 +688,8 @@ func _track_paths() -> Array:
 			continue
 		out.append(["%s:rotation" % _bone_path(bn), REST[bn][1]])
 	out.append(["%s:position" % _bone_path("Hip"), REST["Hip"][0]])
-	out.append(["Rig:modulate", Color(1, 1, 1, 1)])
-	out.append(["Rig:position", Vector2.ZERO])
+	out.append(["PixelRig/Rig:modulate", Color(1, 1, 1, 1)])
+	out.append(["PixelRig/Rig:position", Vector2.ZERO])
 	return out
 
 
@@ -789,7 +790,7 @@ func _build_animations() -> void:
 
 	# attack：往前一扑 + 前爪抡
 	var atk := _make_anim(0.32, {
-		"Rig:position": [[0.0, Vector2.ZERO], [0.08, Vector2(-6, 0)], [0.18, Vector2(-10, -1)], [0.32, Vector2.ZERO]],
+		"PixelRig/Rig:position": [[0.0, Vector2.ZERO], [0.08, Vector2(-6, 0)], [0.18, Vector2(-10, -1)], [0.32, Vector2.ZERO]],
 		_r("Torso"): [[0.0, 0.0], [0.1, 0.2], [0.32, 0.0]],
 		_r("Head"): [[0.0, 0.0], [0.1, 0.15], [0.32, 0.0]],
 		_r("UpperArmF"): [[0.0, 0.55], [0.08, -0.4], [0.16, -0.9], [0.32, 0.55]],
@@ -805,8 +806,8 @@ func _build_animations() -> void:
 	var hurt := _make_anim(0.28, {
 		_r("Torso"): [[0.0, 0.0], [0.05, -0.25], [0.28, 0.0]],
 		_r("Head"): [[0.0, 0.0], [0.05, -0.2], [0.28, 0.0]],
-		"Rig:position": [[0.0, Vector2.ZERO], [0.05, Vector2(4, 0)], [0.28, Vector2.ZERO]],
-		"Rig:modulate": [[0.0, Color(1, 1, 1)], [0.04, Color(1.5, 0.55, 0.55)], [0.2, Color(1, 1, 1)]],
+		"PixelRig/Rig:position": [[0.0, Vector2.ZERO], [0.05, Vector2(4, 0)], [0.28, Vector2.ZERO]],
+		"PixelRig/Rig:modulate": [[0.0, Color(1, 1, 1)], [0.04, Color(1.5, 0.55, 0.55)], [0.2, Color(1, 1, 1)]],
 		_r("Tail1"): [[0.0, t1r], [0.05, t1r + 0.4], [0.28, t1r]],
 	})
 	_vis_track(hurt, _eye_open, [[0.0, true]])
@@ -826,7 +827,7 @@ func _build_animations() -> void:
 		_r("WingF"): [[0.0, wfr], [0.85, wfr - 1.2]],
 		_r("Tail1"): [[0.0, t1r], [0.85, -1.6]],
 		hip_p: [[0.0, hip0], [0.2, hip0 + Vector2(2, 2)], [0.5, hip0 + Vector2(4, 10)], [0.85, hip0 + Vector2(6, 14)]],
-		"Rig:modulate": [[0.0, Color(1, 1, 1)], [0.08, Color(1.4, 0.55, 0.55)], [0.85, Color(0.65, 0.65, 0.7)]],
+		"PixelRig/Rig:modulate": [[0.0, Color(1, 1, 1)], [0.08, Color(1.4, 0.55, 0.55)], [0.85, Color(0.65, 0.65, 0.7)]],
 	}, false, true)
 	_vis_track(death, _eye_open, [[0.0, true], [0.12, false]])
 	_vis_track(death, _eye_x, [[0.0, false], [0.12, true]])

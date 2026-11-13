@@ -117,6 +117,22 @@ func random_roll_to_loaded(p_rng: RandomNumberGenerator) -> int:
 	return steps
 
 
+## 在给定仓位里均匀抽一个，转到它对准击发点。targets 为空或 0/1 发时返回 -1。
+func random_roll_to_one_of(p_rng: RandomNumberGenerator, targets: Array[int]) -> int:
+	if loaded_count() <= 1 or slots.size() <= 1 or targets.is_empty():
+		return -1
+	var valid: Array[int] = []
+	for i in targets:
+		if i >= 0 and i < slots.size() and slots[i] != EMPTY:
+			valid.append(i)
+	if valid.is_empty():
+		return -1
+	var target: int = valid[p_rng.randi_range(0, valid.size() - 1)]
+	var steps: int = posmod(target - start_index, slots.size())
+	start_index = target
+	return steps
+
+
 ## 自击发点起顺时针，含空仓，并去掉最后一发已装弹之后的尾部空仓。
 func volley_sequence() -> Array[int]:
 	var out: Array[int] = []

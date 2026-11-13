@@ -1,4 +1,5 @@
 extends GutTest
+const PixelFxSpawnScript := preload("res://scripts/combat/pixelfx_spawn.gd")
 ## feat/gameplay-redo：倒出→手→拖装 / 仓对调（自动装入仅保留状态 API）；PLAIN_ONLY 开局。
 
 
@@ -93,10 +94,13 @@ func test_reward_pool_plain_only() -> void:
 		assert_true(DataRegistry.is_ammo_reward_eligible(int(id)), "reward id %s" % id)
 
 
-func test_ui_no_autoload_button_and_hand_scatter() -> void:
+func test_ui_autoload_button_and_hand_scatter() -> void:
 	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
 	await wait_process_frames(3)
-	assert_null(ui.get_node_or_null("%BtnAutoLoad"))
+	var auto_btn: Button = ui.get_node_or_null("%BtnAutoLoad")
+	assert_not_null(auto_btn)
+	assert_true(auto_btn.visible)
+	assert_eq(auto_btn.text, "自动装填")
 	ui.state.dump_to_hand()
 	ui._refresh()
 	await wait_process_frames(2)
@@ -225,8 +229,8 @@ func test_fire_button_returns_hand_then_shoots() -> void:
 	for ch in ui.get_node("%ActionRow").get_children():
 		if ch is Button and ch.visible:
 			labels.append(ch.text)
-	assert_eq(labels, ["倒出", "射击"])
-	assert_null(ui.get_node_or_null("%BtnAutoLoad"))
+	assert_eq(labels, ["倒出", "自动装填", "射击"])
+	assert_not_null(ui.get_node_or_null("%BtnAutoLoad"))
 	ui._on_fire()
 	assert_true(ui.state.hand.is_empty(), "pressing 射击 returns unused hand before the shot resolves")
 	assert_eq(ui.state.bag.size(), bag_before + leftover)
@@ -547,9 +551,9 @@ func test_pixelfx_muzzle_and_hit_are_baked_at_the_right_time() -> void:
 	var saw_hit := false
 	for fx2 in _pixelfx_nodes(ui):
 		assert_eq(fx2.mode, PixelFx2D.Mode.BAKED)
-		if fx2.effect == "impacts/bullet-impact":
+		if PixelFxSpawnScript.is_hit_fx(fx2):
 			saw_hit = true
-	assert_true(saw_hit, "子弹打到才播命中火花")
+	assert_true(saw_hit, "子弹打到才播命中飚血")
 	for _j in 180:
 		if not ui._volley_ui_running and not ui.is_shooting():
 			break

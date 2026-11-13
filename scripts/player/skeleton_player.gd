@@ -6,6 +6,7 @@ extends Node2D
 ## 用法：bind_state(cs) 后自动订阅 —— on_shot→shoot，on_chamber_loaded→reload，
 ##       player_damaged→hurt，phase_changed(LOST)→death，离开 LOST→revive。
 
+const _CharacterPixel := preload("res://scripts/combat/character_pixel.gd")
 const ANIM_IDLE := &"idle"
 const ANIM_SHOOT := &"shoot"
 const ANIM_RELOAD := &"reload"
@@ -345,7 +346,7 @@ func _build_rig() -> void:
 	rig = Node2D.new()
 	rig.name = "Rig"
 	rig.z_index = 1  ## 尾巴用 z -1 → 相对后实际 0，不会被棋盘底板盖住
-	add_child(rig)
+	_CharacterPixel.attach(self, rig)
 	skeleton = Skeleton2D.new()
 	skeleton.name = "Skeleton"
 	rig.add_child(skeleton)
@@ -622,8 +623,8 @@ func _track_paths() -> Array:
 	for bn in REST.keys():
 		out.append(["%s:rotation" % _bone_path(bn), REST[bn][1]])
 	out.append(["%s:position" % _bone_path("Hip"), REST["Hip"][0]])
-	out.append(["Rig:modulate", Color(1, 1, 1, 1)])
-	out.append(["Rig:position", Vector2.ZERO])
+	out.append(["PixelRig/Rig:modulate", Color(1, 1, 1, 1)])
+	out.append(["PixelRig/Rig:position", Vector2.ZERO])
 	return out
 
 
@@ -785,8 +786,8 @@ func _build_animations() -> void:
 		_r("Tail1"): [[0.0, t1r], [0.04, t1r + 0.45], [0.28, t1r]],
 		_r("Tail2"): [[0.0, t2r], [0.04, t2r - 0.4], [0.28, t2r]],
 		_r("Tail3"): [[0.0, t3r], [0.05, t3r - 0.5], [0.28, t3r]],
-		"Rig:position": [[0.0, Vector2.ZERO], [0.04, Vector2(-4, 0)], [0.28, Vector2.ZERO]],
-		"Rig:modulate": [[0.0, Color(1, 1, 1)], [0.03, Color(1.45, 0.6, 0.6)], [0.18, Color(1, 1, 1)]],
+		"PixelRig/Rig:position": [[0.0, Vector2.ZERO], [0.04, Vector2(-4, 0)], [0.28, Vector2.ZERO]],
+		"PixelRig/Rig:modulate": [[0.0, Color(1, 1, 1)], [0.03, Color(1.45, 0.6, 0.6)], [0.18, Color(1, 1, 1)]],
 	})
 	_flash_track(hurt, -1.0, -1.0)
 	_cyl_track(hurt, [[0.0, cyl0]])
@@ -829,7 +830,7 @@ func _build_animations() -> void:
 		_r("Tail2"): [[0.0, t2r], [0.8, -0.6], [1.0, 0.3]],
 		_r("Tail3"): [[0.0, t3r], [0.8, -0.5], [1.0, 0.6]],
 		hip_p: [[0.0, hip0], [0.1, hip0 + Vector2(-2, 0)], [0.4, hip0 + Vector2(-4, 6)], [0.75, hip0 + Vector2(-8, 12)], [0.85, hip0 + Vector2(-8, 10)], [1.0, hip0 + Vector2(-8, 11)]],
-		"Rig:modulate": [[0.0, Color(1, 1, 1)], [0.05, Color(1.45, 0.6, 0.6)], [0.3, Color(1, 1, 1)], [1.0, Color(0.7, 0.68, 0.72, 1)]],
+		"PixelRig/Rig:modulate": [[0.0, Color(1, 1, 1)], [0.05, Color(1.45, 0.6, 0.6)], [0.3, Color(1, 1, 1)], [1.0, Color(0.7, 0.68, 0.72, 1)]],
 	}, false, true)
 	_flash_track(death, -1.0, -1.0)
 	_cyl_track(death, [[0.0, cyl0]])
