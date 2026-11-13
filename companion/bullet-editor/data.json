@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T13:35:44+08:00",
+  "updated_at": "2026-11-13T13:52:38+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -13,7 +13,8 @@
       "notes": "",
       "in_game": false,
       "created_at": "2026-11-13T13:31:05+08:00",
-      "updated_at": "2026-11-13T13:31:05+08:00"
+      "updated_at": "2026-11-13T13:52:38+08:00",
+      "school": "清算"
     },
     {
       "id": "b20261113-133535-ztag",
