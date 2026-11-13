@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Merge companion/bullet-editor/inbox/*.json into data.json, then delete them.
 
-Upsert by id: new id -> appended (in_game=false); known id -> fields updated,
-in_game and created_at preserved. Bad files are skipped and left in place.
-Env BULLET_JSON (workflow_dispatch from the page): one record that may only ADD
-a new row; an existing id is ignored, and in_game is always false.
+Upsert by id for both inbox files and env BULLET_JSON (workflow_dispatch):
+  new id     -> append a row (in_game=false, created_at and updated_at set)
+  existing id -> update name/type/damage/rarity/effect/notes only;
+                 in_game is always set false; created_at and id are kept;
+                 updated_at is bumped.
+Client-supplied in_game / created_at / updated_at are ignored.
+Bad files are skipped and left in place.
 Prints the merged names; exit 0 even when nothing to do.
 """
 from __future__ import annotations
@@ -43,49 +46,62 @@ def clean_record(rec, fallback_id: str = ""):
     return rid, clean
 
 
-def main() -> int:
-    doc = json.loads(DATA.read_text(encoding="utf-8"))
+def upsert(rid: str, clean: dict, bullets: list, by_id: dict, ts: str) -> None:
+    if rid in by_id:
+        row = by_id[rid]
+        row.update(clean)
+        row["in_game"] = False
+        row["updated_at"] = ts
+        row["id"] = rid
+        return
+    if len(bullets) >= MAX_ROWS:
+        raise ValueError("too many rows")
+    row = {"id": rid, **clean, "in_game": False, "created_at": ts, "updated_at": ts}
+    bullets.append(row)
+    by_id[rid] = row
+
+
+def ingest(base: Path | None = None, bullet_json: str | None = None) -> tuple[list[str], list[str]]:
+    """Merge BULLET_JSON and inbox/*.json into base/data.json. Returns (merged names, failed)."""
+    base = base or BASE
+    data_path = base / "data.json"
+    inbox = base / "inbox"
+    doc = json.loads(data_path.read_text(encoding="utf-8"))
     bullets = doc.setdefault("bullets", [])
     by_id = {b.get("id"): b for b in bullets}
     merged, failed = [], []
-    raw = os.environ.get("BULLET_JSON", "").strip()
+    raw = bullet_json if bullet_json is not None else os.environ.get("BULLET_JSON", "")
+    raw = (raw or "").strip()
     if raw:
         try:
             if len(raw) > MAX_INPUT:
                 raise ValueError("input too large")
             rid, clean = clean_record(json.loads(raw))
-            if len(bullets) >= MAX_ROWS:
-                raise ValueError("too many rows")
-            if rid in by_id:
-                print(f"dispatch id {rid} already present; ignored")
-            else:
-                ts = now_iso()
-                row = {"id": rid, **clean, "in_game": False, "created_at": ts, "updated_at": ts}
-                bullets.append(row)
-                by_id[rid] = row
-                merged.append(clean["name"])
+            upsert(rid, clean, bullets, by_id, now_iso())
+            merged.append(clean["name"])
         except Exception as e:
             failed.append(f"dispatch: {e}")
-    for f in sorted(INBOX.glob("*.json")):
-        try:
-            rid, clean = clean_record(json.loads(f.read_text(encoding="utf-8")), f.stem)
-        except Exception as e:  # keep bad file for a human to look at
-            failed.append(f"{f.name}: {e}")
-            continue
-        ts = now_iso()
-        if rid in by_id:
-            by_id[rid].update(clean)
-            by_id[rid]["updated_at"] = ts
-        else:
-            row = {"id": rid, **clean, "in_game": False,
-                   "created_at": str(rec.get("created_at") or ts), "updated_at": ts}
-            bullets.append(row)
-            by_id[rid] = row
-        f.unlink()
-        merged.append(clean["name"])
+    if inbox.is_dir():
+        for f in sorted(inbox.glob("*.json")):
+            try:
+                text = f.read_text(encoding="utf-8")
+                if len(text) > MAX_INPUT:
+                    raise ValueError("input too large")
+                rid, clean = clean_record(json.loads(text), f.stem)
+                upsert(rid, clean, bullets, by_id, now_iso())
+            except Exception as e:  # keep bad file for a human to look at
+                failed.append(f"{f.name}: {e}")
+                continue
+            f.unlink()
+            merged.append(clean["name"])
     if merged:
         doc["updated_at"] = now_iso()
-        DATA.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        data_path.write_text(json.dumps(doc, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return merged, failed
+
+
+def main() -> int:
+    merged, failed = ingest()
     for line in failed:
         print("SKIP " + line, file=sys.stderr)
     print("MERGED " + str(len(merged)) + (": " + ", ".join(merged) if merged else ""))

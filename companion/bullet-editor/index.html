@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14161d">
 <title>子弹数据</title>
-<link rel="stylesheet" href="style.css?v=1">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 <div class="wrap">
@@ -25,10 +25,10 @@
 
   <main id="app" class="hidden">
     <h1>子弹数据</h1>
-    <p class="sub">填写新子弹，提交后会出现在下方总览里。入库状态每 10 秒自动刷新。</p>
+    <p class="sub">填写新子弹，或在总览里点「修改」。提交后会出现在下方总览里，入库状态每 10 秒自动刷新。</p>
 
-    <section class="card">
-      <h2>新增子弹</h2>
+    <section class="card" id="formCard">
+      <h2 id="formTitle">新增子弹</h2>
       <form id="bulletForm" autocomplete="off" novalidate>
         <label for="f_name">名称<span class="req">*</span></label>
         <input id="f_name" name="name" maxlength="40" required>
@@ -58,8 +58,10 @@
         <label for="f_notes">备注</label>
         <textarea id="f_notes" name="notes" maxlength="1000"></textarea>
 
+        <div id="editNote" class="hint warn hidden">保存后会回到「未入库」，方便按新数据再做进游戏。</div>
         <div id="formErr" class="hint warn hidden"></div>
         <button class="primary" type="submit" id="submitBtn">提交到云端</button>
+        <button type="button" id="cancelEdit" class="cancel hidden">取消修改</button>
         <div class="hint" id="submitHint">提交会打开 GitHub 确认页：需要已登录的 GitHub 账号，在那里点一次绿色的「Commit changes」按钮就算交上去了。</div>
       </form>
       <div id="submitNotice" class="notice hidden"></div>
@@ -76,10 +78,44 @@
         <button type="button" data-f="out">未入库</button>
         <button type="button" data-f="in">已入库</button>
       </div>
+      <div class="filters">
+        <label for="q">搜索</label>
+        <input id="q" type="search" placeholder="搜索名称、类型、效果、备注" enterkeyhint="search" autocapitalize="off" spellcheck="false">
+        <div class="row2">
+          <div>
+            <label for="filterType">类型</label>
+            <select id="filterType"><option value="">全部</option></select>
+          </div>
+          <div>
+            <label for="filterRarity">稀有度</label>
+            <select id="filterRarity"><option value="">全部</option></select>
+          </div>
+        </div>
+        <div class="row2">
+          <div>
+            <label for="sortKey">排序</label>
+            <select id="sortKey">
+              <option value="updated">更新时间</option>
+              <option value="created">创建时间</option>
+              <option value="name">名称</option>
+              <option value="type">类型</option>
+              <option value="damage">伤害</option>
+              <option value="rarity">稀有度</option>
+            </select>
+          </div>
+          <div>
+            <label for="sortDir">顺序</label>
+            <select id="sortDir">
+              <option value="desc">降序</option>
+              <option value="asc">升序</option>
+            </select>
+          </div>
+        </div>
+      </div>
       <div id="list" class="list"></div>
     </section>
   </main>
 </div>
-<script src="app.js?v=3"></script>
+<script src="app.js?v=4"></script>
 </body>
 </html>

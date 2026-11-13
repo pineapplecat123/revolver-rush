@@ -4,7 +4,7 @@ name: Bullet editor ingest
 #  1) one-tap submit: /redo/bullets/ calls workflow_dispatch with inputs.bullet (JSON),
 #     using a fine-grained token that only has Actions:write on this repo
 #     (sealed with the page PIN in companion/bullet-editor/submit-key.json).
-#     Dispatch can only ADD a new row (existing ids are ignored).
+#     Dispatch upserts by id (new row or update). in_game is always set false.
 #  2) fallback: owner commits companion/bullet-editor/inbox/<id>.json.
 # Pushes made with GITHUB_TOKEN do not re-trigger workflows (no loop, no Pages rebuild).
 on:

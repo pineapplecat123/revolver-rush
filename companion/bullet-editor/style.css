@@ -13,12 +13,16 @@ h1{font-size:22px;margin:8px 0 2px}
 h2{font-size:18px;margin:0}
 .sub{color:var(--muted);font-size:14px;margin:0 0 14px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin:0 0 16px}
+#formCard.editing{border-color:var(--accent)}
 label{display:block;font-size:15px;color:var(--accent2);margin:12px 0 6px}
 label .req{color:var(--warn);margin-left:4px}
-input,textarea{width:100%;font:inherit;font-size:17px;color:var(--text);background:var(--card2);
-  border:1px solid var(--line);border-radius:10px;padding:12px;min-height:48px;outline:none;-webkit-appearance:none;appearance:none}
+input,textarea,select{width:100%;font:inherit;font-size:17px;color:var(--text);background:var(--card2);
+  border:1px solid var(--line);border-radius:10px;padding:12px;min-height:48px;outline:none;
+  -webkit-appearance:none;appearance:none;color-scheme:dark}
 textarea{min-height:96px;resize:vertical}
-input:focus,textarea:focus{border-color:var(--accent)}
+select{padding-right:36px;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><path fill='%239aa1b4' d='M4 6l4 5 4-5z'/></svg>");
+  background-repeat:no-repeat;background-position:right 12px center}
+input:focus,textarea:focus,select:focus{border-color:var(--accent)}
 .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .hint{font-size:13px;color:var(--muted);margin-top:4px}
 .hint.warn{color:var(--warn)}
@@ -26,6 +30,7 @@ button,.btn{display:inline-flex;align-items:center;justify-content:center;gap:6p
   min-height:50px;padding:0 18px;border-radius:12px;border:0;cursor:pointer;text-decoration:none;
   background:var(--card2);color:var(--text)}
 button.primary,.btn.primary{background:var(--accent);color:#231503;width:100%;margin-top:16px}
+button.cancel{width:100%;margin-top:8px;border:1px solid var(--line)}
 button:disabled{opacity:.5}
 button.small{min-height:40px;font-size:15px;padding:0 12px}
 .notice{border-radius:12px;padding:12px 14px;font-size:15px;margin-top:12px;background:#1b2740;border:1px solid #2c4170}
@@ -39,9 +44,12 @@ button.small{min-height:40px;font-size:15px;padding:0 12px}
 .tabs{display:flex;gap:8px;margin:6px 0 12px;flex-wrap:wrap}
 .tabs button{min-height:40px;font-size:15px;font-weight:500;padding:0 14px;border:1px solid var(--line)}
 .tabs button.on{background:var(--accent);color:#231503;border-color:var(--accent)}
+.filters{display:flex;flex-direction:column;gap:0;margin:0 0 12px}
+.filters label{margin:8px 0 6px;font-size:13px}
 .list{display:flex;flex-direction:column;gap:10px}
 .item{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .item.flash{animation:flash 2.4s ease-out}
+.item.editing{border-color:var(--accent)}
 @keyframes flash{0%{box-shadow:0 0 0 3px var(--ok)}100%{box-shadow:0 0 0 0 transparent}}
 .item .top{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .item .name{font-size:18px;font-weight:700;word-break:break-word}
@@ -53,7 +61,7 @@ button.small{min-height:40px;font-size:15px;padding:0 12px}
 .meta b{color:var(--text);font-weight:500}
 .desc{font-size:15px;margin-top:6px;white-space:pre-wrap;word-break:break-word}
 .desc.note{color:var(--muted)}
-.actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:15px}
 .empty .big{font-size:34px}
 #gate{min-height:80vh;display:flex;align-items:center}
