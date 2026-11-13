@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T14:25:28+08:00",
+  "updated_at": "2026-11-13T22:31:42+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -54,6 +54,19 @@
       "in_game": true,
       "created_at": "2026-11-13T14:06:41+08:00",
       "updated_at": "2026-11-13T14:25:28+08:00"
+    },
+    {
+      "id": "b20261113-223134-uzoy",
+      "name": "尾重弹",
+      "type": "中间",
+      "damage": "3",
+      "rarity": "",
+      "school": "清算",
+      "effect": "如果在1-3孔发射，则本子弹伤害获得×0.5倍率。如果在4-6孔发射，则本子弹伤害获得×2倍率。",
+      "notes": "",
+      "in_game": false,
+      "created_at": "2026-11-13T22:31:42+08:00",
+      "updated_at": "2026-11-13T22:31:42+08:00"
     }
   ]
 }
