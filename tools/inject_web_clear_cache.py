@@ -100,6 +100,23 @@ def inject(html_path: Path) -> bool:
     return MARKER in html_path.read_text(encoding="utf-8")
 
 
+def publish_companion(html_path: Path) -> None:
+    """Pages hook: the redo export calls this script from feat/gameplay-redo, so the
+    bullet editor (companion/bullet-editor, ignored by Godot) is copied next to the
+    redo export as ./bullets/ -> /redo/bullets/. Never fails the export."""
+    src = Path(__file__).resolve().parents[1] / "companion" / "bullet-editor"
+    if html_path.resolve().parent.name != "redo" or not src.is_dir():
+        return
+    try:
+        import shutil
+        dst = html_path.resolve().parent / "bullets"
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(src, dst, ignore=shutil.ignore_patterns("inbox", ".*"))
+        print(f"OK: published bullet editor to {dst}")
+    except Exception as e:  # noqa: BLE001
+        print(f"WARN: bullet editor publish skipped: {e}", file=sys.stderr)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("html", type=Path, help="path to exported index.html")
@@ -109,6 +126,7 @@ def main() -> int:
         return 1
     ok = inject(args.html)
     print(f"{'OK' if ok else 'FAIL'}: injected clear-cache into {args.html}")
+    publish_companion(args.html)
     return 0 if ok else 2
 
 

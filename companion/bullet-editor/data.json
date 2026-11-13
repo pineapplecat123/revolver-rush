@@ -1,0 +1,6 @@
+{
+  "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
+  "schema": 1,
+  "updated_at": "2026-11-13T10:30:00+08:00",
+  "bullets": []
+}

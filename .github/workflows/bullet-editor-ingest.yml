@@ -1,0 +1,43 @@
+name: Bullet editor ingest
+
+# /redo/bullets/ submits by committing companion/bullet-editor/inbox/<id>.json
+# (GitHub "new file" page, one tap by the owner). This merges inbox files into
+# companion/bullet-editor/data.json on feat/gameplay-redo. Pushes made with
+# GITHUB_TOKEN do not re-trigger workflows, so no loop and no Pages rebuild.
+on:
+  push:
+    branches: [feat/gameplay-redo]
+    paths: ['companion/bullet-editor/inbox/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bullet-editor-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: feat/gameplay-redo
+      - name: Merge inbox into data.json
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          for attempt in 1 2 3 4; do
+            git fetch origin feat/gameplay-redo
+            git reset --hard origin/feat/gameplay-redo
+            python3 .github/scripts/bullet_editor_ingest.py
+            git add -A companion/bullet-editor
+            if git diff --cached --quiet; then echo "nothing to merge"; exit 0; fi
+            git commit -m "bullet-editor: ingest inbox into data.json"
+            if git push origin HEAD:feat/gameplay-redo; then exit 0; fi
+            sleep $((attempt * 3))
+          done
+          exit 1

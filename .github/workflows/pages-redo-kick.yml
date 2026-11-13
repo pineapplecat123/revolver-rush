@@ -5,6 +5,10 @@ name: Kick Pages redo preview
 on:
   push:
     branches: [feat/gameplay-redo]
+    # Bullet-editor data is read live from the repo; no site rebuild needed.
+    paths-ignore:
+      - 'companion/bullet-editor/inbox/**'
+      - 'companion/bullet-editor/data.json'
   workflow_dispatch:
 
 permissions:
