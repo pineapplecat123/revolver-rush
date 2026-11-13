@@ -165,6 +165,7 @@ class IngestUpsertTest(unittest.TestCase):
             "type": "T" * 40,
             "damage": "D" * 40,
             "rarity": "R" * 40,
+            "school": "S" * 40,
             "effect": "E" * 1500,
             "notes": "N" * 1500,
         }
@@ -176,6 +177,7 @@ class IngestUpsertTest(unittest.TestCase):
         self.assertEqual(len(b["type"]), 20)
         self.assertEqual(len(b["damage"]), 20)
         self.assertEqual(len(b["rarity"]), 20)
+        self.assertEqual(len(b["school"]), 20)
         self.assertEqual(len(b["effect"]), 1000)
         self.assertEqual(len(b["notes"]), 1000)
 
@@ -212,6 +214,48 @@ class IngestUpsertTest(unittest.TestCase):
         _, failed = ingest.ingest(self.base, json.dumps({"id": "bad id!", "name": "x"}))
         self.assertTrue(any("bad id" in x for x in failed))
         self.assertEqual([b["id"] for b in load(self.base)["bullets"]], ["keep"])
+
+    def test_school_create_update_default_and_cap(self):
+        # omitted school defaults to empty string
+        merged, failed = ingest.ingest(self.base, json.dumps({"id": "b-no-school", "name": "无派"}))
+        self.assertEqual(failed, [])
+        self.assertEqual(merged, ["无派"])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["school"], "")
+        self.assertIs(b["in_game"], False)
+
+        # create with school
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-school", "name": "有派", "school": "  连击  ", "in_game": True,
+        }))
+        self.assertEqual(failed, [])
+        b = [x for x in load(self.base)["bullets"] if x["id"] == "b-school"][0]
+        self.assertEqual(b["school"], "连击")
+        self.assertIs(b["in_game"], False)
+
+        # update school; created_at preserved
+        created = b["created_at"]
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-school", "name": "有派", "school": "爆发", "type": "开始",
+        }))
+        self.assertEqual(failed, [])
+        b = [x for x in load(self.base)["bullets"] if x["id"] == "b-school"][0]
+        self.assertEqual(b["school"], "爆发")
+        self.assertEqual(b["type"], "开始")
+        self.assertEqual(b["name"], "有派")
+        self.assertEqual(b["created_at"], created)
+        self.assertIs(b["in_game"], False)
+
+        # old row missing school key gets school="" when updated without it
+        seed(self.base, [row("b-old-no-school", in_game=False)])
+        raw = json.loads((self.base / "data.json").read_text(encoding="utf-8"))
+        self.assertNotIn("school", raw["bullets"][0])
+        merged, failed = ingest.ingest(self.base, json.dumps({"id": "b-old-no-school", "name": "旧名", "type": "旧类型"}))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["school"], "")
+        self.assertEqual(b["name"], "旧名")
+        self.assertEqual(b["created_at"], "2026-11-13T10:00:00+08:00")
 
     def test_inbox_bad_file_left_in_place(self):
         seed(self.base, [])

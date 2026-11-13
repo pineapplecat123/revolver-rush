@@ -35,7 +35,8 @@
   if (view.q == null) view.q = '';
   if (view.type == null) view.type = '';
   if (view.rarity == null) view.rarity = '';
-  if (view.sort !== 'name' && view.sort !== 'type' && view.sort !== 'damage' && view.sort !== 'rarity' && view.sort !== 'created') view.sort = 'updated';
+  if (view.school == null) view.school = '';
+  if (view.sort !== 'name' && view.sort !== 'type' && view.sort !== 'school' && view.sort !== 'damage' && view.sort !== 'rarity' && view.sort !== 'created') view.sort = 'updated';
   if (view.dir !== 'asc') view.dir = 'desc';
 
   function load(k, d) { try { var v = JSON.parse(localStorage.getItem(k)); return v == null ? d : v; } catch (e) { return d; } }
@@ -188,6 +189,7 @@
       : (b.in_game ? '<span class="badge in">已入库</span>' : '<span class="badge out">未入库</span>');
     var meta = [];
     meta.push('<span>类型 <b>' + (b.type ? esc(b.type) : '—') + '</b></span>');
+    meta.push('<span>流派 <b>' + (b.school ? esc(b.school) : '—') + '</b></span>');
     meta.push('<span>伤害 <b>' + (b.damage !== '' && b.damage != null ? esc(b.damage) : '—') + '</b></span>');
     meta.push('<span>稀有度 <b>' + (b.rarity ? esc(b.rarity) : '—') + '</b></span>');
     var h = '<div class="item' + (flashIds[b.id] ? ' flash' : '') + (editingId && editingId === b.id ? ' editing' : '') + '"><div class="top"><div class="name">' + esc(b.name) + '</div>' + badge + '</div>';
@@ -233,8 +235,9 @@
   function fillFilterOptions() {
     var t = fillFilterSelect('filterType', uniqueValues('type'), view.type);
     var r = fillFilterSelect('filterRarity', uniqueValues('rarity'), view.rarity);
-    var changed = (t !== view.type || r !== view.rarity);
-    if (changed) { view.type = t; view.rarity = r; save(K_VIEW, view); }
+    var s = fillFilterSelect('filterSchool', uniqueValues('school'), view.school);
+    var changed = (t !== view.type || r !== view.rarity || s !== view.school);
+    if (changed) { view.type = t; view.rarity = r; view.school = s; save(K_VIEW, view); }
     return changed;
   }
   function damageNum(v) {
@@ -263,11 +266,12 @@
   function matchesView(b) {
     if (view.type && String(b.type || '').trim() !== view.type) return false;
     if (view.rarity && String(b.rarity || '').trim() !== view.rarity) return false;
+    if (view.school && String(b.school || '').trim() !== view.school) return false;
     var q = norm(view.q);
     if (!q) return true;
-    return [b.name, b.type, b.effect, b.notes].some(function (s) { return norm(s).indexOf(q) !== -1; });
+    return [b.name, b.type, b.school, b.effect, b.notes].some(function (s) { return norm(s).indexOf(q) !== -1; });
   }
-  function extrasOn() { return !!(view.q || view.type || view.rarity); }
+  function extrasOn() { return !!(view.q || view.type || view.rarity || view.school); }
 
   function render() {
     var list = doc ? doc.bullets.slice() : [];
@@ -329,12 +333,14 @@
     $('q').value = view.q;
     $('filterType').value = view.type;
     $('filterRarity').value = view.rarity;
+    $('filterSchool').value = view.school;
     $('sortKey').value = view.sort;
     $('sortDir').value = view.dir;
     function sync() {
       view.q = $('q').value;
       view.type = $('filterType').value;
       view.rarity = $('filterRarity').value;
+      view.school = $('filterSchool').value;
       view.sort = $('sortKey').value;
       view.dir = $('sortDir').value;
       save(K_VIEW, view);
@@ -343,13 +349,14 @@
     $('q').addEventListener('input', sync);
     $('filterType').addEventListener('change', sync);
     $('filterRarity').addEventListener('change', sync);
+    $('filterSchool').addEventListener('change', sync);
     $('sortKey').addEventListener('change', sync);
     $('sortDir').addEventListener('change', sync);
   }
   bindView();
 
   // ---------- form ----------
-  var FIELDS = ['name', 'type', 'damage', 'rarity', 'effect', 'notes'];
+  var FIELDS = ['name', 'type', 'damage', 'rarity', 'school', 'effect', 'notes'];
   function formVals() { var v = {}; FIELDS.forEach(function (f) { v[f] = $('f_' + f).value.trim(); }); return v; }
   function fillForm(v) {
     FIELDS.forEach(function (f) { $('f_' + f).value = v && v[f] != null ? v[f] : ''; });
@@ -404,10 +411,14 @@
   $('bulletForm').addEventListener('input', function () { save(K_DRAFT, formVals()); checkDup(); $('formErr').classList.add('hidden'); });
   $('cancelEdit').addEventListener('click', function () { exitEdit(true); });
 
-  function fillTypes() {
+  function fillDatalist(id, key) {
     var seen = {}, html = '';
-    (doc ? doc.bullets : []).forEach(function (b) { var t = (b.type || '').trim(); if (t && !seen[t]) { seen[t] = 1; html += '<option value="' + esc(t) + '"></option>'; } });
-    if ($('typeList').innerHTML !== html) $('typeList').innerHTML = html;
+    (doc ? doc.bullets : []).forEach(function (b) { var t = (b[key] || '').trim(); if (t && !seen[t]) { seen[t] = 1; html += '<option value="' + esc(t) + '"></option>'; } });
+    if ($(id).innerHTML !== html) $(id).innerHTML = html;
+  }
+  function fillTypes() {
+    fillDatalist('typeList', 'type');
+    fillDatalist('schoolList', 'school');
   }
   function checkDup() {
     var n = norm($('f_name').value), el = $('dupHint');
@@ -426,7 +437,7 @@
   function buildRec() {
     var v = formVals();
     var now = iso8(new Date());
-    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, effect: v.effect, notes: v.notes, in_game: false, created_at: now, updated_at: now };
+    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, school: v.school, effect: v.effect, notes: v.notes, in_game: false, created_at: now, updated_at: now };
     if (editingId) {
       var cur = findBullet(editingId);
       if (cur && cur.created_at) rec.created_at = cur.created_at;

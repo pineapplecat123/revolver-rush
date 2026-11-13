@@ -46,11 +46,20 @@
           </div>
         </div>
 
-        <label for="f_rarity">稀有度</label>
-        <input id="f_rarity" name="rarity" maxlength="20" list="rarityList">
-        <datalist id="rarityList">
-          <option value="普通"></option><option value="稀有"></option><option value="史诗"></option><option value="传说"></option>
-        </datalist>
+        <div class="row2">
+          <div>
+            <label for="f_rarity">稀有度</label>
+            <input id="f_rarity" name="rarity" maxlength="20" list="rarityList">
+            <datalist id="rarityList">
+              <option value="普通"></option><option value="稀有"></option><option value="史诗"></option><option value="传说"></option>
+            </datalist>
+          </div>
+          <div>
+            <label for="f_school">流派</label>
+            <input id="f_school" name="school" maxlength="20" list="schoolList">
+            <datalist id="schoolList"></datalist>
+          </div>
+        </div>
 
         <label for="f_effect">效果说明</label>
         <textarea id="f_effect" name="effect" maxlength="1000"></textarea>
@@ -80,7 +89,7 @@
       </div>
       <div class="filters">
         <label for="q">搜索</label>
-        <input id="q" type="search" placeholder="搜索名称、类型、效果、备注" enterkeyhint="search" autocapitalize="off" spellcheck="false">
+        <input id="q" type="search" placeholder="搜索名称、类型、流派、效果、备注" enterkeyhint="search" autocapitalize="off" spellcheck="false">
         <div class="row2">
           <div>
             <label for="filterType">类型</label>
@@ -91,6 +100,10 @@
             <select id="filterRarity"><option value="">全部</option></select>
           </div>
         </div>
+        <div>
+          <label for="filterSchool">流派</label>
+          <select id="filterSchool"><option value="">全部</option></select>
+        </div>
         <div class="row2">
           <div>
             <label for="sortKey">排序</label>
@@ -99,6 +112,7 @@
               <option value="created">创建时间</option>
               <option value="name">名称</option>
               <option value="type">类型</option>
+              <option value="school">流派</option>
               <option value="damage">伤害</option>
               <option value="rarity">稀有度</option>
             </select>
@@ -116,6 +130,6 @@
     </section>
   </main>
 </div>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

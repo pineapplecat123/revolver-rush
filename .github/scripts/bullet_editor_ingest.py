@@ -3,7 +3,7 @@
 
 Upsert by id for both inbox files and env BULLET_JSON (workflow_dispatch):
   new id     -> append a row (in_game=false, created_at and updated_at set)
-  existing id -> update name/type/damage/rarity/effect/notes only;
+  existing id -> update name/type/damage/rarity/school/effect/notes only;
                  in_game is always set false; created_at and id are kept;
                  updated_at is bumped.
 Client-supplied in_game / created_at / updated_at are ignored.
@@ -24,7 +24,7 @@ BASE = ROOT / "companion" / "bullet-editor"
 DATA = BASE / "data.json"
 INBOX = BASE / "inbox"
 TZ = timezone(timedelta(hours=8))
-TEXT_FIELDS = {"name": 40, "type": 20, "damage": 20, "rarity": 20, "effect": 1000, "notes": 1000}
+TEXT_FIELDS = {"name": 40, "type": 20, "damage": 20, "rarity": 20, "school": 20, "effect": 1000, "notes": 1000}
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_INPUT = 8000
 MAX_ROWS = 2000
