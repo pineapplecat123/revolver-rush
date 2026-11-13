@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T13:52:50+08:00",
+  "updated_at": "2026-11-13T14:03:32+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -28,6 +28,19 @@
       "created_at": "2026-11-13T13:35:44+08:00",
       "updated_at": "2026-11-13T13:52:50+08:00",
       "school": "清算"
+    },
+    {
+      "id": "b20261113-140323-hdjn",
+      "name": "递增弹",
+      "type": "中间",
+      "damage": "3",
+      "rarity": "",
+      "school": "清算",
+      "effect": "在弹夹槽位越靠后伤害越高，计算公式为伤害=基础伤害+（槽位×0.5），例如第6格就是3+(6×0.5)=6",
+      "notes": "",
+      "in_game": false,
+      "created_at": "2026-11-13T14:03:32+08:00",
+      "updated_at": "2026-11-13T14:03:32+08:00"
     }
   ]
 }
