@@ -67,7 +67,7 @@ func is_ammo_enabled(ammo_id: int) -> bool:
 
 
 func is_ammo_runtime_visible(ammo_id: int) -> bool:
-	## 运行时列表（图鉴/店/奖励/沙盒）只含 data 里启用的弹。本分支只有平庸。
+	## 运行时列表（图鉴/店/奖励/沙盒）只含 data 里启用的弹。
 	return is_ammo_enabled(ammo_id)
 
 
@@ -134,9 +134,12 @@ func format_ammo_detail_text(ammo_id: int) -> String:
 	var blurb := str(def.get("blurb", "")).strip_edges()
 	var tags = def.get("tags", [])
 	var tag_s := "、".join(tags) if tags is Array and tags.size() > 0 else "无"
+	var school := str(def.get("school", "")).strip_edges()
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("名称：%s" % nm)
 	lines.append("基础伤害：%s" % dmg_s)
+	if school != "":
+		lines.append("流派：%s" % school)
 	lines.append("标签：%s" % tag_s)
 	if blurb != "":
 		lines.append("摘要：%s" % blurb)

@@ -1217,66 +1217,7 @@ func _animate_disk_to(target_steps: float, duration: float) -> void:
 
 
 func _ammo_colors(ammo_id: int) -> Dictionary:
-	match ammo_id:
-		FireResolver.ID_WHITE:
-			return {"bg": Color(0.92, 0.92, 0.94), "fg": Color(0.08, 0.08, 0.1)}
-		FireResolver.ID_GOLD:
-			return {"bg": Color(0.95, 0.75, 0.15), "fg": Color(0.2, 0.12, 0.02)}
-		FireResolver.ID_FLAME:
-			return {"bg": Color(1.0, 0.45, 0.15), "fg": Color(0.15, 0.05, 0.0)}
-		FireResolver.ID_WRATH:
-			return {"bg": Color(0.75, 0.12, 0.12), "fg": Color(1.0, 0.92, 0.9)}
-		FireResolver.ID_PRIDE:
-			return {"bg": Color(0.55, 0.35, 0.85), "fg": Color(0.98, 0.95, 1.0)}
-		FireResolver.ID_GREED:
-			return {"bg": Color(0.2, 0.65, 0.35), "fg": Color(0.95, 1.0, 0.95)}
-		FireResolver.ID_LUST:
-			return {"bg": Color(0.85, 0.25, 0.55), "fg": Color(1.0, 0.94, 0.97)}
-		FireResolver.ID_ENVY:
-			return {"bg": Color(0.25, 0.7, 0.45), "fg": Color(0.94, 1.0, 0.96)}
-		FireResolver.ID_GLUTTONY:
-			return {"bg": Color(0.75, 0.45, 0.15), "fg": Color(1.0, 0.96, 0.9)}
-		FireResolver.ID_SLOTH:
-			return {"bg": Color(0.45, 0.55, 0.75), "fg": Color(0.94, 0.96, 1.0)}
-		FireResolver.ID_TOMBSTONE:
-			return {"bg": Color(0.42, 0.4, 0.38), "fg": Color(0.95, 0.93, 0.88)}
-		FireResolver.ID_GHOST:
-			return {"bg": Color(0.72, 0.88, 0.95, 0.85), "fg": Color(0.08, 0.18, 0.28)}
-		FireResolver.ID_ARMOR_PIERCE:
-			# 钢青银光：与旧穿透浅蓝区分，强调穿甲枪线
-			return {"bg": Color(0.55, 0.78, 0.92), "fg": Color(0.04, 0.12, 0.2)}
-		FireResolver.ID_ECHO:
-			# 回声：青绿叠影
-			return {"bg": Color(0.35, 0.9, 0.78), "fg": Color(0.04, 0.16, 0.14)}
-		FireResolver.ID_LIFESTEAL:
-			# 吸血：血红
-			return {"bg": Color(0.78, 0.12, 0.28), "fg": Color(1.0, 0.92, 0.94)}
-		FireResolver.ID_EXPLOSIVE:
-			# 炸药：暗橙爆裂
-			return {"bg": Color(0.95, 0.4, 0.08), "fg": Color(0.12, 0.04, 0.0)}
-		FireResolver.ID_SCATTER:
-			# 散射：浅紫多线
-			return {"bg": Color(0.72, 0.55, 0.95), "fg": Color(0.1, 0.05, 0.18)}
-		FireResolver.ID_INSURANCE:
-			# 保险：银灰盾
-			return {"bg": Color(0.78, 0.82, 0.88), "fg": Color(0.08, 0.1, 0.14)}
-		FireResolver.ID_FOCUS:
-			# 聚能：亮电青
-			return {"bg": Color(0.45, 0.85, 1.0), "fg": Color(0.05, 0.12, 0.18)}
-		FireResolver.ID_STONE:
-			# 石头：岩石灰
-			return {"bg": Color(0.55, 0.52, 0.48), "fg": Color(0.95, 0.93, 0.9)}
-		FireResolver.ID_PEBBLE:
-			# 小石头：浅岩灰
-			return {"bg": Color(0.7, 0.66, 0.6), "fg": Color(0.2, 0.16, 0.12)}
-		FireResolver.ID_JUSTICE:
-			# 正义：银白金辉
-			return {"bg": Color(0.92, 0.9, 0.75), "fg": Color(0.18, 0.14, 0.05)}
-		CombatConstants.INVALID_AMMO_ID:
-			return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
-		_:
-			return {"bg": Color(0.85, 0.85, 0.88), "fg": Color(0.1, 0.1, 0.1)}
-
+	return AmmoColors.colors_for(ammo_id)
 
 
 func _ensure_enemy_auto_timer() -> void:
@@ -3880,11 +3821,11 @@ func _spawn_enemy_hit_fx(e, cell: int, amount: int, kind: String, lethal: bool) 
 		if hit_fx_log.size() > 200:
 			hit_fx_log.pop_front()
 		return
+	if amount <= 0:
+		return
 	if sk != null and is_instance_valid(sk) and not sk.is_dead:
 		sk.play_hurt()
 	_spawn_damage_float(cell, amount, kind, at_g)
-	if amount <= 0:
-		return
 	_play_pixelfx(PIXELFX_HIT_ID, at_g, PIXELFX_HIT_HEIGHT)
 	var dir := Vector2.ZERO
 	if _blood_shot_dir_active and _blood_spray_dir.length_squared() > 0.01:
@@ -5812,7 +5753,7 @@ func _build_sin_pick_panel() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.45))
 	vbox.add_child(title)
 	var hint := Label.new()
-	hint.text = "开局弹药袋：平庸子弹 ×%d" % CombatConstants.STARTER_PLAIN_ONLY_COUNT
+	hint.text = "开局弹药袋：平庸 ×%d，起势/蓄力/递增/终审各 ×%d" % [CombatConstants.STARTER_WHITE_COUNT, CombatConstants.STARTER_CLEARING_EACH]
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)

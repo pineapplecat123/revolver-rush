@@ -117,6 +117,19 @@ func random_roll_to_loaded(p_rng: RandomNumberGenerator) -> int:
 	return steps
 
 
+## 自击发点起顺时针，含空仓，并去掉最后一发已装弹之后的尾部空仓。
+func volley_sequence() -> Array[int]:
+	var out: Array[int] = []
+	if is_empty():
+		return out
+	var fire0: int = chamber_at_fire_port()
+	for k in size():
+		out.append(slots[(fire0 + k) % size()])
+	while out.size() > 0 and out[out.size() - 1] == EMPTY:
+		out.pop_back()
+	return out
+
+
 ## 自击发点起顺时针、跳过空槽，返回击发顺序中的弹药 id 列表。
 func fire_order() -> Array[int]:
 	var out: Array[int] = []

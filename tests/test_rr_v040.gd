@@ -176,5 +176,4 @@ func test_sin_bag_still_five() -> void:
 	assert_eq(CombatConstants.STARTER_SIN_COUNT, 0)
 	var cs := _rush(4080)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
-	for id in cs.bag:
-		assert_eq(int(id), WHITE)
+	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_WHITE_COUNT)

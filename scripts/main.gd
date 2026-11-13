@@ -360,31 +360,8 @@ func _codex_chip(ammo_id: int, size_px: float = 48.0) -> Panel:
 
 
 func _codex_ammo_color(ammo_id: int) -> Dictionary:
-	## 与战斗 UI 色板大致对齐（主菜单无 CombatUI，本地一份简表）。
-	match ammo_id:
-		1: return {"bg": Color(0.92, 0.92, 0.94), "fg": Color(0.08, 0.08, 0.1)}
-		8: return {"bg": Color(0.95, 0.75, 0.15), "fg": Color(0.2, 0.12, 0.02)}
-		16: return {"bg": Color(0.75, 0.12, 0.12), "fg": Color(1.0, 0.92, 0.9)}
-		17: return {"bg": Color(0.55, 0.35, 0.85), "fg": Color(0.98, 0.95, 1.0)}
-		18: return {"bg": Color(0.2, 0.65, 0.35), "fg": Color(0.95, 1.0, 0.95)}
-		19: return {"bg": Color(0.42, 0.4, 0.38), "fg": Color(0.95, 0.93, 0.88)}
-		20: return {"bg": Color(0.72, 0.88, 0.95, 0.85), "fg": Color(0.08, 0.18, 0.28)}
-		22: return {"bg": Color(0.55, 0.78, 0.92), "fg": Color(0.04, 0.12, 0.2)}
-		24: return {"bg": Color(0.35, 0.85, 0.75), "fg": Color(0.05, 0.2, 0.18)}
-		25: return {"bg": Color(0.85, 0.35, 0.45), "fg": Color(1.0, 0.95, 0.95)}
-		26: return {"bg": Color(1.0, 0.45, 0.15), "fg": Color(0.15, 0.05, 0.0)}
-		27: return {"bg": Color(0.35, 0.32, 0.28), "fg": Color(0.95, 0.9, 0.75)}
-		28: return {"bg": Color(0.95, 0.85, 0.35), "fg": Color(0.2, 0.15, 0.05)}
-		29: return {"bg": Color(0.7, 0.85, 0.95), "fg": Color(0.1, 0.2, 0.3)}
-		30: return {"bg": Color(0.55, 0.45, 0.85), "fg": Color(0.95, 0.95, 1.0)}
-		31: return {"bg": Color(0.55, 0.5, 0.45), "fg": Color(0.95, 0.92, 0.88)}
-		32: return {"bg": Color(0.65, 0.6, 0.55), "fg": Color(0.15, 0.12, 0.1)}
-		33: return {"bg": Color(0.95, 0.9, 0.55), "fg": Color(0.25, 0.2, 0.05)}
-		34: return {"bg": Color(0.85, 0.25, 0.55), "fg": Color(1.0, 0.94, 0.97)}
-		35: return {"bg": Color(0.25, 0.7, 0.45), "fg": Color(0.94, 1.0, 0.96)}
-		36: return {"bg": Color(0.75, 0.45, 0.15), "fg": Color(1.0, 0.96, 0.9)}
-		37: return {"bg": Color(0.45, 0.55, 0.75), "fg": Color(0.94, 0.96, 1.0)}
-	return {"bg": Color(0.85, 0.85, 0.88), "fg": Color(0.1, 0.1, 0.1)}
+	## 与战斗 UI 共用 AmmoColors（类型默认色 + 单弹覆盖 + 旧 id 色）。
+	return AmmoColors.colors_for(ammo_id)
 
 
 func _set_codex_open(open: bool) -> void:

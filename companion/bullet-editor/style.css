@@ -67,3 +67,8 @@ button.small{min-height:40px;font-size:15px;padding:0 12px}
 #gate{min-height:80vh;display:flex;align-items:center}
 #gate .card{width:100%}
 .hidden{display:none!important}
+
+.typ{border-radius:999px;padding:1px 8px;font-weight:700}
+.typ-start{background:#15392b;color:#3ecf8e}
+.typ-mid{background:#3a3210;color:#f2cc38}
+.typ-end{background:#3a1514;color:#ff8a80}

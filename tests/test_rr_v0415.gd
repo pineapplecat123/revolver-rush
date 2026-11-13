@@ -16,8 +16,8 @@ func test_changelog_has_0_4_15_entry() -> void:
 
 
 func test_shop_pool_rarity_table_snapshot() -> void:
-	## 本分支商店池只剩平庸。
-	assert_eq(DataRegistry.all_ammo().size(), 1)
+	## 本分支商店池：平庸 + 清算四弹。
+	assert_eq(DataRegistry.all_ammo().size(), 5)
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WHITE_AMMO_ID))
 	assert_eq(DataRegistry.get_ammo_rarity(CombatConstants.WHITE_AMMO_ID), "common")
 

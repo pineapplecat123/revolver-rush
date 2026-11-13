@@ -95,7 +95,12 @@ func test_load_fills_magazine_from_bag() -> void:
 func test_fire_white_damages_civilian() -> void:
 	var cs := CombatState.new(7)
 	cs.start_rush(7)
-	cs.do_load()
+	# 开局袋混有 0 伤清算弹；本测试只验证平庸能打伤/击杀平民。
+	cs.magazine.clear()
+	cs.magazine.start_index = 0
+	for i in CombatConstants.MAGAZINE_SIZE:
+		cs.magazine.set_slot(i, CombatConstants.WHITE_AMMO_ID)
+	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	var enemy: EnemyInstance = cs.front_enemy()
 	assert_not_null(enemy)
 	assert_true(cs.do_fire())

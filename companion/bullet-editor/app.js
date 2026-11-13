@@ -188,7 +188,7 @@
     var badge = pend ? '<span class="badge pend">等待确认</span>'
       : (b.in_game ? '<span class="badge in">已入库</span>' : '<span class="badge out">未入库</span>');
     var meta = [];
-    meta.push('<span>类型 <b>' + (b.type ? esc(b.type) : '—') + '</b></span>');
+    meta.push('<span>类型 <b class="typ' + typClass(b.type) + '">' + (b.type ? esc(b.type) : '—') + '</b></span>');
     meta.push('<span>流派 <b>' + (b.school ? esc(b.school) : '—') + '</b></span>');
     meta.push('<span>伤害 <b>' + (b.damage !== '' && b.damage != null ? esc(b.damage) : '—') + '</b></span>');
     meta.push('<span>稀有度 <b>' + (b.rarity ? esc(b.rarity) : '—') + '</b></span>');
@@ -213,6 +213,13 @@
               : '<a class="btn small" href="' + esc(p.url) + '" target="_blank" rel="noopener">重新打开确认页</a>') +
       '<button type="button" class="small" data-drop="' + esc(p.rec.id) + '">移除</button></div>';
     return h.replace(/<\/div>$/, tail + '</div>');
+  }
+  function typClass(t) {
+    t = String(t || '').trim();
+    if (t === '开始') return ' typ-start';
+    if (t === '中间') return ' typ-mid';
+    if (t === '结束') return ' typ-end';
+    return '';
   }
   function uniqueValues(key) {
     var seen = {}, out = [];

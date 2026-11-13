@@ -162,15 +162,17 @@ func test_shop_and_rewards_never_offer_sins() -> void:
 		var shop := ShopState.new()
 		shop.begin(999, [CombatConstants.WHITE_AMMO_ID], 1, seed_v * 17)
 		for aid in shop.stock:
-			assert_eq(int(aid), CombatConstants.WHITE_AMMO_ID)
+			assert_true(DataRegistry.is_ammo_reward_eligible(int(aid)))
+			assert_false(DataRegistry.is_sin_ammo(int(aid)))
 		var cs := CombatState.new(seed_v + 9000)
 		cs.start_sandbox(seed_v + 9000, FireResolver.ID_WRATH)
 		for choice in cs.generate_reward_choices():
-			assert_eq(int(choice), CombatConstants.WHITE_AMMO_ID)
+			assert_true(DataRegistry.is_ammo_reward_eligible(int(choice)))
+			assert_false(DataRegistry.is_sin_ammo(int(choice)))
 	var rush := CombatState.new(42110)
 	rush.start_rush(42110, FireResolver.ID_LUST)
-	for x in rush.bag:
-		assert_eq(int(x), CombatConstants.WHITE_AMMO_ID)
+	assert_eq(rush.total_ammo_count(CombatConstants.WHITE_AMMO_ID), CombatConstants.STARTER_WHITE_COUNT)
+	assert_eq(rush.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	var sb := _sandbox(42111)
 	sb.dev_clear_bag()
 	sb.sandbox_add_ammo(FireResolver.ID_ENVY, 1, 0.0)

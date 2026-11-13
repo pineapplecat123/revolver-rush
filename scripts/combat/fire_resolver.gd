@@ -23,6 +23,12 @@ const ID_LUST := 34  ## 色欲
 const ID_ENVY := 35  ## 嫉妒
 const ID_GLUTTONY := 36  ## 暴食
 const ID_SLOTH := 37  ## 懒惰
+const ID_QISHI := CombatConstants.QISHI_AMMO_ID
+const ID_XULI := CombatConstants.XULI_AMMO_ID
+const ID_DIZENG := CombatConstants.DIZENG_AMMO_ID
+const ID_ZHONGSHEN := CombatConstants.ZHONGSHEN_AMMO_ID
+const XULI_MULT := 1.5
+const QISHI_BONUS := 0.1
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -68,14 +74,67 @@ static func base_damage_for(ammo_id: int, _order: Array[int], _index: int) -> in
 			return 3
 		ID_LUST, ID_ENVY, ID_GLUTTONY, ID_SLOTH:
 			return 2
+		ID_QISHI, ID_XULI, ID_ZHONGSHEN:
+			return 0
+		ID_DIZENG:
+			return 3
 		_:
+			var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+			if def.get("base_damage", null) != null:
+				return int(def["base_damage"])
 			return 0
 
 
+static func round_damage(value: float) -> int:
+	## 内部用 float 算；落到敌人/飘字时四舍五入（.5 远离 0）。
+	return int(round(value))
+
+
+static func compute_volley_damages(order: Array[int]) -> Array[float]:
+	## 按连射顺序算每格「计算伤害」（空仓为 0）。起势加法叠层，蓄力连乘挂起，
+	## 递增按 1 起槽位（空仓也占格），终审为此前计算伤害之和的一半。
+	## 最终伤害 = 基础或公式 × (1 + 0.1×此前起势数) × 待消耗蓄力倍率。
+	var qishi := 0
+	var xuli := 1.0
+	var prior := 0.0
+	var slot := 0
+	var out: Array[float] = []
+	for ammo_id in order:
+		slot += 1
+		if ammo_id == Magazine.EMPTY:
+			out.append(0.0)
+			continue
+		var base := _formula_base(ammo_id, slot, prior)
+		var pending: float = 1.0 if ammo_id == ID_XULI else xuli
+		var dmg: float = base * (1.0 + QISHI_BONUS * float(qishi)) * pending
+		if ammo_id == ID_XULI:
+			xuli *= XULI_MULT
+		else:
+			xuli = 1.0
+		if ammo_id == ID_QISHI:
+			qishi += 1
+		prior += dmg
+		out.append(dmg)
+	return out
+
+
+static func _formula_base(ammo_id: int, slot: int, prior_computed: float) -> float:
+	match ammo_id:
+		ID_QISHI, ID_XULI:
+			return 0.0
+		ID_DIZENG:
+			return 3.0 + float(slot) * 0.5
+		ID_ZHONGSHEN:
+			return prior_computed * 0.5
+		_:
+			return float(base_damage_for(ammo_id, [], 0))
+
+
 static func compute_shot_damages(order: Array[int]) -> Array[int]:
+	var floats: Array[float] = compute_volley_damages(order)
 	var out: Array[int] = []
-	for i in order.size():
-		out.append(base_damage_for(order[i], order, i))
+	for v in floats:
+		out.append(round_damage(v))
 	return out
 
 

@@ -407,6 +407,12 @@ var _focus_shots_fired: int = 0
 var _pebble_fuse_count: int = 0
 ## v0.4.22：一次开火打光已装弹。异步时剩余仓由 take_volley_shot 步进。
 var _volley_pending: bool = false
+## 一次点射连射会话：计划在开火前按当时转轮（含空仓）算好，打完再清。
+var _volley_session: bool = false
+var _volley_plan_ready: bool = false
+var _volley_plan: Array[float] = []
+var _volley_seq_snapshot: Array[int] = []
+var _volley_plan_index: int = 0
 ## v0.4.29：enemy_damaged 发出瞬间被打的那只（发完清空）+ 这一下是否致死
 var last_damaged_enemy: EnemyInstance = null
 var last_damage_lethal: bool = false
@@ -535,6 +541,8 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	_pebble_fuse_count = 0
 	_volley_pending = false
 	_volley_followup_pending = false
+	_volley_session = false
+	_reset_volley_plan()
 	shop_hold = false
 	gold_drops.clear()
 	_gold_drop_seq = 0
@@ -958,7 +966,7 @@ func _sync_temp_arrays() -> void:
 
 
 func _fill_starter_bag(_extra_sin: int = 0) -> void:
-	## 本分支开局只有平庸弹。
+	## 开局 24 平庸 + 四种清算弹各 2 发。extra_sin 参数保留给旧调用。
 	bag.clear()
 	bag_temp.clear()
 	bag_envy_copy.clear()
@@ -966,9 +974,8 @@ func _fill_starter_bag(_extra_sin: int = 0) -> void:
 	hand_temp.clear()
 	hand_envy_copy.clear()
 	hand_uid.clear()
-	# 本分支只留平庸弹。extra_sin 参数保留给旧调用，不再塞其它弹种。
-	for _i in CombatConstants.STARTER_PLAIN_ONLY_COUNT:
-		_bag_append(CombatConstants.WHITE_AMMO_ID, false)
+	for ammo_id in CombatConstants.starter_ammo_ids():
+		_bag_append(int(ammo_id), false)
 
 
 func _counts_as_permanent(ammo_id: int, temporary) -> bool:
@@ -1072,8 +1079,8 @@ func _bag_reset_pool(next_reset_count: int) -> Array:
 	## 从袋里扣掉，避免膛内弹被复制一份（旧 bug：膛内 6 发 + 整份基线 → 罪孽最多多出 6 颗）。
 	var pool: Array = []
 	if _combat_bag_baseline.is_empty():
-		for _i in CombatConstants.STARTER_WHITE_COUNT:
-			pool.append({"id": CombatConstants.WHITE_AMMO_ID, "temp": false})
+		for ammo_id in CombatConstants.starter_ammo_ids():
+			pool.append({"id": int(ammo_id), "temp": false})
 		for _i in CombatConstants.STARTER_SIN_COUNT:
 			pool.append({"id": selected_sin_ammo_id, "temp": false})
 	else:
@@ -3017,6 +3024,49 @@ func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -
 	_fire_damages = [dmg0] as Array[int]
 
 
+
+func _reset_volley_plan() -> void:
+	_volley_plan_ready = false
+	_volley_plan.clear()
+	_volley_seq_snapshot.clear()
+	_volley_plan_index = 0
+
+
+func _ensure_volley_plan() -> void:
+	if _volley_plan_ready:
+		return
+	if magazine == null:
+		_volley_seq_snapshot = [] as Array[int]
+		_volley_plan = [] as Array[float]
+	else:
+		_volley_seq_snapshot = magazine.volley_sequence()
+		_volley_plan = FireResolver.compute_volley_damages(_volley_seq_snapshot)
+	_volley_plan_index = 0
+	_volley_plan_ready = true
+
+
+func _advance_volley_plan(steps: int) -> void:
+	if not _volley_plan_ready or steps <= 0:
+		return
+	_volley_plan_index = mini(_volley_plan_index + steps, _volley_plan.size())
+
+
+func _planned_damages_for_fire_order(full_order: Array[int]) -> Array[int]:
+	## 把开火前按含空仓顺序算好的伤害，对齐到只含已装弹的 fire_order。
+	_ensure_volley_plan()
+	var out: Array[int] = []
+	var i: int = _volley_plan_index
+	for _ammo in full_order:
+		while i < _volley_seq_snapshot.size() and int(_volley_seq_snapshot[i]) == Magazine.EMPTY:
+			i += 1
+		if i < _volley_plan.size():
+			out.append(FireResolver.round_damage(float(_volley_plan[i])))
+			i += 1
+		else:
+			out.append(0)
+	return out
+
+
 func begin_fire() -> bool:
 	## rush!：每次只打锤位方向最近的 1 发；打完该发后收束，由 UI 进怪回合。
 	## 伤害仍按当前匣内 fire_order 全文计算（旧彩弹组合修正），但队列仅含首发。
@@ -3026,6 +3076,8 @@ func begin_fire() -> bool:
 	# 玩家主动开火开启新链；额外轮内的 begin_fire 保留累计授予数
 	if not _in_gold_extra_round:
 		_extra_autofires_granted_this_chain = 0
+	if not _volley_session and not _volley_pending and not _volley_followup_pending:
+		_reset_volley_plan()
 	var ui_fuse: int = _pebble_fuse_count
 	_reset_fire_session()
 	# v0.4.34：无 UI 动画时同步合并；UI 已逐步合并则恢复 fuse 计数
@@ -3038,7 +3090,7 @@ func begin_fire() -> bool:
 	var full_order: Array[int] = magazine.fire_order()
 	if full_order.is_empty():
 		return false
-	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order)
+	var full_dmg: Array[int] = _planned_damages_for_fire_order(full_order)
 	_prepare_point_fire_damages(full_order, full_dmg)
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
@@ -3086,6 +3138,8 @@ func fire_next_shot() -> bool:
 		skipped += 1
 		guard += 1
 	last_blank_skip_steps = skipped
+	if skipped > 0:
+		_advance_volley_plan(skipped)
 	if magazine == null or magazine.is_empty():
 		last_shot_was_blank = skipped > 0
 		last_fired_slot = magazine.chamber_at_fire_port() if magazine != null else -1
@@ -3113,6 +3167,7 @@ func fire_next_shot() -> bool:
 		return false
 
 	last_shot_was_blank = false
+	_advance_volley_plan(1)
 	last_fired_slot = hammer
 	var shot_temp: float = magazine.slot_temp_life(hammer)
 	var shot_envy: bool = magazine.is_slot_envy_copy(hammer)
@@ -3569,6 +3624,9 @@ func _hit_enemy_with_elements(
 	e: EnemyInstance, dmg: int, ammo_id: int, gas: bool, fire: bool, water: bool, thunder: bool,
 	damage_kind: String = "", explosive: bool = false, allow_explosive_aoe: bool = true
 ) -> int:
+	if dmg <= 0:
+		# 0 伤弹仍出膛，但不算一次造成伤害的命中（不扣血、不喷血、不挂状态）。
+		return 0
 	var was_burning: bool = e.burn_stacks > 0
 	var use_explosive: bool = allow_explosive_aoe and (explosive or _muzzle_explosive)
 	var hit_dmg: int = dmg
@@ -4176,8 +4234,9 @@ func _auto_load_and_fire_once() -> bool:
 		_log("额外装填回合：无弹药可射。")
 		return false
 	# 同步打 1 发（与 begin_fire 单发一致）
+	_reset_volley_plan()
 	var full_order: Array[int] = magazine.fire_order()
-	var full_dmg: Array[int] = FireResolver.compute_shot_damages(full_order)
+	var full_dmg: Array[int] = _planned_damages_for_fire_order(full_order)
 	_prepare_point_fire_damages(full_order, full_dmg)
 	_fire_index = 0
 	_set_phase(Phase.FIRING)
@@ -4246,6 +4305,8 @@ func _auto_load_and_fire_once() -> bool:
 func do_fire() -> bool:
 	## 测试/同步路径：把匣内剩余弹一发发打完。
 	## 每发后若有超级回合/金色额外轮，同步打完额外轮；怪回合 defer 到整段打完（避免测试被怪打死）。
+	_volley_session = true
+	_reset_volley_plan()
 	var any := false
 	while can_fire():
 		if not begin_fire():
@@ -4258,6 +4319,8 @@ func do_fire() -> bool:
 			_run_pending_gold_autofires("do_fire")
 		if phase == Phase.WON or phase == Phase.LOST:
 			_post_fire_enemy_pending = false
+			_volley_session = false
+			_reset_volley_plan()
 			return any
 		# 吞掉单发后的怪回合标记，最后统一打一次
 		if _post_fire_enemy_pending:
@@ -4268,6 +4331,8 @@ func do_fire() -> bool:
 		if not _check_end_after_player() and not auto_enemy_advance:
 			_run_enemy_turn()
 		_emit()
+	_volley_session = false
+	_reset_volley_plan()
 	return any
 
 
@@ -4288,11 +4353,17 @@ func fire_tap(resolve_sync: bool = true) -> Array:
 	if not resolve_sync and volley_port_empty():
 		# v0.4.29：一键连射从空仓开始 = 第一拍空响，不快跳到下一颗；由 UI 逐拍 take_volley_blank_beat。
 		commit_load_session_if_active()
+		_reset_volley_plan()
+		_ensure_volley_plan()
+		_volley_session = true
 		_volley_pending = true
 		_volley_followup_pending = true
 		player_fire_gate_remaining = CombatConstants.MIN_FIRE_INTERVAL_SEC
 		return shots
+	_volley_session = true
+	_reset_volley_plan()
 	if not begin_fire():
+		_volley_session = false
 		return shots
 	_fire_tap_one(shots)
 	# 墓碑幽灵连射已在 fire_next_shot 非 paced 路径或 finalize 后由 _pending_tombstone_ghost_shots 注入
@@ -4319,6 +4390,7 @@ func fire_tap(resolve_sync: bool = true) -> Array:
 			commit_load_session_if_active()
 		if magazine == null or magazine.is_empty() or not can_fire():
 			break
+		_reset_volley_plan()
 		if not begin_fire():
 			break
 		_fire_tap_one(shots, true)
@@ -4330,6 +4402,8 @@ func fire_tap(resolve_sync: bool = true) -> Array:
 	elif _post_fire_enemy_pending:
 		resolve_post_fire_enemy_turn()
 	_arm_player_fire_gate(shots)
+	_volley_session = false
+	_reset_volley_plan()
 	return shots
 
 
@@ -4357,6 +4431,8 @@ func take_volley_blank_beat() -> bool:
 	## v0.4.29：连射里击发位是空仓 = 正常的一拍：不出弹、不结算，只把转轮转一格（UI 按整拍间隔播）。
 	if not _volley_pending or not volley_port_empty():
 		return false
+	_ensure_volley_plan()
+	_advance_volley_plan(1)
 	_advance_cylinder_one_step()
 	_log("空仓空响一拍（转到槽 %d）。" % magazine.start_index)
 	_emit()
@@ -4382,6 +4458,8 @@ func take_volley_shot() -> Array:
 
 func _finish_volley() -> void:
 	_volley_pending = false
+	_volley_session = false
+	_reset_volley_plan()
 	if not _volley_followup_pending:
 		return
 	_volley_followup_pending = false

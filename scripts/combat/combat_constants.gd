@@ -6,6 +6,10 @@ const PLAYER_CELL := 0
 const MAGAZINE_SIZE := 6
 const PLAYER_MAX_HP := 20
 const WHITE_AMMO_ID := 1
+const QISHI_AMMO_ID := 40  ## 起势弹
+const XULI_AMMO_ID := 41  ## 蓄力弹
+const DIZENG_AMMO_ID := 42  ## 递增弹
+const ZHONGSHEN_AMMO_ID := 43  ## 终审弹
 const CIVILIAN_ENEMY_ID := 1
 const ZOMBIE_ENEMY_ID := 4
 const SUPER_ZOMBIE_ENEMY_ID := 5
@@ -15,13 +19,28 @@ const SANDBOX_DUMMY_DEFAULT_HP := 999
 const SANDBOX_DEFAULT_DUMMY_CELLS: Array[int] = [3, 5, 7]
 ## v0.4.20 沙盒伤害统计：DPS 与「最近单次最大」都看最近这么多战斗秒。
 const SANDBOX_DPS_WINDOW_SEC := 5.0
-## 本分支开局袋只有平庸弹。
+## 开局袋：24 平庸 + 清算弹各 2 发。
 const STARTER_WHITE_COUNT := 24
 const STARTER_SIN_COUNT := 0
-const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT
+const STARTER_CLEARING_EACH := 2
+const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + 4 * STARTER_CLEARING_EACH
 ## 「手」区容量；倒出最多抽这么多。
 const HAND_SIZE := 6
 const STARTER_PLAIN_ONLY_COUNT := STARTER_BAG_TOTAL
+
+
+static func starter_clearing_ids() -> Array[int]:
+	return [QISHI_AMMO_ID, XULI_AMMO_ID, DIZENG_AMMO_ID, ZHONGSHEN_AMMO_ID]
+
+
+static func starter_ammo_ids() -> Array[int]:
+	var out: Array[int] = []
+	for _i in STARTER_WHITE_COUNT:
+		out.append(WHITE_AMMO_ID)
+	for ammo_id in starter_clearing_ids():
+		for _j in STARTER_CLEARING_EACH:
+			out.append(ammo_id)
+	return out
 
 ## 战斗胜利奖励（灰盒）
 const REWARD_BASE_GOLD := 10

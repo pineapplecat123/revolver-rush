@@ -9,9 +9,13 @@ func before_each() -> void:
 func test_plain_only_starter_bag() -> void:
 	var cs := CombatState.new()
 	cs.start_rush(1, FireResolver.ID_WRATH)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_PLAIN_ONLY_COUNT)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
+	var counts := {}
 	for id in cs.bag:
-		assert_eq(int(id), CombatConstants.WHITE_AMMO_ID)
+		counts[int(id)] = int(counts.get(int(id), 0)) + 1
+	assert_eq(int(counts.get(CombatConstants.WHITE_AMMO_ID, 0)), CombatConstants.STARTER_WHITE_COUNT)
+	for ammo_id in CombatConstants.starter_clearing_ids():
+		assert_eq(int(counts.get(ammo_id, 0)), CombatConstants.STARTER_CLEARING_EACH, "starter count id %s" % ammo_id)
 	assert_true(cs.hand.is_empty())
 
 
@@ -86,7 +90,7 @@ func test_reward_pool_plain_only() -> void:
 	var choices: Array[int] = cs.generate_reward_choices()
 	assert_eq(choices.size(), CombatConstants.REWARD_CHOICE_COUNT)
 	for id in choices:
-		assert_eq(int(id), CombatConstants.WHITE_AMMO_ID)
+		assert_true(DataRegistry.is_ammo_reward_eligible(int(id)), "reward id %s" % id)
 
 
 func test_ui_no_autoload_button_and_hand_scatter() -> void:

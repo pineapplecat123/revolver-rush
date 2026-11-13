@@ -11,6 +11,58 @@
       "tags": [],
       "enabled_in_combat": true,
       "blurb": "常规平庸"
+    },
+    {
+      "id": 40,
+      "name": "起势弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "special": "射击后，当前弹夹内后续子弹伤害+10％，多个本子弹效果可以叠加。",
+      "tags": ["开始", "清算"],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "后续伤害+10％，可叠加"
+    },
+    {
+      "id": 41,
+      "name": "蓄力弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "special": "发射后，下一颗子弹伤害×1.5。多个本子弹效果可以叠加，例如两颗本子弹连在一起，效果为下一颗子弹伤害×2.25。空仓不消耗倍率。",
+      "tags": ["开始", "清算"],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "下一发伤害×1.5，可连乘"
+    },
+    {
+      "id": 42,
+      "name": "递增弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 3,
+      "base_damage_mode": "slot",
+      "special": "在弹夹槽位越靠后伤害越高，计算公式为伤害=基础伤害+（槽位×0.5），例如第6格就是3+(6×0.5)=6。槽位按本轮连射开火顺序计算，空仓也占一格。",
+      "tags": ["中间", "清算"],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "越靠后越高，3+槽位×0.5"
+    },
+    {
+      "id": 43,
+      "name": "终审弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": null,
+      "base_damage_mode": "formula",
+      "special": "伤害等于当前弹夹已开火子弹总伤害的一半（含加成与溢出，不受敌人剩余生命上限）。例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害。",
+      "tags": ["结束", "清算"],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "已开火总伤害的一半"
     }
   ]
 }

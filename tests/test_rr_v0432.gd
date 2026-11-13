@@ -115,7 +115,7 @@ func test_codex_grid_and_detail() -> void:
 			cells += 1
 			if first_id < 0:
 				first_id = int(str(c.name).get_slice("_", 1))
-	assert_eq(cells, 1, "图鉴只剩平庸")
+	assert_eq(cells, DataRegistry.all_ammo().size(), "图鉴列出全部启用弹药")
 	menu._on_codex_cell_pressed(first_id)
 	await wait_process_frames(1)
 	assert_true(menu.get_node("%CodexDetailPanel").visible)
