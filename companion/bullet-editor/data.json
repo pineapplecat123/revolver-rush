@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T14:06:41+08:00",
+  "updated_at": "2026-11-13T14:25:28+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -11,9 +11,9 @@
       "rarity": "",
       "effect": "射击后，当前弹夹内后续子弹伤害+10％，多个本子弹效果可以叠加",
       "notes": "",
-      "in_game": false,
+      "in_game": true,
       "created_at": "2026-11-13T13:31:05+08:00",
-      "updated_at": "2026-11-13T13:52:38+08:00",
+      "updated_at": "2026-11-13T14:25:28+08:00",
       "school": "清算"
     },
     {
@@ -24,9 +24,9 @@
       "rarity": "",
       "effect": "发射后，下一颗子弹伤害×1.5。多个本子弹效果可以叠加，例如两颗本子弹连在一起，效果为下一颗子弹伤害×2.25",
       "notes": "",
-      "in_game": false,
+      "in_game": true,
       "created_at": "2026-11-13T13:35:44+08:00",
-      "updated_at": "2026-11-13T13:52:50+08:00",
+      "updated_at": "2026-11-13T14:25:28+08:00",
       "school": "清算"
     },
     {
@@ -38,9 +38,9 @@
       "school": "清算",
       "effect": "在弹夹槽位越靠后伤害越高，计算公式为伤害=基础伤害+（槽位×0.5），例如第6格就是3+(6×0.5)=6",
       "notes": "",
-      "in_game": false,
+      "in_game": true,
       "created_at": "2026-11-13T14:03:32+08:00",
-      "updated_at": "2026-11-13T14:03:32+08:00"
+      "updated_at": "2026-11-13T14:25:28+08:00"
     },
     {
       "id": "b20261113-140632-9cdm",
@@ -51,9 +51,9 @@
       "school": "清算",
       "effect": "伤害等于当前弹夹已开火子弹总伤害的一半，例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害",
       "notes": "",
-      "in_game": false,
+      "in_game": true,
       "created_at": "2026-11-13T14:06:41+08:00",
-      "updated_at": "2026-11-13T14:06:41+08:00"
+      "updated_at": "2026-11-13T14:25:28+08:00"
     }
   ]
 }
