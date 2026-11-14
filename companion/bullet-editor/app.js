@@ -192,6 +192,8 @@
     meta.push('<span>流派 <b>' + (b.school ? esc(b.school) : '—') + '</b></span>');
     meta.push('<span>伤害 <b>' + (b.damage !== '' && b.damage != null ? esc(b.damage) : '—') + '</b></span>');
     meta.push('<span>稀有度 <b>' + (b.rarity ? esc(b.rarity) : '—') + '</b></span>');
+    meta.push(colorChip(b.muzzle_color || defaultMuzzleColor(b.name, b.type), '枪口'));
+    meta.push(colorChip(b.bullet_color || defaultBulletColor(b.type), '子弹'));
     var h = '<div class="item' + (flashIds[b.id] ? ' flash' : '') + (editingId && editingId === b.id ? ' editing' : '') + '"><div class="top"><div class="name">' + esc(b.name) + '</div>' + badge + '</div>';
     h += '<div class="meta">' + meta.join('') + '</div>';
     if (b.effect) h += '<div class="desc">' + esc(b.effect) + '</div>';
@@ -220,6 +222,71 @@
     if (t === '中间') return ' typ-mid';
     if (t === '结束') return ' typ-end';
     return '';
+  }
+  var TYPE_BULLET_COLOR = { '开始': '#52C76B', '中间': '#F2CC38', '结束': '#DB3D38' };
+  var DEFAULT_BULLET_COLOR = '#EAEAEF';
+  var NAME_MUZZLE_COLOR = { '起势弹': '#4AE06A', '蓄力弹': '#2CC4B4' };
+  var COLOR_KEYS = ['muzzle_color', 'bullet_color'];
+  function normalizeHex(v, fallback) {
+    var s = String(v == null ? '' : v).trim();
+    if (!s) return fallback || '';
+    if (s.charAt(0) !== '#') s = '#' + s;
+    if (!/^#[0-9A-Fa-f]{6}$/.test(s)) return fallback || '';
+    return s.toUpperCase();
+  }
+  function defaultBulletColor(type) {
+    return TYPE_BULLET_COLOR[String(type || '').trim()] || DEFAULT_BULLET_COLOR;
+  }
+  function defaultMuzzleColor(name, type) {
+    var n = String(name || '').trim();
+    if (NAME_MUZZLE_COLOR[n]) return NAME_MUZZLE_COLOR[n];
+    return defaultBulletColor(type);
+  }
+  function colorChip(hex, label) {
+    var c = normalizeHex(hex, '');
+    if (!c) return '<span>' + label + ' <b>—</b></span>';
+    return '<span><span class="swatch" style="background:' + c + '"></span>' + label + ' <b>' + c + '</b></span>';
+  }
+  function colorVal(key) {
+    var el = $('f_' + key);
+    return normalizeHex(el ? el.value : '', defaultBulletColor($('f_type') ? $('f_type').value : ''));
+  }
+  function setColor(key, hex) {
+    var fallback = key === 'muzzle_color'
+      ? defaultMuzzleColor($('f_name') ? $('f_name').value : '', $('f_type') ? $('f_type').value : '')
+      : defaultBulletColor($('f_type') ? $('f_type').value : '');
+    var v = normalizeHex(hex, fallback);
+    var picker = $('f_' + key), hexEl = $('f_' + key + '_hex');
+    if (picker) picker.value = v.toLowerCase();
+    if (hexEl) hexEl.value = v;
+  }
+  var lastBulletDefault = '', lastMuzzleDefault = '';
+  function rememberColorDefaults() {
+    lastBulletDefault = defaultBulletColor($('f_type').value);
+    lastMuzzleDefault = defaultMuzzleColor($('f_name').value, $('f_type').value);
+  }
+  function maybeApplyColorDefaults() {
+    var bDef = defaultBulletColor($('f_type').value);
+    var mDef = defaultMuzzleColor($('f_name').value, $('f_type').value);
+    var curB = colorVal('bullet_color');
+    var curM = colorVal('muzzle_color');
+    if (!curB || curB === lastBulletDefault) setColor('bullet_color', bDef);
+    if (!curM || curM === lastMuzzleDefault) setColor('muzzle_color', mDef);
+    rememberColorDefaults();
+  }
+  function bindColorField(key) {
+    var picker = $('f_' + key), hexEl = $('f_' + key + '_hex');
+    if (!picker || !hexEl) return;
+    picker.addEventListener('input', function () {
+      setColor(key, picker.value);
+      rememberColorDefaults();
+      save(K_DRAFT, formVals());
+    });
+    hexEl.addEventListener('input', function () {
+      var v = normalizeHex(hexEl.value, '');
+      if (v) { picker.value = v.toLowerCase(); hexEl.value = v; rememberColorDefaults(); save(K_DRAFT, formVals()); }
+    });
+    hexEl.addEventListener('blur', function () { setColor(key, hexEl.value); rememberColorDefaults(); });
   }
   function uniqueValues(key) {
     var seen = {}, out = [];
@@ -364,9 +431,18 @@
 
   // ---------- form ----------
   var FIELDS = ['name', 'type', 'damage', 'rarity', 'school', 'effect', 'notes'];
-  function formVals() { var v = {}; FIELDS.forEach(function (f) { v[f] = $('f_' + f).value.trim(); }); return v; }
+  function formVals() {
+    var v = {};
+    FIELDS.forEach(function (f) { v[f] = $('f_' + f).value.trim(); });
+    COLOR_KEYS.forEach(function (k) { v[k] = colorVal(k); });
+    return v;
+  }
   function fillForm(v) {
     FIELDS.forEach(function (f) { $('f_' + f).value = v && v[f] != null ? v[f] : ''; });
+    var name = v && v.name, type = v && v.type;
+    setColor('muzzle_color', (v && v.muzzle_color) || defaultMuzzleColor(name, type));
+    setColor('bullet_color', (v && v.bullet_color) || defaultBulletColor(type));
+    rememberColorDefaults();
   }
   function findBullet(id) {
     if (!id) return null;
@@ -413,8 +489,12 @@
     updateFormMode();
     render();
   }
-  (function restoreDraft() { var d = load(K_DRAFT, null); if (d) fillForm(d); })();
+  (function restoreDraft() { var d = load(K_DRAFT, null); if (d) fillForm(d); else rememberColorDefaults(); })();
   updateFormMode();
+  bindColorField('muzzle_color');
+  bindColorField('bullet_color');
+  $('f_type').addEventListener('input', maybeApplyColorDefaults);
+  $('f_name').addEventListener('input', maybeApplyColorDefaults);
   $('bulletForm').addEventListener('input', function () { save(K_DRAFT, formVals()); checkDup(); $('formErr').classList.add('hidden'); });
   $('cancelEdit').addEventListener('click', function () { exitEdit(true); });
 
@@ -444,7 +524,7 @@
   function buildRec() {
     var v = formVals();
     var now = iso8(new Date());
-    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, school: v.school, effect: v.effect, notes: v.notes, in_game: false, created_at: now, updated_at: now };
+    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, school: v.school, effect: v.effect, notes: v.notes, muzzle_color: v.muzzle_color, bullet_color: v.bullet_color, in_game: false, created_at: now, updated_at: now };
     if (editingId) {
       var cur = findBullet(editingId);
       if (cur && cur.created_at) rec.created_at = cur.created_at;

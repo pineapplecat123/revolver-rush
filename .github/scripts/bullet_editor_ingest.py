@@ -3,7 +3,9 @@
 
 Upsert by id for both inbox files and env BULLET_JSON (workflow_dispatch):
   new id     -> append a row (in_game=false, created_at and updated_at set)
-  existing id -> update name/type/damage/rarity/school/effect/notes only;
+  existing id -> update name/type/damage/rarity/school/effect/notes
+                 and muzzle_color/bullet_color when the payload includes them;
+                 omitted colors leave the existing values in place.
                  in_game is always set false; created_at and id are kept;
                  updated_at is bumped.
 Client-supplied in_game / created_at / updated_at are ignored.
@@ -25,6 +27,8 @@ DATA = BASE / "data.json"
 INBOX = BASE / "inbox"
 TZ = timezone(timedelta(hours=8))
 TEXT_FIELDS = {"name": 40, "type": 20, "damage": 20, "rarity": 20, "school": 20, "effect": 1000, "notes": 1000}
+COLOR_FIELDS = ("muzzle_color", "bullet_color")
+COLOR_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 MAX_INPUT = 8000
 MAX_ROWS = 2000
@@ -32,6 +36,20 @@ MAX_ROWS = 2000
 
 def now_iso() -> str:
     return datetime.now(TZ).replace(microsecond=0).isoformat()
+
+
+def normalize_hex(value):
+    """Return #RRGGBB or None if empty. Invalid values return False."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    if not s.startswith("#"):
+        s = "#" + s
+    if not COLOR_RE.match(s):
+        return False
+    return "#" + s[1:].upper()
 
 
 def clean_record(rec, fallback_id: str = ""):
@@ -43,6 +61,15 @@ def clean_record(rec, fallback_id: str = ""):
     clean = {k: str(rec.get(k) if rec.get(k) is not None else "").strip()[:n] for k, n in TEXT_FIELDS.items()}
     if not clean["name"]:
         raise ValueError("missing name")
+    for key in COLOR_FIELDS:
+        if key not in rec:
+            continue
+        col = normalize_hex(rec.get(key))
+        if col is False:
+            continue
+        if col is None:
+            continue
+        clean[key] = col
     return rid, clean
 
 

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14161d">
 <title>子弹数据</title>
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div class="wrap">
@@ -66,6 +66,23 @@
 
         <label for="f_notes">备注</label>
         <textarea id="f_notes" name="notes" maxlength="1000"></textarea>
+
+        <div class="row2">
+          <div>
+            <label for="f_muzzle_color">枪口状态颜色</label>
+            <div class="color-field">
+              <input id="f_muzzle_color" name="muzzle_color" type="color" value="#52C76B" aria-label="枪口状态颜色">
+              <input id="f_muzzle_color_hex" class="color-hex" maxlength="7" spellcheck="false" autocapitalize="off" autocomplete="off" value="#52C76B" aria-label="枪口状态颜色色值">
+            </div>
+          </div>
+          <div>
+            <label for="f_bullet_color">子弹颜色</label>
+            <div class="color-field">
+              <input id="f_bullet_color" name="bullet_color" type="color" value="#52C76B" aria-label="子弹颜色">
+              <input id="f_bullet_color_hex" class="color-hex" maxlength="7" spellcheck="false" autocapitalize="off" autocomplete="off" value="#52C76B" aria-label="子弹颜色色值">
+            </div>
+          </div>
+        </div>
 
         <div id="editNote" class="hint warn hidden">保存后会回到「未入库」，方便按新数据再做进游戏。</div>
         <div id="formErr" class="hint warn hidden"></div>
@@ -130,6 +147,6 @@
     </section>
   </main>
 </div>
-<script src="app.js?v=6"></script>
+<script src="app.js?v=7"></script>
 </body>
 </html>

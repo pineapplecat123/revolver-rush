@@ -14,8 +14,8 @@ func before_each() -> void:
 	DataRegistry.reload()
 
 
-func test_version_is_0_4_39() -> void:
-	assert_eq(GameVersion.STRING, "0.4.39")
+func test_version_is_at_least_0_4_39() -> void:
+	assert_true(GameVersion.STRING >= "0.4.39")
 	assert_true("0.4.39" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 

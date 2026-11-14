@@ -1,7 +1,7 @@
 {
-  "_schema": "v1. bullets[]: id, name, type, damage, rarity, effect, notes, in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
+  "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-13T22:31:42+08:00",
+  "updated_at": "2026-11-14T10:07:49+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -13,8 +13,10 @@
       "notes": "",
       "in_game": true,
       "created_at": "2026-11-13T13:31:05+08:00",
-      "updated_at": "2026-11-13T14:25:28+08:00",
-      "school": "清算"
+      "updated_at": "2026-11-14T10:07:49+08:00",
+      "school": "清算",
+      "bullet_color": "#52C76B",
+      "muzzle_color": "#4AE06A"
     },
     {
       "id": "b20261113-133535-ztag",
@@ -26,8 +28,10 @@
       "notes": "",
       "in_game": true,
       "created_at": "2026-11-13T13:35:44+08:00",
-      "updated_at": "2026-11-13T14:25:28+08:00",
-      "school": "清算"
+      "updated_at": "2026-11-14T10:07:49+08:00",
+      "school": "清算",
+      "bullet_color": "#52C76B",
+      "muzzle_color": "#2CC4B4"
     },
     {
       "id": "b20261113-140323-hdjn",
@@ -40,7 +44,9 @@
       "notes": "",
       "in_game": true,
       "created_at": "2026-11-13T14:03:32+08:00",
-      "updated_at": "2026-11-13T14:25:28+08:00"
+      "updated_at": "2026-11-14T10:07:49+08:00",
+      "bullet_color": "#F2CC38",
+      "muzzle_color": "#F2CC38"
     },
     {
       "id": "b20261113-140632-9cdm",
@@ -53,7 +59,9 @@
       "notes": "",
       "in_game": true,
       "created_at": "2026-11-13T14:06:41+08:00",
-      "updated_at": "2026-11-13T14:25:28+08:00"
+      "updated_at": "2026-11-14T10:07:49+08:00",
+      "bullet_color": "#DB3D38",
+      "muzzle_color": "#DB3D38"
     },
     {
       "id": "b20261113-223134-uzoy",
@@ -66,7 +74,9 @@
       "notes": "",
       "in_game": false,
       "created_at": "2026-11-13T22:31:42+08:00",
-      "updated_at": "2026-11-13T22:31:42+08:00"
+      "updated_at": "2026-11-14T10:07:49+08:00",
+      "bullet_color": "#F2CC38",
+      "muzzle_color": "#F2CC38"
     }
   ]
 }

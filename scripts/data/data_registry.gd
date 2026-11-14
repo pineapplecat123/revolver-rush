@@ -173,3 +173,84 @@ func format_ammo_reward_blurb(ammo_id: int, max_chars: int = 28) -> String:
 		return blurb
 	return "伤%s · %s" % [str(dmg), blurb]
 
+
+func muzzle_status_of(ammo_id: int) -> Dictionary:
+	## 子弹定义里的枪口状态（可选）。没有声明则返回空。
+	var def: Dictionary = get_ammo(ammo_id)
+	if def.is_empty():
+		return {}
+	var raw = def.get("muzzle_status", null)
+	if raw == null or typeof(raw) != TYPE_DICTIONARY or (raw as Dictionary).is_empty():
+		return {}
+	var src: Dictionary = raw
+	var out := src.duplicate(true)
+	if not out.has("id") or str(out.get("id", "")).strip_edges() == "":
+		out["id"] = str(def.get("name", ammo_id))
+	if not out.has("name") or str(out.get("name", "")).strip_edges() == "":
+		out["name"] = str(def.get("name", ""))
+	var label := str(out.get("label", "")).strip_edges()
+	if label.is_empty():
+		label = _default_muzzle_status_label(str(out.get("name", "")))
+	out["label"] = label
+	if not out.has("duration_type") or str(out.get("duration_type", "")).strip_edges() == "":
+		out["duration_type"] = "rest_of_volley"
+	var explicit := _muzzle_status_color(out.get("color", null), ammo_id)
+	if explicit.a > 0.0 and out.get("color", null) != null and str(out.get("color", "")).strip_edges() != "":
+		out["color"] = explicit
+	else:
+		out["color"] = AmmoColors.muzzle_color(ammo_id)
+	return out
+
+
+static func _default_muzzle_status_label(name: String) -> String:
+	var s := name.strip_edges()
+	if s.ends_with("弹"):
+		s = s.substr(0, s.length() - 1)
+	if s.length() > 2:
+		s = s.substr(0, 2)
+	return s
+
+
+static func _muzzle_status_color(raw, _ammo_id: int) -> Color:
+	return AmmoColors.parse_hex_color(raw)
+
+
+static func format_muzzle_status_duration(entry: Dictionary) -> String:
+	var kind := str(entry.get("duration_type", "rest_of_volley"))
+	if kind == "until_consumed":
+		return "下一发"
+	var rem: int = int(entry.get("remaining", 0))
+	if rem <= 0:
+		return "后续子弹"
+	return "后续 %d 发子弹" % rem
+
+
+static func format_muzzle_status_effect(entry: Dictionary) -> String:
+	var kind := str(entry.get("effect_kind", ""))
+	var stacks: int = maxi(int(entry.get("stacks", 1)), 1)
+	var per: float = float(entry.get("effect_per_stack", 0.0))
+	if kind == "damage_pct":
+		var pct: int = int(round(per * 100.0 * float(stacks)))
+		return "伤害+%d%%" % pct
+	if kind == "damage_mult":
+		var mul: float = 1.0
+		for _i in stacks:
+			mul *= per if per > 0.0 else 1.0
+		return "下一发×%s" % _format_muzzle_mult(mul)
+	var custom := str(entry.get("effect", "")).strip_edges()
+	if not custom.is_empty():
+		return custom
+	return ""
+
+
+static func _format_muzzle_mult(v: float) -> String:
+	var rounded: float = snapped(v, 0.01)
+	if is_equal_approx(rounded, float(int(round(rounded)))):
+		return str(int(round(rounded)))
+	var s := "%.2f" % rounded
+	while s.ends_with("0"):
+		s = s.substr(0, s.length() - 1)
+	if s.ends_with("."):
+		s = s.substr(0, s.length() - 1)
+	return s
+

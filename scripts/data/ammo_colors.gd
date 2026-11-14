@@ -19,6 +19,9 @@ static func colors_for(ammo_id: int) -> Dictionary:
 		return {"bg": Color(0.28, 0.28, 0.3), "fg": Color(0.95, 0.55, 0.55)}
 	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
 	if not def.is_empty():
+		var from_bullet := parse_hex_color(def.get("bullet_color", null))
+		if from_bullet.a > 0.0:
+			return {"bg": from_bullet, "fg": _contrast_fg(from_bullet)}
 		var over := _parse_override(def.get("color", null))
 		if not over.is_empty():
 			return over
@@ -26,6 +29,38 @@ static func colors_for(ammo_id: int) -> Dictionary:
 		if tag != "" and TAG_DEFAULTS.has(tag):
 			return TAG_DEFAULTS[tag]
 	return _legacy_id_colors(ammo_id)
+
+
+static func muzzle_color(ammo_id: int) -> Color:
+	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+	var named := parse_hex_color(def.get("muzzle_color", null))
+	if named.a > 0.0:
+		return named
+	return colors_for(ammo_id).get("bg", Color(0.32, 0.78, 0.42))
+
+
+static func parse_hex_color(raw) -> Color:
+	## 缺省/无法解析时返回 a=0，调用方据此回退。
+	if raw == null:
+		return Color(0, 0, 0, 0)
+	if raw is Color:
+		return raw
+	if raw is Array and raw.size() >= 3:
+		var a: float = float(raw[3]) if raw.size() > 3 else 1.0
+		return Color(float(raw[0]), float(raw[1]), float(raw[2]), a)
+	var s := str(raw).strip_edges()
+	if s.is_empty():
+		return Color(0, 0, 0, 0)
+	if not s.begins_with("#") and s.length() == 6:
+		s = "#" + s
+	if s.begins_with("#") and (s.length() == 7 or s.length() == 9):
+		return Color.from_string(s, Color(0, 0, 0, 0))
+	return Color(0, 0, 0, 0)
+
+
+static func _contrast_fg(bg: Color) -> Color:
+	var lum: float = bg.r * 0.3 + bg.g * 0.6 + bg.b * 0.1
+	return Color(0.08, 0.08, 0.1) if lum > 0.55 else Color(0.96, 0.97, 0.94)
 
 
 static func type_tag_of(def: Dictionary) -> String:

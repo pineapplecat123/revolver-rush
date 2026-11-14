@@ -72,3 +72,13 @@ button.small{min-height:40px;font-size:15px;padding:0 12px}
 .typ-start{background:#15392b;color:#3ecf8e}
 .typ-mid{background:#3a3210;color:#f2cc38}
 .typ-end{background:#3a1514;color:#ff8a80}
+
+.color-field{display:flex;align-items:center;gap:8px}
+.color-field input[type=color]{width:56px;min-width:56px;max-width:56px;height:48px;min-height:48px;padding:3px;
+  cursor:pointer;flex:none}
+.color-field input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+.color-field input[type=color]::-webkit-color-swatch{border:0;border-radius:8px}
+.color-field .color-hex{flex:1;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  letter-spacing:.04em;text-transform:uppercase}
+.swatch{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid rgba(255,255,255,.35);
+  vertical-align:-1px;margin-right:4px;box-shadow:0 0 0 1px rgba(0,0,0,.35)}

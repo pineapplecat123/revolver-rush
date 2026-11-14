@@ -493,9 +493,10 @@ func test_ammo_inventory_shows_owned_when_bag_empty() -> void:
 	assert_true(inv.has(CombatConstants.WHITE_AMMO_ID))
 	var e: Dictionary = inv[CombatConstants.WHITE_AMMO_ID]
 	assert_eq(int(e["mag"]), 6)
-	assert_gt(int(e["bag"]), 0)
+	# 开局平庸只有 6 发且都在膛内时，补袋不会再复制平庸；袋里是其余清算弹。
+	assert_eq(int(e["bag"]), 0)
 	assert_eq(int(e["discard"]), 0)
-	assert_eq(int(e["total"]), int(e["bag"]) + 6)
+	assert_eq(int(e["total"]), 6)
 
 
 func test_load_port_and_fire_port_offsets() -> void:

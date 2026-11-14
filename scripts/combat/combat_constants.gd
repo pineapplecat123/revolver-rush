@@ -19,8 +19,8 @@ const SANDBOX_DUMMY_DEFAULT_HP := 999
 const SANDBOX_DEFAULT_DUMMY_CELLS: Array[int] = [3, 5, 7]
 ## v0.4.20 沙盒伤害统计：DPS 与「最近单次最大」都看最近这么多战斗秒。
 const SANDBOX_DPS_WINDOW_SEC := 5.0
-## 开局袋：24 平庸 + 清算弹各 2 发。
-const STARTER_WHITE_COUNT := 24
+## 开局袋：6 平庸 + 清算弹各 2 发。
+const STARTER_WHITE_COUNT := 6
 const STARTER_SIN_COUNT := 0
 const STARTER_CLEARING_EACH := 2
 const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + 4 * STARTER_CLEARING_EACH

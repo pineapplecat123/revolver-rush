@@ -409,6 +409,7 @@ var _pebble_fuse_count: int = 0
 var _volley_pending: bool = false
 ## 一次点射连射会话：计划在开火前按当时转轮（含空仓）算好，打完再清。
 var _volley_session: bool = false
+var _volley_muzzle_buffs: Array = []
 var _volley_plan_ready: bool = false
 var _volley_plan: Array[float] = []
 var _volley_seq_snapshot: Array[int] = []
@@ -470,6 +471,7 @@ var last_shot_was_envy_copy: bool = false
 var last_shot_ammo_id: int = -1
 var last_shot_hit_cell: int = -1
 var last_shot_dealt: int = 0
+var last_shot_planned_damage: int = 0
 var last_shot_muzzle_outline_ids: Array[int] = []
 ## 本发命中格（前→后）；穿透时多格，弹点飞到末格；每格可飚血
 var last_shot_hit_cells: Array[int] = []
@@ -2825,6 +2827,7 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 	var water := _muzzle_water or bool(flags["water"])
 	var thunder := _muzzle_thunder or bool(flags["thunder"])
 	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0)
+	last_shot_planned_damage = base_dmg
 	base_dmg = _scale_outgoing_damage(base_dmg)
 	last_shot_ammo_id = ammo_id
 	last_shot_hit_cell = -1
@@ -3062,6 +3065,7 @@ func _reset_volley_plan() -> void:
 	_volley_plan.clear()
 	_volley_seq_snapshot.clear()
 	_volley_plan_index = 0
+	_volley_muzzle_buffs.clear()
 
 
 func _ensure_volley_plan() -> void:
@@ -3081,6 +3085,67 @@ func _advance_volley_plan(steps: int) -> void:
 	if not _volley_plan_ready or steps <= 0:
 		return
 	_volley_plan_index = mini(_volley_plan_index + steps, _volley_plan.size())
+
+
+func volley_muzzle_buffs() -> Array:
+	return _volley_muzzle_buffs
+
+
+func _remaining_loaded_in_plan() -> int:
+	var n := 0
+	var i := _volley_plan_index
+	while i < _volley_seq_snapshot.size():
+		if int(_volley_seq_snapshot[i]) != Magazine.EMPTY:
+			n += 1
+		i += 1
+	return n
+
+
+func _apply_volley_muzzle_status(ammo_id: int) -> void:
+	## 先按本发消耗已有状态，再按子弹定义挂上新状态。空仓不走这里。
+	var start := FireResolver.is_start_type(ammo_id)
+	var rem := _remaining_loaded_in_plan()
+	var kept: Array = []
+	for b in _volley_muzzle_buffs:
+		var dur := str(b.get("duration_type", ""))
+		if dur == "rest_of_volley":
+			var left: int = maxi(int(b.get("remaining", 0)) - 1, 0)
+			b["remaining"] = left
+			if left <= 0:
+				continue
+		elif dur == "until_consumed":
+			if not start:
+				continue
+		kept.append(b)
+	_volley_muzzle_buffs = kept
+	var def: Dictionary = DataRegistry.muzzle_status_of(ammo_id)
+	if def.is_empty():
+		return
+	var kind := str(def.get("id", ammo_id))
+	var stacks := 1
+	var existing := -1
+	for i in _volley_muzzle_buffs.size():
+		if str(_volley_muzzle_buffs[i].get("id", "")) == kind:
+			existing = i
+			break
+	if existing >= 0:
+		stacks = int(_volley_muzzle_buffs[existing].get("stacks", 1)) + 1
+		_volley_muzzle_buffs.remove_at(existing)
+	var duration_type := str(def.get("duration_type", "rest_of_volley"))
+	var remaining := rem
+	var total := rem
+	if duration_type == "until_consumed":
+		remaining = 1
+		total = 1
+	if remaining <= 0:
+		return
+	var entry: Dictionary = def.duplicate(true)
+	entry["id"] = kind
+	entry["ammo_id"] = ammo_id
+	entry["stacks"] = stacks
+	entry["remaining"] = remaining
+	entry["total"] = total
+	_volley_muzzle_buffs.append(entry)
 
 
 func _planned_damages_for_fire_order(full_order: Array[int]) -> Array[int]:
@@ -3178,6 +3243,7 @@ func fire_next_shot() -> bool:
 		last_shot_ammo_id = -1
 		last_shot_hit_cell = -1
 		last_shot_dealt = 0
+		last_shot_planned_damage = 0
 		last_shot_muzzle_outline_ids.clear()
 		last_shot_hit_cells.clear()
 		last_shot_hit_amounts.clear()
@@ -3191,6 +3257,7 @@ func fire_next_shot() -> bool:
 		last_shot_ammo_id = -1
 		last_shot_hit_cell = -1
 		last_shot_dealt = 0
+		last_shot_planned_damage = 0
 		last_shot_muzzle_outline_ids.clear()
 		last_shot_hit_cells.clear()
 		last_shot_hit_amounts.clear()
@@ -3222,6 +3289,8 @@ func fire_next_shot() -> bool:
 	var water := _muzzle_water or bool(flags["water"])
 	var thunder := _muzzle_thunder or bool(flags["thunder"])
 
+	last_shot_planned_damage = base_dmg
+	_apply_volley_muzzle_status(ammo_id)
 	base_dmg = _scale_outgoing_damage(base_dmg)
 	last_shot_ammo_id = ammo_id
 	last_shot_hit_cell = -1
@@ -4324,6 +4393,8 @@ func _auto_load_and_fire_once() -> bool:
 		var fire := _muzzle_fire or bool(flags["fire"])
 		var water := _muzzle_water or bool(flags["water"])
 		var thunder := _muzzle_thunder or bool(flags["thunder"])
+		last_shot_planned_damage = base_dmg
+		_apply_volley_muzzle_status(ammo_id)
 		base_dmg = _scale_outgoing_damage(base_dmg)
 		last_shot_ammo_id = ammo_id
 		last_shot_hit_cell = -1
@@ -4548,6 +4619,7 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 				"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
 				"pierce": last_shot_was_pierce,
 				"impact_id": -1,
+				"planned_damage": last_shot_planned_damage,
 			}
 			if defer_impacts:
 				rec["impact_id"] = park_paced_impact()
@@ -4576,6 +4648,7 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 				"hit_amounts": last_shot_hit_amounts.duplicate(),
 				"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
 				"pierce": last_shot_was_pierce,
+				"planned_damage": last_shot_planned_damage,
 			}
 			shots.append(rec2)
 			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": last_shot_ammo_id, "virtual": false, "dealt": _sum_hit_amounts(rec2)})

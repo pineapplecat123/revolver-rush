@@ -163,8 +163,8 @@ func test_zero_damage_does_not_count_as_hit() -> void:
 func test_starter_bag_has_clearing_bullets() -> void:
 	var cs := CombatState.new()
 	cs.start_rush(43703, FireResolver.ID_WRATH)
-	assert_eq(cs.bag.size(), 32)
-	assert_eq(cs.total_ammo_count(WHITE), 24)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
+	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_WHITE_COUNT)
 	assert_eq(cs.total_ammo_count(QISHI), 2)
 	assert_eq(cs.total_ammo_count(XULI), 2)
 	assert_eq(cs.total_ammo_count(DIZENG), 2)

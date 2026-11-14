@@ -224,6 +224,8 @@ var _long_press_kind: String = ""  ## "ammo" | "muzzle"
 var _cell_shake_tweens: Dictionary = {}
 ## v0.4.21 骨骼动画玩家（纯表现）：挂在玩家格 UnitBody 上，替代蓝色方块
 var _skel_player: SkeletonPlayer = null
+var _muzzle_status_hud = null
+const MuzzleStatusHudScript := preload("res://scripts/combat/muzzle_status_hud.gd")
 ## 小动物怪（纯表现）：EnemyInstance.get_instance_id() → SkeletonEnemy
 var _skel_enemies: Dictionary = {}
 ## v0.4.34 燃烧特效池（挂骨骼/UnitBody，回收复用）
@@ -372,6 +374,7 @@ func _ready() -> void:
 		resized.connect(_on_combat_resized)
 	call_deferred("_fit_combat_viewport")
 	_ensure_muzzle_hud()
+	_ensure_muzzle_status_hud()
 	_ensure_speed_hud()
 	_fit_modals_portrait()
 	btn_menu.text = "返回主菜单"
@@ -1692,7 +1695,7 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 		# 保险：红圈下必须就是本发仓（FIRE_PORT_OFFSET=0 → 盘面步数=仓号）
 		if ring_slot_from_disk() != slot:
 			_set_disk_mod(float(posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)))
-		_begin_fire_flash(slot)
+		_begin_fire_flash(slot, shot_is_puff_only(lead), int(lead.get("ammo_id", -1)))
 		_refresh_mag_contents()
 	# 出膛（_play_tap_shot 首发同步执行到审计点）
 	_in_flight_shots += group.size()
@@ -1992,6 +1995,14 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 		})
 	if not waypoints.is_empty() and Vector2(waypoints[waypoints.size() - 1]["g"]) != Vector2.ZERO:
 		to_g = waypoints[waypoints.size() - 1]["g"]  # v0.4.29：飞向那只敌人此刻的位置，不是格子中心
+	if shot_is_puff_only(rec):
+		var landed_puff := int(rec.get("impact_id", -1))
+		if landed_puff >= 0 and state != null:
+			state.finalize_pending_impact(landed_puff)
+		for ev in remaining:
+			_spawn_hit_event(ev)
+		_on_tap_shot_landed()
+		return
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder: bool = shot_has_powder(ammo_id, rec.get("muzzle_outline_ids", []))
 	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder, DataRegistry.is_sin_ammo(ammo_id))
@@ -2417,6 +2428,8 @@ func _play_shot_beam_and_impact() -> void:
 		hit_cells = [int(state.last_shot_hit_cell)]
 		hit_amts = [int(state.last_shot_dealt)]
 	if hit_cells.is_empty():
+		return
+	if state.last_shot_planned_damage <= 0:
 		return
 	var from_g: Vector2 = _player_shot_origin_global()
 	var end_cell: int = int(hit_cells[hit_cells.size() - 1])
@@ -3306,9 +3319,45 @@ func _play_pixelfx(effect_id: String, world_pos: Vector2, _lift_px: float) -> vo
 		PixelFxSpawnScript.play_hit(self, world_pos)
 
 
+func _ensure_muzzle_status_hud() -> void:
+	if _muzzle_status_hud != null and is_instance_valid(_muzzle_status_hud):
+		_muzzle_status_hud.state = state
+		return
+	_muzzle_status_hud = MuzzleStatusHudScript.new()
+	_muzzle_status_hud.name = "MuzzleStatusHud"
+	add_child(_muzzle_status_hud)
+	_muzzle_status_hud.setup(state, _player_shot_origin_global)
+
+
+static func shot_is_puff_only(rec: Dictionary) -> bool:
+	## 计划伤害为 0 的子弹不飞弹道，只在枪口喷一下火。
+	if rec.is_empty():
+		return false
+	if rec.has("planned_damage"):
+		return int(rec.get("planned_damage", 0)) <= 0
+	var def: Dictionary = DataRegistry.get_ammo(int(rec.get("ammo_id", -1)))
+	if def.is_empty():
+		return false
+	if str(def.get("base_damage_mode", "fixed")) == "fixed":
+		var raw = def.get("base_damage", null)
+		return raw != null and int(raw) == 0
+	return false
+
+
+func _puff_color_for(ammo_id: int) -> Color:
+	return AmmoColors.muzzle_color(ammo_id)
+
+
+func _play_muzzle_puff(ammo_id: int) -> void:
+	_ensure_muzzle_status_hud()
+	if _muzzle_status_hud != null:
+		_muzzle_status_hud.play_puff(_puff_color_for(ammo_id))
+
+
 ## 本发仓标记 + 正上红圈脉冲（无白色蒙版）。枪口闪光改用 pixelfx 手枪焰，播在枪口。
+## 零伤害弹只喷一小口火，不播完整手枪焰和弹道。
 ## 仓格不再染黄；转盘前仍清掉脉冲，避免随大圈转到别的仓。
-func _begin_fire_flash(slot_i: int) -> void:
+func _begin_fire_flash(slot_i: int, puff_only: bool = false, ammo_id: int = -1) -> void:
 	_clear_fire_flash(false)
 	_fire_flash_slot = slot_i
 	if _fire_flash_tween != null and _fire_flash_tween.is_valid():
@@ -3320,7 +3369,10 @@ func _begin_fire_flash(slot_i: int) -> void:
 	if _fire_ring != null and is_instance_valid(_fire_ring):
 		_fire_ring.modulate = flash_col
 		_fire_flash_tween.tween_property(_fire_ring, "modulate", Color.WHITE, 0.28)
-	_play_pixelfx(PIXELFX_MUZZLE_ID, _player_shot_origin_global(), PIXELFX_MUZZLE_HEIGHT)
+	if puff_only:
+		_play_muzzle_puff(ammo_id)
+	else:
+		_play_pixelfx(PIXELFX_MUZZLE_ID, _player_shot_origin_global(), PIXELFX_MUZZLE_HEIGHT)
 
 
 func _clear_fire_flash(repaint: bool = true) -> void:

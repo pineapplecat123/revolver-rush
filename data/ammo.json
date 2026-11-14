@@ -10,7 +10,8 @@
       "special": "常规平庸弹药，基础伤害3。",
       "tags": [],
       "enabled_in_combat": true,
-      "blurb": "常规平庸"
+      "blurb": "常规平庸",
+      "bullet_color": "#EAEAEF"
     },
     {
       "id": 40,
@@ -20,10 +21,22 @@
       "base_damage": 0,
       "base_damage_mode": "fixed",
       "special": "射击后，当前弹夹内后续非「开始」子弹伤害+10％，多个本子弹效果可以叠加。开始类型子弹不受本效果影响。",
-      "tags": ["开始", "清算"],
+      "tags": [
+        "开始",
+        "清算"
+      ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "后续非开始弹+10％，可叠加"
+      "blurb": "后续非开始弹+10％，可叠加",
+      "bullet_color": "#52C76B",
+      "muzzle_color": "#4AE06A",
+      "muzzle_status": {
+        "id": "qishi",
+        "label": "起势",
+        "duration_type": "rest_of_volley",
+        "effect_kind": "damage_pct",
+        "effect_per_stack": 0.1
+      }
     },
     {
       "id": 41,
@@ -33,10 +46,22 @@
       "base_damage": 0,
       "base_damage_mode": "fixed",
       "special": "发射后，下一颗非「开始」子弹伤害×1.5。多个本子弹效果可以叠加，例如两颗本子弹连在一起，效果为下一颗非开始子弹伤害×2.25。空仓与开始类型子弹不消耗倍率。",
-      "tags": ["开始", "清算"],
+      "tags": [
+        "开始",
+        "清算"
+      ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "下一发非开始弹×1.5，可连乘"
+      "blurb": "下一发非开始弹×1.5，可连乘",
+      "bullet_color": "#52C76B",
+      "muzzle_color": "#2CC4B4",
+      "muzzle_status": {
+        "id": "xuli",
+        "label": "蓄力",
+        "duration_type": "until_consumed",
+        "effect_kind": "damage_mult",
+        "effect_per_stack": 1.5
+      }
     },
     {
       "id": 42,
@@ -46,10 +71,15 @@
       "base_damage": 3,
       "base_damage_mode": "slot",
       "special": "在弹夹槽位越靠后伤害越高，计算公式为伤害=基础伤害+（槽位×0.5），例如第6格就是3+(6×0.5)=6。槽位按本轮连射开火顺序计算，空仓也占一格。",
-      "tags": ["中间", "清算"],
+      "tags": [
+        "中间",
+        "清算"
+      ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "越靠后越高，3+槽位×0.5"
+      "blurb": "越靠后越高，3+槽位×0.5",
+      "bullet_color": "#F2CC38",
+      "muzzle_color": "#F2CC38"
     },
     {
       "id": 43,
@@ -59,10 +89,15 @@
       "base_damage": null,
       "base_damage_mode": "formula",
       "special": "伤害等于当前弹夹已开火子弹总伤害的一半（含加成与溢出，不受敌人剩余生命上限）。例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害。",
-      "tags": ["结束", "清算"],
+      "tags": [
+        "结束",
+        "清算"
+      ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "已开火总伤害的一半"
+      "blurb": "已开火总伤害的一半",
+      "bullet_color": "#DB3D38",
+      "muzzle_color": "#DB3D38"
     }
   ]
 }

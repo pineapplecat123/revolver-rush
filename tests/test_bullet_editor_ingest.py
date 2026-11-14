@@ -269,5 +269,61 @@ class IngestUpsertTest(unittest.TestCase):
         self.assertEqual(load(self.base)["updated_at"], "2026-11-13T10:00:00+08:00")
 
 
+    def test_colors_create_update_and_preserve(self):
+        payload = {
+            "id": "b-col",
+            "name": "彩弹",
+            "type": "开始",
+            "muzzle_color": "4ae06a",
+            "bullet_color": "#52c76b",
+            "in_game": True,
+        }
+        merged, failed = ingest.ingest(self.base, json.dumps(payload))
+        self.assertEqual(failed, [])
+        self.assertEqual(merged, ["彩弹"])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["muzzle_color"], "#4AE06A")
+        self.assertEqual(b["bullet_color"], "#52C76B")
+        self.assertIs(b["in_game"], False)
+
+        # omitted colors leave previous values
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-col", "name": "彩弹改", "type": "结束",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["name"], "彩弹改")
+        self.assertEqual(b["type"], "结束")
+        self.assertEqual(b["muzzle_color"], "#4AE06A")
+        self.assertEqual(b["bullet_color"], "#52C76B")
+
+        # valid update
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-col", "name": "彩弹改",
+            "muzzle_color": "#2CC4B4", "bullet_color": "#F2CC38",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["muzzle_color"], "#2CC4B4")
+        self.assertEqual(b["bullet_color"], "#F2CC38")
+
+        # invalid color is ignored, other fields still apply
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-col", "name": "还在", "muzzle_color": "not-a-color",
+        }))
+        self.assertEqual(failed, [])
+        self.assertEqual(merged, ["还在"])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["name"], "还在")
+        self.assertEqual(b["muzzle_color"], "#2CC4B4")
+
+    def test_colors_omitted_on_new_row(self):
+        merged, failed = ingest.ingest(self.base, json.dumps({"id": "b-nocol", "name": "无色"}))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertNotIn("muzzle_color", b)
+        self.assertNotIn("bullet_color", b)
+
+
 if __name__ == "__main__":
     unittest.main()
