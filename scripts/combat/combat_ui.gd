@@ -6480,7 +6480,7 @@ func _open_reward_panel_now() -> void:
 
 func _start_reward_show_delay() -> void:
 	## 怪死/清场后等 REWARD_SHOW_DELAY_SEC 再弹奖励面板。
-	## 延迟为 0 时同一帧打开（v0.3.9「立即弹出」），避免 SceneTreeTimer(0) 再等一帧的竞态。
+	## 延迟为 0 时同一帧打开（v0.3.9「立即弹出」），避免 SceneTreeTimer(0) 再等一帧。
 	if _reward_open or state == null or not state.reward_pending:
 		return
 	if REWARD_SHOW_DELAY_SEC <= 0.0:
