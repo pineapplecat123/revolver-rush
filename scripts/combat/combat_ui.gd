@@ -57,8 +57,8 @@ const DETAIL_PANEL_W := 360.0
 const DETAIL_PANEL_H := 320.0
 const DMG_FLOAT_DURATION := 0.85
 const DMG_FLOAT_RISE := 78.0
-const DMG_FLOAT_FONT_MIN := 26
-const DMG_FLOAT_FONT_MAX := 72
+const DMG_FLOAT_FONT_MIN := 52
+const DMG_FLOAT_FONT_MAX := 144
 const SHAKE_MIN_PX := 8.0
 const SHAKE_MAX_PX := 42.0
 const SHAKE_DURATION := 0.28
@@ -225,6 +225,7 @@ var _cell_shake_tweens: Dictionary = {}
 ## v0.4.21 骨骼动画玩家（纯表现）：挂在玩家格 UnitBody 上，替代蓝色方块
 var _skel_player: SkeletonPlayer = null
 var _muzzle_status_hud = null
+var _volley_buff_host: HBoxContainer = null  ## 「枪口：」后的齐射加强图标槽
 const MuzzleStatusHudScript := preload("res://scripts/combat/muzzle_status_hud.gd")
 ## 小动物怪（纯表现）：EnemyInstance.get_instance_id() → SkeletonEnemy
 var _skel_enemies: Dictionary = {}
@@ -742,14 +743,27 @@ func _ensure_muzzle_hud() -> void:
 	_muzzle_label.add_theme_color_override("font_color", Color(0.78, 0.76, 0.72))
 	_muzzle_label.text = "枪口："
 	row.add_child(_muzzle_label)
+	# v0.4.41：齐射加强图标跟在「枪口：」后面，不再贴在场上枪口旁边
+	_volley_buff_host = HBoxContainer.new()
+	_volley_buff_host.name = "VolleyBuffHost"
+	_volley_buff_host.add_theme_constant_override("separation", 3)
+	_volley_buff_host.alignment = BoxContainer.ALIGNMENT_CENTER
+	_volley_buff_host.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_volley_buff_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_volley_buff_host)
+	var chip_wrap := Control.new()
+	chip_wrap.name = "MuzzleChipWrap"
+	chip_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	chip_wrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(chip_wrap)
 	_muzzle_chips = HBoxContainer.new()
 	_muzzle_chips.name = "MuzzleStatusChips"
-	_muzzle_chips.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_muzzle_chips.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	_muzzle_chips.add_theme_constant_override("separation", 3)
 	_muzzle_chips.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(_muzzle_chips)
+	chip_wrap.add_child(_muzzle_chips)
 	_muzzle_slot.add_child(row)
-	# 透明命中层盖在整行上，供悬停/长按提示（不画大框）
+	# 命中层只盖旧的罪/元素芯片区，不挡住齐射加强图标的点击
 	_muzzle_panel = PanelContainer.new()
 	_muzzle_panel.name = "MuzzleStatusHit"
 	_muzzle_panel.z_index = 5
@@ -757,7 +771,7 @@ func _ensure_muzzle_hud() -> void:
 	_muzzle_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	var hit_style := StyleBoxEmpty.new()
 	_muzzle_panel.add_theme_stylebox_override("panel", hit_style)
-	_muzzle_slot.add_child(_muzzle_panel)
+	chip_wrap.add_child(_muzzle_panel)
 	var mag_col: Node = mag_title.get_parent() if mag_title != null else self
 	if mag_col != null:
 		mag_col.add_child(_muzzle_slot)
@@ -787,14 +801,15 @@ func _refresh_muzzle_hud() -> void:
 		c.queue_free()
 	_muzzle_chip_nodes.clear()
 	var entries: Array = state.muzzle_status_entries()
-	if entries.is_empty():
+	var volley_n: int = state.volley_muzzle_buffs().size()
+	if entries.is_empty() and volley_n <= 0:
 		var empty := Label.new()
 		empty.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		empty.add_theme_font_size_override("font_size", 11)
 		empty.add_theme_color_override("font_color", Color(0.55, 0.53, 0.5))
 		empty.text = "—"
 		_muzzle_chips.add_child(empty)
-	else:
+	elif not entries.is_empty():
 		for entry in entries:
 			_muzzle_chips.add_child(_make_muzzle_chip(entry))
 	_muzzle_chip_sig = _muzzle_entries_signature(entries)
@@ -2005,7 +2020,9 @@ func _play_tap_shot(rec: Dictionary, events: Array, order: int, batch_delay: flo
 		return
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder: bool = shot_has_powder(ammo_id, rec.get("muzzle_outline_ids", []))
-	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder, DataRegistry.is_sin_ammo(ammo_id))
+	var size_scale: float = shot_size_scale(int(rec.get("planned_damage", 3)))
+	var buff_cols: Array[Color] = buff_outline_colors_of(rec)
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder, DataRegistry.is_sin_ammo(ammo_id), size_scale, buff_cols)
 	var landed_impact := int(rec.get("impact_id", -1))
 	if landed_impact >= 0 and state != null:
 		state.finalize_pending_impact(landed_impact)
@@ -2457,9 +2474,30 @@ func _play_shot_beam_and_impact() -> void:
 		waypoints.append({"g": g, "amount": amt, "cell": c, "hit_index": i})
 	var travel: float = _paced(SHOT_TRAVEL_SEC + SHOT_TRAVEL_SEC_PER_CELL * float(maxi(hit_cells.size() - 1, 0)))
 	var powder2: bool = shot_has_powder(ammo_id, state.last_shot_muzzle_outline_ids)
-	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder2, DataRegistry.is_sin_ammo(ammo_id))
+	var size_scale2: float = shot_size_scale(int(state.last_shot_planned_damage))
+	var buff_cols2: Array[Color] = buff_outline_colors_of(state.last_shot_buff_outlines)
+	await _animate_shot_projectile(from_g, to_g, core_col, outline_cols, waypoints, travel, powder2, DataRegistry.is_sin_ammo(ammo_id), size_scale2, buff_cols2)
 	_blood_shot_dir_active = false
 	_blood_spray_dir = Vector2.ZERO
+
+
+static func shot_size_scale(planned_damage: int) -> float:
+	## 基础伤害 3 = 1×。低于 3 略缩小，高于 3 变粗，封顶 2.4×，避免终审一类把棋盘填满。
+	return clampf(float(maxi(planned_damage, 1)) / 3.0, 0.75, 2.4)
+
+
+static func buff_outline_colors_of(src) -> Array[Color]:
+	## 齐射加强外圈：数组按挂上顺序，最后一个是最近一次（画在最外圈）。
+	var out: Array[Color] = []
+	var items = src
+	if src is Dictionary:
+		items = src.get("buff_outlines", [])
+	for b in items:
+		if b is Color:
+			out.append(b)
+		elif b is Dictionary and b.get("color") is Color:
+			out.append(b["color"])
+	return out
 
 
 static func shot_has_powder(ammo_id: int, muzzle_ids) -> bool:
@@ -2474,7 +2512,8 @@ static func shot_has_powder(ammo_id: int, muzzle_ids) -> bool:
 
 func _animate_shot_projectile(
 	from_g: Vector2, to_g: Vector2, core_col: Color, outline_cols: Array[Color],
-	waypoints: Array, travel_sec: float, powder: bool = false, sin_shot: bool = false
+	waypoints: Array, travel_sec: float, powder: bool = false, sin_shot: bool = false,
+	size_scale: float = 1.0, buff_cols: Array[Color] = []
 ) -> void:
 	## v0.4.27 一体弹道：弹头就是枪线最前端，和枪线同宽；圆钝亮头 → 同宽一段 → 往后变细变淡。
 	## 不再有比枪线粗一圈的大圆球。每种弹药仍按自己的颜色上色；枪口描边色是同形状的外层。
@@ -2485,26 +2524,42 @@ func _animate_shot_projectile(
 	host.z_index = Z_SHOT_VFX
 	host.global_position = from_g
 	host.rotation = delta.angle()
+	var scale: float = maxf(size_scale, 0.5)
+	var thick: float = SHOT_TRAIL_THICK * scale
+	var halo: float = SHOT_STREAK_HALO * scale
+	var outline_pad: float = SHOT_OUTLINE_PAD * scale
 	var n_out: int = outline_cols.size()
+	var n_buff: int = buff_cols.size()
 	var glow_col: Color = core_col
 	if n_out > 0:
 		glow_col = outline_cols[0]
+	if n_buff > 0:
+		glow_col = buff_cols[n_buff - 1]
 	var trail_lines: Array = []
 	var si := 0
 	if sin_shot:
 		# v0.4.28 罪孽弹：外面一圈黑红「危险」光带（比普通光晕宽、暗、会抽动）
-		trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK + SIN_STREAK_EXTRA, RarityFx.SIN_DARK.lerp(RarityFx.SIN_RED, 0.35), 0.85, 0.0, "SinDanger"))
+		trail_lines.append(_checkout_streak(host, si, thick + SIN_STREAK_EXTRA * scale, RarityFx.SIN_DARK.lerp(RarityFx.SIN_RED, 0.35), 0.85, 0.0, "SinDanger"))
+		si += 1
+	# v0.4.41 加强外圈：按挂上顺序叠层，最近一次在最外（先画、最宽）
+	var buff_pad: float = 3.2 * scale
+	var buff_base: float = thick + halo + float(n_out) * outline_pad * 2.0
+	for bi in range(n_buff - 1, -1, -1):
+		var bc: Color = buff_cols[bi]
+		var outer_i: int = n_buff - 1 - bi
+		var bw: float = buff_base + float(outer_i + 1) * buff_pad * 2.0
+		trail_lines.append(_checkout_streak(host, si, bw, bc.lightened(0.18), 0.95, 0.06, "BuffOutline%d" % outer_i))
 		si += 1
 	# 淡光晕：同形状、略宽、很淡（不是圆球）
-	trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK + SHOT_STREAK_HALO, _shot_head_display_color(glow_col, 0.2, 1.0), 0.30, 0.0))
+	trail_lines.append(_checkout_streak(host, si, thick + halo, _shot_head_display_color(glow_col, 0.2, 1.0), 0.30, 0.0))
 	si += 1
 	for oi in n_out:
 		var oc: Color = outline_cols[oi]
-		var pad: float = float(n_out - oi) * SHOT_OUTLINE_PAD
-		trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK + pad * 2.0, oc, 0.95, 0.10))
+		var pad: float = float(n_out - oi) * outline_pad
+		trail_lines.append(_checkout_streak(host, si, thick + pad * 2.0, oc, 0.95, 0.10))
 		si += 1
 	# 芯色：保留弹药色相、提亮到深色弹（愤怒红等）也看得清
-	trail_lines.append(_checkout_streak(host, si, SHOT_TRAIL_THICK, _shot_head_display_color(core_col, 0.38, 1.0), 1.0, 0.12))
+	trail_lines.append(_checkout_streak(host, si, thick, _shot_head_display_color(core_col, 0.38, 1.0), 1.0, 0.12))
 	# 亮弹头：同宽一小段（圆头）
 	var tip: Line2D = host.get_node_or_null("Tip") as Line2D if shot_fx_pool_enabled else null
 	if tip == null:
@@ -2514,13 +2569,13 @@ func _animate_shot_projectile(
 		tip.begin_cap_mode = Line2D.LINE_CAP_ROUND
 		tip.end_cap_mode = Line2D.LINE_CAP_NONE
 		host.add_child(tip)
-	tip.width = SHOT_TRAIL_THICK
+	tip.width = SHOT_TRAIL_THICK * scale
 	tip.antialiased = RrAa.line()
 	tip.default_color = _shot_head_display_color(core_col, 0.55, 1.0)
 	var hc0: Color = _shot_head_display_color(core_col, 0.7, 1.0)
 	var hc1: Color = _shot_head_display_color(core_col, 0.38, 1.0)
 	tip.gradient = _cached_tip_gradient(hc0, hc1)
-	tip.points = PackedVector2Array([Vector2(SHOT_TIP_LEAD, 0), Vector2(-SHOT_TIP_LEN, 0)])
+	tip.points = PackedVector2Array([Vector2(SHOT_TIP_LEAD * scale, 0), Vector2(-SHOT_TIP_LEN * scale, 0)])
 	tip.visible = true
 	if powder:
 		_attach_powder_trail(host)
@@ -3322,11 +3377,15 @@ func _play_pixelfx(effect_id: String, world_pos: Vector2, _lift_px: float) -> vo
 func _ensure_muzzle_status_hud() -> void:
 	if _muzzle_status_hud != null and is_instance_valid(_muzzle_status_hud):
 		_muzzle_status_hud.state = state
+		if _volley_buff_host != null:
+			_muzzle_status_hud.set_icon_host(_volley_buff_host)
 		return
 	_muzzle_status_hud = MuzzleStatusHudScript.new()
 	_muzzle_status_hud.name = "MuzzleStatusHud"
 	add_child(_muzzle_status_hud)
 	_muzzle_status_hud.setup(state, _player_shot_origin_global)
+	if _volley_buff_host != null:
+		_muzzle_status_hud.set_icon_host(_volley_buff_host)
 
 
 static func shot_is_puff_only(rec: Dictionary) -> bool:
@@ -6407,9 +6466,25 @@ func _cancel_reward_show_delay() -> void:
 	_reward_delaying = false
 
 
+func _open_reward_panel_now() -> void:
+	if state == null or not state.reward_pending or _reward_open:
+		return
+	if state.phase == CombatState.Phase.LOST:
+		return
+	_reward_delaying = false
+	_set_reward_open(true)
+	if result_label != null:
+		result_label.text = "升级！Lv%d · 请选择奖励" % state.level
+		result_label.visible = true
+
+
 func _start_reward_show_delay() -> void:
 	## 怪死/清场后等 REWARD_SHOW_DELAY_SEC 再弹奖励面板。
+	## 延迟为 0 时同一帧打开（v0.3.9「立即弹出」），避免 SceneTreeTimer(0) 再等一帧的竞态。
 	if _reward_open or state == null or not state.reward_pending:
+		return
+	if REWARD_SHOW_DELAY_SEC <= 0.0:
+		_open_reward_panel_now()
 		return
 	_reward_delaying = true
 	_reward_delay_token += 1
@@ -6420,14 +6495,7 @@ func _start_reward_show_delay() -> void:
 	if token != _reward_delay_token:
 		return
 	_reward_delaying = false
-	if state == null:
-		return
-	if state.phase == CombatState.Phase.LOST or not state.reward_pending or _reward_open:
-		return
-	_set_reward_open(true)
-	if result_label != null:
-		result_label.text = "升级！Lv%d · 请选择奖励" % state.level
-		result_label.visible = true
+	_open_reward_panel_now()
 
 
 func _ensure_wave_banner() -> void:

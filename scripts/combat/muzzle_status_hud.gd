@@ -1,14 +1,15 @@
 extends Control
 ## 枪口旁的状态图标、信息弹层、循环火焰，以及零伤害时的短喷火。
 
-const ICON_SIZE := 32.0
-const ICON_GAP := 6.0
+const ICON_SIZE := 28.0
+const ICON_GAP := 4.0
 const RING_WIDTH := 3.0
 const MUZZLE_OFFSET := Vector2(16, -30)
 const FONT := preload("res://assets/fonts/NotoSansSC-UI.ttf")
 
 var state: CombatState
 var muzzle_provider: Callable
+var icon_host: Control = null  ## 放在「枪口：」后面；空则回退到本层（枪口旁）
 
 var _icons: Array = []
 var _popup: PanelContainer
@@ -23,6 +24,15 @@ var _flame: _Flame
 func setup(cs: CombatState, provider: Callable) -> void:
 	state = cs
 	muzzle_provider = provider
+
+
+func set_icon_host(host: Control) -> void:
+	if icon_host == host:
+		return
+	icon_host = host
+	for ic in _icons:
+		if is_instance_valid(ic) and ic.get_parent() != host and host != null:
+			ic.reparent(host)
 
 
 func _ready() -> void:
@@ -68,10 +78,12 @@ func _process(delta: float) -> void:
 	var entries: Array = _buffs()
 	_sync_icons(entries)
 	var muzzle := _muzzle_local()
-	var origin := muzzle + MUZZLE_OFFSET if muzzle != Vector2.ZERO else Vector2(-9999, -9999)
-	for i in _icons.size():
-		var ic: Control = _icons[i]
-		ic.position = origin + Vector2(float(i) * (ICON_SIZE + ICON_GAP), 0.0)
+	var hosted := icon_host != null and is_instance_valid(icon_host)
+	if not hosted:
+		var origin := muzzle + MUZZLE_OFFSET if muzzle != Vector2.ZERO else Vector2(-9999, -9999)
+		for i in _icons.size():
+			var ic: Control = _icons[i]
+			ic.position = origin + Vector2(float(i) * (ICON_SIZE + ICON_GAP), 0.0)
 	if entries.is_empty():
 		_flame.visible = false
 		_hide_popup()
@@ -98,13 +110,15 @@ func _flame_color(entries: Array) -> Color:
 
 
 func _sync_icons(entries: Array) -> void:
+	var parent: Node = icon_host if icon_host != null and is_instance_valid(icon_host) else self
 	while _icons.size() < entries.size():
 		var ic := _Icon.new()
-		ic.custom_minimum_size = Vector2(32, 32)
+		ic.custom_minimum_size = Vector2(ICON_SIZE, ICON_SIZE)
 		ic.size = Vector2(ICON_SIZE, ICON_SIZE)
+		ic.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		ic.mouse_filter = Control.MOUSE_FILTER_STOP
 		ic.gui_input.connect(_on_icon_input.bind(ic))
-		add_child(ic)
+		parent.add_child(ic)
 		_icons.append(ic)
 	while _icons.size() > entries.size():
 		var extra: Control = _icons.pop_back()
@@ -158,11 +172,18 @@ func _place_popup() -> void:
 		_hide_popup()
 		return
 	_popup.reset_size()
-	var pos := target.position + Vector2(0.0, ICON_SIZE + 6.0)
+	var inv := get_global_transform_with_canvas().affine_inverse()
+	var gr := target.get_global_rect()
+	var top_left: Vector2 = inv * gr.position
+	var bot_left: Vector2 = inv * Vector2(gr.position.x, gr.end.y)
+	# 图标已在「枪口：」行时优先弹在上方，避免挡住转轮
+	var pos := Vector2(top_left.x, top_left.y - _popup.size.y - 6.0)
+	if pos.y < 8.0:
+		pos.y = bot_left.y + 6.0
 	var max_x: float = size.x - _popup.size.x - 8.0
 	pos.x = clampf(pos.x, 8.0, maxf(max_x, 8.0))
 	if pos.y + _popup.size.y > size.y - 8.0:
-		pos.y = target.position.y - _popup.size.y - 6.0
+		pos.y = top_left.y - _popup.size.y - 6.0
 	_popup.position = pos
 	move_child(_catcher, get_child_count() - 2)
 	move_child(_popup, get_child_count() - 1)
@@ -236,7 +257,7 @@ class _Icon extends Control:
 	var entry: Dictionary = {}
 
 	func _ready() -> void:
-		custom_minimum_size = Vector2(32, 32)
+		custom_minimum_size = Vector2(28, 28)
 
 	func _draw() -> void:
 		var c: Color = entry.get("color", Color(0.32, 0.78, 0.42))
@@ -268,13 +289,20 @@ class _Flame extends Node2D:
 
 	func _draw() -> void:
 		var t := _t
-		for i in 7:
-			var u := float(i) / 6.0
-			var wob := sin(t * 14.0 + float(i) * 0.9) * (1.6 + u * 1.2)
-			var h := 5.0 + (1.0 - u) * 14.0 + sin(t * 18.0 + float(i) * 0.5) * 1.8
-			var w := (1.0 - u) * 3.6 + 1.0
+		# 底部光晕，让火焰在棋盘上更容易看见
+		var glow := color
+		glow.a = 0.42 + sin(t * 10.0) * 0.08
+		draw_circle(Vector2(0, -4), 14.0 + sin(t * 8.0) * 1.6, glow)
+		var glow2 := color.lerp(Color(1, 0.85, 0.4), 0.35)
+		glow2.a = 0.28
+		draw_circle(Vector2(0, -10), 10.0, glow2)
+		for i in 11:
+			var u := float(i) / 10.0
+			var wob := sin(t * 14.0 + float(i) * 0.9) * (3.2 + u * 2.4)
+			var h := 10.0 + (1.0 - u) * 28.0 + sin(t * 18.0 + float(i) * 0.5) * 3.4
+			var w := (1.0 - u) * 7.2 + 2.2
 			var col := color.lerp(Color(1, 1, 0.85), 0.55 * (1.0 - u))
-			col.a = 0.95 - u * 0.35
+			col.a = 0.98 - u * 0.32
 			var p := Vector2(wob, -h)
 			draw_rect(Rect2(p.snapped(Vector2(1, 1)) - Vector2(w, w) * 0.5, Vector2(w, w).ceil()), col)
 
@@ -292,13 +320,13 @@ class _Puff extends Node2D:
 
 	func _draw() -> void:
 		var k := clampf(_age / LIFE, 0.0, 1.0)
-		var grow := 1.0 + k * 1.6
-		for i in 6:
-			var u := float(i) / 5.0
-			var ang := -0.35 + u * 0.7 + sin(_age * 20.0 + float(i)) * 0.08
-			var dist := (6.0 + u * 8.0) * grow
-			var p := Vector2.RIGHT.rotated(ang) * dist + Vector2(0, -u * 4.0 * grow)
+		var grow := 1.0 + k * 2.1
+		for i in 8:
+			var u := float(i) / 7.0
+			var ang := -0.45 + u * 0.9 + sin(_age * 20.0 + float(i)) * 0.08
+			var dist := (10.0 + u * 14.0) * grow
+			var p := Vector2.RIGHT.rotated(ang) * dist + Vector2(0, -u * 7.0 * grow)
 			var col := color.lerp(Color(1, 0.95, 0.7), 0.4 * (1.0 - u))
 			col.a = (1.0 - k) * (0.95 - u * 0.3)
-			var s := (3.2 - u * 1.4) * (1.1 - k * 0.3)
+			var s := (5.6 - u * 2.2) * (1.15 - k * 0.3)
 			draw_rect(Rect2((p - Vector2(s, s) * 0.5).snapped(Vector2(1, 1)), Vector2(s, s).ceil()), col)

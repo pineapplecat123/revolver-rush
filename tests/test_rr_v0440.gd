@@ -12,8 +12,8 @@ func before_each() -> void:
 	DataRegistry.reload()
 
 
-func test_version_is_0_4_40() -> void:
-	assert_eq(GameVersion.STRING, "0.4.40")
+func test_changelog_still_has_0_4_40() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.40") >= 0)
 	assert_true("0.4.40" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 

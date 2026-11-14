@@ -472,6 +472,7 @@ var last_shot_ammo_id: int = -1
 var last_shot_hit_cell: int = -1
 var last_shot_dealt: int = 0
 var last_shot_planned_damage: int = 0
+var last_shot_buff_outlines: Array = []
 var last_shot_muzzle_outline_ids: Array[int] = []
 ## 本发命中格（前→后）；穿透时多格，弹点飞到末格；每格可飚血
 var last_shot_hit_cells: Array[int] = []
@@ -3101,8 +3102,22 @@ func _remaining_loaded_in_plan() -> int:
 	return n
 
 
+func _capture_applying_buffs(ammo_id: int) -> void:
+	## 本发实际吃到的加强（开始弹不吃）。要在消耗/追加之前拍，供弹道描边使用。
+	last_shot_buff_outlines = []
+	if FireResolver.is_start_type(ammo_id):
+		return
+	for b in _volley_muzzle_buffs:
+		last_shot_buff_outlines.append({
+			"id": b.get("id", ""),
+			"label": b.get("label", ""),
+			"color": b.get("color", Color(0.32, 0.78, 0.42)),
+		})
+
+
 func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	## 先按本发消耗已有状态，再按子弹定义挂上新状态。空仓不走这里。
+	_capture_applying_buffs(ammo_id)
 	var start := FireResolver.is_start_type(ammo_id)
 	var rem := _remaining_loaded_in_plan()
 	var kept: Array = []
@@ -3244,6 +3259,7 @@ func fire_next_shot() -> bool:
 		last_shot_hit_cell = -1
 		last_shot_dealt = 0
 		last_shot_planned_damage = 0
+		last_shot_buff_outlines.clear()
 		last_shot_muzzle_outline_ids.clear()
 		last_shot_hit_cells.clear()
 		last_shot_hit_amounts.clear()
@@ -3258,6 +3274,7 @@ func fire_next_shot() -> bool:
 		last_shot_hit_cell = -1
 		last_shot_dealt = 0
 		last_shot_planned_damage = 0
+		last_shot_buff_outlines.clear()
 		last_shot_muzzle_outline_ids.clear()
 		last_shot_hit_cells.clear()
 		last_shot_hit_amounts.clear()
@@ -4620,6 +4637,7 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 				"pierce": last_shot_was_pierce,
 				"impact_id": -1,
 				"planned_damage": last_shot_planned_damage,
+				"buff_outlines": last_shot_buff_outlines.duplicate(),
 			}
 			if defer_impacts:
 				rec["impact_id"] = park_paced_impact()
@@ -4649,6 +4667,7 @@ func _fire_tap_one(shots: Array, extra: bool = false) -> void:
 				"muzzle_outline_ids": last_shot_muzzle_outline_ids.duplicate(),
 				"pierce": last_shot_was_pierce,
 				"planned_damage": last_shot_planned_damage,
+				"buff_outlines": last_shot_buff_outlines.duplicate(),
 			}
 			shots.append(rec2)
 			hooks.emit_hook(&"on_shot", {"cs": self, "ammo_id": last_shot_ammo_id, "virtual": false, "dealt": _sum_hit_amounts(rec2)})
