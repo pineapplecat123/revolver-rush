@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-14T15:43:24+08:00",
+  "updated_at": "2026-11-16T00:29:00+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -89,9 +89,9 @@
       "notes": "",
       "muzzle_color": "#94FFF1",
       "bullet_color": "#94FFF1",
-      "in_game": false,
+      "in_game": true,
       "created_at": "2026-11-14T15:40:24+08:00",
-      "updated_at": "2026-11-14T15:40:24+08:00"
+      "updated_at": "2026-11-16T00:29:00+08:00"
     },
     {
       "id": "b20261114-154316-jcq0",
@@ -104,9 +104,9 @@
       "notes": "",
       "muzzle_color": "#5855E0",
       "bullet_color": "#52C76B",
-      "in_game": false,
+      "in_game": true,
       "created_at": "2026-11-14T15:43:24+08:00",
-      "updated_at": "2026-11-14T15:43:24+08:00"
+      "updated_at": "2026-11-16T00:29:00+08:00"
     }
   ]
 }
