@@ -10,6 +10,8 @@ const QISHI_AMMO_ID := 40  ## 起势弹
 const XULI_AMMO_ID := 41  ## 蓄力弹
 const DIZENG_AMMO_ID := 42  ## 递增弹
 const ZHONGSHEN_AMMO_ID := 43  ## 终审弹
+const JIASU_AMMO_ID := 44  ## 加速弹
+const CHETUI_AMMO_ID := 45  ## 撤退弹
 const CIVILIAN_ENEMY_ID := 1
 const ZOMBIE_ENEMY_ID := 4
 const SUPER_ZOMBIE_ENEMY_ID := 5
@@ -179,6 +181,8 @@ const MIN_FIRE_INTERVAL_SEC := 0.1
 ## v0.4.29：空仓也算正常一拍（同样等间隔、停留、转一格），不再快跳；连射打完最后一颗已装弹即结束。
 const VOLLEY_SHOT_INTERVAL_SEC := 0.25
 const VOLLEY_ROTATE_SEC := 0.18
+## v0.4.42 加速弹：每颗 +50%（加法叠层），总倍率封顶使间隔不低于 MIN_FIRE_INTERVAL_SEC。
+const JIASU_SPEED_PER_STACK := 0.5
 ## v0.4.24：装满后、开火前都不再随机转轮；从当前击发仓直接开打。
 const LOAD_FULL_RANDOM_SPIN := false
 

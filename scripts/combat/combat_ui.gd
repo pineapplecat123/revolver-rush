@@ -929,7 +929,10 @@ func _make_muzzle_chip(entry) -> PanelContainer:
 
 func _paced(sec: float) -> float:
 	## 全局战斗速度：秒数 / 倍率；2× → 等待减半，0.5× → 等待加倍。
-	return maxf(sec / maxf(_combat_speed, 0.01), 0.0)
+	var m: float = maxf(_combat_speed, 0.01)
+	if _volley_stepping and state != null:
+		m *= state.volley_speed_mult()  # 加速弹：本轮连射加速
+	return maxf(sec / m, 0.0)
 
 
 func _ensure_speed_hud() -> void:

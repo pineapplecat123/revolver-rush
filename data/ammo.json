@@ -98,6 +98,60 @@
       "blurb": "已开火总伤害的一半",
       "bullet_color": "#DB3D38",
       "muzzle_color": "#DB3D38"
+    },
+    {
+      "id": 44,
+      "name": "加速弹",
+      "rarity": "common",
+      "school": "通用",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "special": "射击后：加速本轮射击速度50％，可以叠加",
+      "tags": [
+        "开始"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "本轮射速+50％，可叠加",
+      "bullet_color": "#94FFF1",
+      "muzzle_color": "#94FFF1",
+      "muzzle_status": {
+        "id": "jiasu",
+        "label": "速",
+        "duration_type": "rest_of_volley",
+        "effect_kind": "speed_pct",
+        "effect_per_stack": 0.5
+      }
+    },
+    {
+      "id": 45,
+      "name": "撤退弹",
+      "rarity": "common",
+      "school": "通用",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "special": "开火后，生成2颗随机弹仓内子弹的临时复制体到背包里（持续1次开火）",
+      "tags": [
+        "开始"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "生成2颗弹仓内子弹的临时复制",
+      "bullet_color": "#52C76B",
+      "muzzle_color": "#5855E0",
+      "on_fire": {
+        "kind": "temp_copies",
+        "count": 2,
+        "source": "chamber"
+      },
+      "muzzle_status": {
+        "id": "chetui",
+        "label": "撤",
+        "duration_type": "rest_of_volley",
+        "effect_kind": "none",
+        "effect": "开火后已生成临时复制体",
+        "outline": false
+      }
     }
   ]
 }

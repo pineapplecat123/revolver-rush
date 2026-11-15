@@ -3108,6 +3108,8 @@ func _capture_applying_buffs(ammo_id: int) -> void:
 	if FireResolver.is_start_type(ammo_id):
 		return
 	for b in _volley_muzzle_buffs:
+		if not bool(b.get("outline", true)):
+			continue
 		last_shot_buff_outlines.append({
 			"id": b.get("id", ""),
 			"label": b.get("label", ""),
@@ -3161,6 +3163,48 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	entry["remaining"] = remaining
 	entry["total"] = total
 	_volley_muzzle_buffs.append(entry)
+
+
+func volley_speed_mult() -> float:
+	## 加速弹：本轮连射速度倍率 = 1 + 0.5×层数（加法叠层），封顶保证间隔不低于最小射击间隔。
+	var stacks := 0
+	for b in _volley_muzzle_buffs:
+		if str(b.get("effect_kind", "")) == "speed_pct":
+			stacks += int(b.get("stacks", 1))
+	var m: float = 1.0 + CombatConstants.JIASU_SPEED_PER_STACK * float(stacks)
+	var cap: float = CombatConstants.VOLLEY_SHOT_INTERVAL_SEC / CombatConstants.MIN_FIRE_INTERVAL_SEC
+	return minf(m, cap)
+
+
+func volley_wait_scaled_sec() -> float:
+	return CombatState.volley_wait_before_next_sec() / volley_speed_mult()
+
+
+func _apply_on_fire_effect(ammo_id: int) -> void:
+	## 数据驱动的「开火后」效果。temp_copies：从弹仓内随机抽已装弹（有放回）做一次性临时复制进背包。
+	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+	var raw = def.get("on_fire", null)
+	if raw == null or typeof(raw) != TYPE_DICTIONARY:
+		return
+	var spec: Dictionary = raw
+	if str(spec.get("kind", "")) != "temp_copies" or magazine == null:
+		return
+	var pool: Array[int] = []
+	for sid in magazine.slots:
+		var aid: int = int(sid)
+		if aid == Magazine.EMPTY or aid < 0 or DataRegistry.is_sin_ammo(aid):
+			continue
+		pool.append(aid)
+	if pool.is_empty():
+		return
+	var made: Array[String] = []
+	for _k in int(spec.get("count", 1)):
+		var pick: int = pool[rng.randi_range(0, pool.size() - 1)]
+		_bag_append(pick, CombatConstants.FIRE_ONCE_TEMP, true)
+		made.append(_ammo_name(pick))
+	_log("  → %s：生成临时复制体 %s 进背包（持续1次开火）。" % [_ammo_name(ammo_id), "、".join(made)])
+	hooks.emit_hook(&"on_temp_copies", {"cs": self, "ammo_id": ammo_id, "copies": made.size()})
+	_emit()
 
 
 func _planned_damages_for_fire_order(full_order: Array[int]) -> Array[int]:
@@ -3308,6 +3352,7 @@ func fire_next_shot() -> bool:
 
 	last_shot_planned_damage = base_dmg
 	_apply_volley_muzzle_status(ammo_id)
+	_apply_on_fire_effect(ammo_id)
 	base_dmg = _scale_outgoing_damage(base_dmg)
 	last_shot_ammo_id = ammo_id
 	last_shot_hit_cell = -1
@@ -4412,6 +4457,7 @@ func _auto_load_and_fire_once() -> bool:
 		var thunder := _muzzle_thunder or bool(flags["thunder"])
 		last_shot_planned_damage = base_dmg
 		_apply_volley_muzzle_status(ammo_id)
+		_apply_on_fire_effect(ammo_id)
 		base_dmg = _scale_outgoing_damage(base_dmg)
 		last_shot_ammo_id = ammo_id
 		last_shot_hit_cell = -1
