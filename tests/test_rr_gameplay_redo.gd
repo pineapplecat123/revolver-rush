@@ -340,11 +340,11 @@ func test_bag_shows_every_bullet_without_scroll() -> void:
 	assert_gt(sz.y, 8.0)
 	for b in box._balls:
 		var p: Vector2 = b["pos"]
-		var r: float = float(b["r"])
-		assert_gte(p.x - r, -1.0)
-		assert_gte(p.y - r, -1.0)
-		assert_lte(p.x + r, sz.x + 1.0)
-		assert_lte(p.y + r, sz.y + 1.0)
+		var ext: Vector2 = box._ball_ext(b)
+		assert_gte(p.x - ext.x, -1.0)
+		assert_gte(p.y - ext.y, -1.0)
+		assert_lte(p.x + ext.x, sz.x + 1.0)
+		assert_lte(p.y + ext.y, sz.y + 1.0)
 	assert_eq(scroll.scroll_vertical, 0)
 	# narrow and short viewports keep the scaled layout inside the screen
 	for avail in [Vector2(720, 1280), Vector2(1280, 720), Vector2(390, 844)]:

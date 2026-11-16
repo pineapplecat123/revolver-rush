@@ -1,6 +1,6 @@
 class_name BagPhysicsBox
 extends Control
-## 弹药袋物理盒：袋内每发为带重力/碰撞的圆盘物理（利于嵌 UI / Web）；绘制为尖头厚底子弹外形。
+## 弹药袋物理盒：袋内每发按子弹外形凸包做碰撞和点选（利于嵌 UI / Web）；绘制为圆钝弹头、台阶肩、单色子弹外形。
 
 signal ball_hover(ammo_id: int)
 signal ball_hover_exit(ammo_id: int)
@@ -8,8 +8,13 @@ signal ball_press(ammo_id: int)
 signal ball_long_press_tick(ammo_id: int)  ## 按下持续时由外部计时；本控件发 press/release
 
 const GRAVITY := 1400.0
-const DEFAULT_RADIUS := 12.0
-const MIN_RADIUS := 8.0
+## v0.4.49：默认视觉高度（720 视口像素）。碰撞与点选跟外形走（凸包 SAT + 多边形点选）。
+const DEFAULT_HEIGHT := 48.0
+const MIN_HEIGHT := 28.0
+const LABEL_FONT_MIN := 16
+const BULLET_MAX_TILT := 0.27925268  ## ±16°，字仍可读，略有朝向变化
+const DEFAULT_RADIUS := 9.7344  ## 1.04*0.39*DEFAULT_HEIGHT/2，外形半宽近似；扫掠用半高
+const MIN_RADIUS := 5.0
 const MAX_BALLS_SOFT := 64
 const RESTITUTION := 0.28
 const WALL_FRICTION := 0.82
@@ -17,17 +22,23 @@ const AIR_DRAG := 0.995
 const SLEEP_SPEED := 12.0
 const WALL_PAD := 5.0
 const SPAWN_JITTER := 18.0
-## v0.4.48 袋内子弹外形（相对高度 1，尖朝上）：尖头约占 40%，底缘约占 12%、宽为弹身 1.18 倍。
-const BULLET_NOSE_FRAC := 0.40
-const BULLET_RIM_FRAC := 0.12
-const BULLET_BODY_W := 0.45
-const BULLET_RIM_W := 0.45 * 1.18
-const BULLET_RIM_CORNER := 0.12 * 0.30
+## v0.4.49 袋内子弹外形（相对高度 1，尖朝 -Y）：宽 0.39；弹头 0.30（底部宽 0.90w）后横出台阶接到弹身；
+## 弹身直到 0.89；抽壳槽收到 0.88w @ 0.925；底缘 1.04w 从 0.925 到 1。单色填充 + 一条外轮廓。
+const BULLET_NOSE_FRAC := 0.30
+const BULLET_BODY_W := 0.39
+const BULLET_NOSE_W := 0.39 * 0.90
+const BULLET_BODY_END := 0.89
+const BULLET_GROOVE_Y := 0.925
+const BULLET_GROOVE_W := 0.39 * 0.88
+const BULLET_RIM_W := 0.39 * 1.04
+const BULLET_RIM_FRAC := 0.075
 const BULLET_OUTLINE := Color(0.086, 0.086, 0.102, 0.92)
-const BULLET_OUTLINE_W := 1.45
-const BULLET_OGIVE_STEPS := 10
+const BULLET_OUTLINE_W := 1.7
+const BULLET_OGIVE_STEPS := 12
+const BULLET_OGIVE_EXP := 0.55
 
 var _bullet_unit: PackedVector2Array = PackedVector2Array()
+var _bullet_hull: PackedVector2Array = PackedVector2Array()
 
 var color_lookup: Callable = Callable()  ## (ammo_id) -> {bg, fg}
 var name_lookup: Callable = Callable()  ## (ammo_id) -> short glyph
@@ -162,25 +173,22 @@ func needs_redraw_every_frame() -> bool:
 
 func _update_radii_for_count() -> void:
 	var n: int = _balls.size()
-	var r: float = DEFAULT_RADIUS
-	if n > MAX_BALLS_SOFT:
-		r = maxf(MIN_RADIUS, DEFAULT_RADIUS * float(MAX_BALLS_SOFT) / float(n))
 	var sz := size
 	if sz.x < 8.0 or sz.y < 8.0:
 		sz = custom_minimum_size
+	var h: float = DEFAULT_HEIGHT
 	if n > 0 and sz.x >= 8.0 and sz.y >= 8.0:
 		var inner_w: float = maxf(sz.x - WALL_PAD * 2.0, 8.0)
 		var inner_h: float = maxf(sz.y - WALL_PAD * 2.0, 8.0)
-		var aspect: float = inner_w / maxf(inner_h, 1.0)
-		var cols: int = maxi(1, int(ceil(sqrt(float(n) * aspect))))
-		var rows: int = maxi(1, int(ceil(float(n) / float(cols))))
-		var cell: float = minf(inner_w / float(cols), inner_h / float(rows))
-		# 0.46 leaves a hair of air so the whole circle stays inside the box.
-		r = minf(r, maxf(4.0, cell * 0.46))
+		h = _fit_bullet_height(n, inner_w, inner_h)
+	var cr: float = h * BULLET_RIM_W * 0.5
+	var r: float = h * 0.5
 	var changed := false
 	for b in _balls:
-		if absf(float(b["r"]) - r) > 0.05:
+		if absf(float(b.get("h", 0.0)) - h) > 0.05:
 			changed = true
+		b["h"] = h
+		b["cr"] = cr
 		b["r"] = r
 	if changed:
 		for b2 in _balls:
@@ -188,6 +196,159 @@ func _update_radii_for_count() -> void:
 			b2["freeze"] = 0
 		_clamp_balls_inside()
 		_dirty = true
+
+
+func _fit_bullet_height(n: int, inner_w: float, inner_h: float) -> float:
+	var h: float = DEFAULT_HEIGHT
+	var guard := 0
+	while h > MIN_HEIGHT and guard < 40:
+		guard += 1
+		if _pack_capacity(inner_w, inner_h, h) >= n:
+			return h
+		h -= 1.0
+	return maxf(MIN_HEIGHT, h)
+
+
+func _pack_capacity(inner_w: float, inner_h: float, h: float) -> int:
+	var ext := _bullet_aabb_half(h, BULLET_MAX_TILT)
+	var gap := 2.0
+	var px: float = ext.x * 2.0 + gap
+	var py: float = ext.y * 2.0 + gap
+	if px < 4.0 or py < 4.0:
+		return 0
+	var cols: int = maxi(1, int(floor(inner_w / px)))
+	var rows: int = maxi(1, int(floor(inner_h / py)))
+	return cols * rows
+
+
+static func _bullet_aabb_half(h: float, tilt: float) -> Vector2:
+	## 最大倾角下凸包的轴对齐半宽半高，用来排位置。
+	var hull: PackedVector2Array = build_bag_bullet_hull_unit()
+	var cs := cos(tilt)
+	var sn := sin(tilt)
+	var mx := 0.0
+	var my := 0.0
+	for q0 in hull:
+		var q: Vector2 = q0 * h
+		var p := Vector2(q.x * cs - q.y * sn, q.x * sn + q.y * cs)
+		mx = maxf(mx, absf(p.x))
+		my = maxf(my, absf(p.y))
+	return Vector2(mx, my)
+
+
+func _refresh_world_hull(b: Dictionary) -> PackedVector2Array:
+	_ensure_bullet_unit()
+	var pos: Vector2 = b["pos"]
+	var pts: PackedVector2Array = _xform_unit_poly(_bullet_hull, pos, float(b.get("h", DEFAULT_HEIGHT)), float(b.get("ang", 0.0)))
+	b["hull"] = pts
+	var mx := 0.0
+	var my := 0.0
+	for p in pts:
+		mx = maxf(mx, absf(p.x - pos.x))
+		my = maxf(my, absf(p.y - pos.y))
+	b["ext"] = Vector2(mx, my)
+	return pts
+
+
+func _world_hull(b: Dictionary) -> PackedVector2Array:
+	var hull = b.get("hull", null)
+	if hull is PackedVector2Array and (hull as PackedVector2Array).size() >= 3:
+		return hull
+	return _refresh_world_hull(b)
+
+
+func _ball_ext(b: Dictionary) -> Vector2:
+	var e = b.get("ext", null)
+	if e is Vector2:
+		return e
+	var hull: PackedVector2Array = _world_hull(b)
+	var pos: Vector2 = b["pos"]
+	var mx := 0.0
+	var my := 0.0
+	for p in hull:
+		mx = maxf(mx, absf(p.x - pos.x))
+		my = maxf(my, absf(p.y - pos.y))
+	var ext := Vector2(mx, my)
+	b["ext"] = ext
+	return ext
+
+
+static func _xform_unit_poly(unit: PackedVector2Array, pos: Vector2, h: float, ang: float) -> PackedVector2Array:
+	var cs := cos(ang)
+	var sn := sin(ang)
+	var pts := PackedVector2Array()
+	pts.resize(unit.size())
+	for i in unit.size():
+		var q: Vector2 = unit[i] * h
+		pts[i] = pos + Vector2(q.x * cs - q.y * sn, q.x * sn + q.y * cs)
+	return pts
+
+
+static func _sat_mtv(pa: PackedVector2Array, pb: PackedVector2Array) -> Vector2:
+	## 若重叠，返回把 A 推出 B 的最小平移；不重叠则 ZERO。
+	if pa.size() < 3 or pb.size() < 3:
+		return Vector2.ZERO
+	var min_overlap := INF
+	var mtv := Vector2.ZERO
+	for side in 2:
+		var poly: PackedVector2Array = pa if side == 0 else pb
+		var nvert: int = poly.size()
+		for i in nvert:
+			var e: Vector2 = poly[(i + 1) % nvert] - poly[i]
+			var axis := Vector2(-e.y, e.x)
+			var alen: float = axis.length()
+			if alen <= 0.0000001:
+				continue
+			axis /= alen
+			var mina := INF
+			var maxa := -INF
+			for p in pa:
+				var d: float = p.dot(axis)
+				mina = minf(mina, d)
+				maxa = maxf(maxa, d)
+			var minb := INF
+			var maxb := -INF
+			for p2 in pb:
+				var d2: float = p2.dot(axis)
+				minb = minf(minb, d2)
+				maxb = maxf(maxb, d2)
+			var overlap: float = minf(maxa, maxb) - maxf(mina, minb)
+			if overlap <= 0.0:
+				return Vector2.ZERO
+			if overlap < min_overlap:
+				min_overlap = overlap
+				mtv = axis * overlap
+	var ca := Vector2.ZERO
+	var cb := Vector2.ZERO
+	for p3 in pa:
+		ca += p3
+	for p4 in pb:
+		cb += p4
+	ca /= float(pa.size())
+	cb /= float(pb.size())
+	if mtv.dot(cb - ca) > 0.0:
+		mtv = -mtv
+	return mtv
+
+
+static func _point_in_poly(p: Vector2, pts: PackedVector2Array) -> bool:
+	var inside := false
+	var n: int = pts.size()
+	if n < 3:
+		return false
+	var j: int = n - 1
+	for i in n:
+		var a: Vector2 = pts[i]
+		var c: Vector2 = pts[j]
+		if ((a.y > p.y) != (c.y > p.y)) and (p.x < (c.x - a.x) * (p.y - a.y) / (c.y - a.y + 0.0000001) + a.x):
+			inside = not inside
+		j = i
+	return inside
+
+
+static func label_font_size_for_height(h: float) -> int:
+	var body_w: float = BULLET_BODY_W * h
+	return int(clampf(round(body_w * 0.88), 11.0, 22.0))
 
 
 func _clamp_balls_inside() -> void:
@@ -201,20 +362,24 @@ func _clamp_balls_inside() -> void:
 	var top := WALL_PAD
 	var bottom := sz.y - WALL_PAD
 	for b in _balls:
-		var rad: float = float(b["r"])
+		var ext: Vector2 = _ball_ext(b)
 		var pos: Vector2 = b["pos"]
-		pos.x = clampf(pos.x, left + rad, maxf(left + rad, right - rad))
-		pos.y = clampf(pos.y, top + rad, maxf(top + rad, bottom - rad))
-		b["pos"] = pos
+		var nx: float = clampf(pos.x, left + ext.x, maxf(left + ext.x, right - ext.x))
+		var ny: float = clampf(pos.y, top + ext.y, maxf(top + ext.y, bottom - ext.y))
+		if absf(nx - pos.x) > 0.001 or absf(ny - pos.y) > 0.001:
+			b["pos"] = Vector2(nx, ny)
+			_refresh_world_hull(b)
 
 
 func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false) -> void:
 	var sz := size
 	if sz.x < 8.0 or sz.y < 8.0:
 		sz = custom_minimum_size
-	var r: float = DEFAULT_RADIUS
+	var h: float = DEFAULT_HEIGHT
+	var cr: float = h * BULLET_RIM_W * 0.5
+	var r: float = h * 0.5
 	var x: float = sz.x * 0.5 + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
-	x = clampf(x, WALL_PAD + r, maxf(WALL_PAD + r, sz.x - WALL_PAD - r))
+	x = clampf(x, WALL_PAD + cr, maxf(WALL_PAD + cr, sz.x - WALL_PAD - cr))
 	var y: float = WALL_PAD + r + randf_range(0.0, 10.0)
 	_balls.append({
 		"id": ammo_id,
@@ -223,7 +388,9 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 		"pos": Vector2(x, y),
 		"vel": Vector2(randf_range(-40.0, 40.0), randf_range(0.0, 30.0)),
 		"r": r,
-		"ang": randf() * TAU,
+		"h": h,
+		"cr": cr,
+		"ang": randf_range(-BULLET_MAX_TILT, BULLET_MAX_TILT),
 		"asleep": false,
 		"freeze": 0,
 	})
@@ -359,36 +526,30 @@ func _physics_step(delta: float) -> void:
 			vel *= AIR_DRAG
 		var pos: Vector2 = b["pos"]
 		pos += vel * delta
-		var r: float = float(b["r"])
-		# walls
-		if pos.x - r < left:
-			pos.x = left + r
+		b["pos"] = pos
+		var ext: Vector2 = _ball_ext(b)
+		# walls：用外形凸包的包围盒，避免圆盘把细长子弹提前挡住
+		if pos.x - ext.x < left:
+			pos.x = left + ext.x
 			vel.x = -vel.x * RESTITUTION
 			vel.y *= WALL_FRICTION
-		elif pos.x + r > right:
-			pos.x = right - r
+		elif pos.x + ext.x > right:
+			pos.x = right - ext.x
 			vel.x = -vel.x * RESTITUTION
 			vel.y *= WALL_FRICTION
-		if pos.y - r < top:
-			pos.y = top + r
+		if pos.y - ext.y < top:
+			pos.y = top + ext.y
 			vel.y = absf(vel.y) * RESTITUTION
-		elif pos.y + r > bottom:
-			pos.y = bottom - r
+		elif pos.y + ext.y > bottom:
+			pos.y = bottom - ext.y
 			vel.y = -vel.y * RESTITUTION
 			vel.x *= WALL_FRICTION
-			if absf(vel.y) < SLEEP_SPEED and absf(vel.x) < SLEEP_SPEED:
-				b["freeze"] = int(b["freeze"]) + 1
-				if int(b["freeze"]) > 8:
-					vel = Vector2.ZERO
-					b["asleep"] = true
-			else:
-				b["freeze"] = 0
-		else:
-			b["freeze"] = 0
 		b["pos"] = pos
 		b["vel"] = vel
-	# ball-ball (simple positional correction + bounce)
-	# v0.4.29：按 x 排序扫掠（原生 PackedInt64Array.sort），x 距离超过两倍最大半径就停；两颗都睡着的跳过。
+		_refresh_world_hull(b)
+	# ball-ball：外形凸包 SAT；按 x 扫掠，超过两倍半高就停；两颗都睡着的跳过。
+	# 重力每帧会给 awake 的弹 ~GRAVITY*delta 的向下速度，入睡阈值必须把这计入，否则堆里的弹永远睡不着。
+	var settle: float = GRAVITY * delta + SLEEP_SPEED
 	var n: int = _balls.size()
 	if any_awake:
 		_dirty = true
@@ -398,7 +559,8 @@ func _physics_step(delta: float) -> void:
 	_order_keys.resize(n)
 	for k in n:
 		var bk: Dictionary = _balls[k]
-		max_r = maxf(max_r, float(bk["r"]))
+		_world_hull(bk)
+		max_r = maxf(max_r, float(bk.get("h", DEFAULT_HEIGHT)) * 0.5)
 		_order_keys[k] = (int(floor(float(bk["pos"].x) * 16.0)) + 1048576) * 4096 + k
 	_order_keys.sort()
 	for oi in n:
@@ -412,32 +574,57 @@ func _physics_step(delta: float) -> void:
 				break
 			if bool(a["asleep"]) and bool(c["asleep"]):
 				continue
-			var pa: Vector2 = a["pos"]
-			var pc: Vector2 = c["pos"]
-			var delta_p: Vector2 = pc - pa
-			var dist_sq: float = delta_p.length_squared()
-			var ra: float = float(a["r"])
-			var rc: float = float(c["r"])
-			var min_d: float = ra + rc
-			if dist_sq <= 0.0001 or dist_sq >= min_d * min_d:
+			# 轴对齐包围盒先剔除，避免细长弹在同一 x 窗口里对整列做 SAT
+			var ea: Vector2 = a["ext"] if a.get("ext") is Vector2 else _ball_ext(a)
+			var ec: Vector2 = c["ext"] if c.get("ext") is Vector2 else _ball_ext(c)
+			if absf(float(c["pos"].x) - ax) > ea.x + ec.x + 0.5:
 				continue
-			var dist: float = sqrt(dist_sq)
-			var nrm: Vector2 = delta_p / dist
-			var overlap: float = min_d - dist
-			var push: Vector2 = nrm * (overlap * 0.5)
-			a["pos"] = pa - push
-			c["pos"] = pc + push
+			if absf(float(c["pos"].y) - float(a["pos"].y)) > ea.y + ec.y + 0.5:
+				continue
+			var ha: PackedVector2Array = _world_hull(a)
+			var hc: PackedVector2Array = _world_hull(c)
+			var mtv: Vector2 = _sat_mtv(ha, hc)
+			if mtv == Vector2.ZERO:
+				continue
+			var push: Vector2 = mtv * 0.5
+			a["pos"] = a["pos"] + push
+			c["pos"] = c["pos"] - push
+			_refresh_world_hull(a)
+			_refresh_world_hull(c)
 			var va: Vector2 = a["vel"]
 			var vc: Vector2 = c["vel"]
-			var rel: float = (vc - va).dot(nrm)
-			if rel < 0.0:
-				var impulse: float = -(1.0 + RESTITUTION) * rel * 0.5
-				a["vel"] = va - nrm * impulse
-				c["vel"] = vc + nrm * impulse
-			a["asleep"] = false
-			c["asleep"] = false
-			a["freeze"] = 0
-			c["freeze"] = 0
+			# 被往上推的一方视为有支撑，清掉向下的重力速度，堆才能入睡。
+			if push.y < -0.001 and va.y > 0.0:
+				va.y = 0.0
+			if push.y > 0.001 and vc.y > 0.0:
+				vc.y = 0.0
+			if va.length() >= settle or vc.length() >= settle:
+				var nrm: Vector2 = mtv.normalized()
+				var rel: float = (vc - va).dot(nrm)
+				if rel > 0.0:
+					var impulse: float = (1.0 + RESTITUTION) * rel * 0.5
+					va = va + nrm * impulse
+					vc = vc - nrm * impulse
+				a["asleep"] = false
+				c["asleep"] = false
+				a["freeze"] = 0
+				c["freeze"] = 0
+			a["vel"] = va
+			c["vel"] = vc
+	# 互撞可能把弹挤出墙外；睡着的弹下一帧不再做墙约束，所以这里再夹一次。
+	_clamp_balls_inside()
+	# 不靠底的弹在堆里速度也很低时同样入睡，避免 150 发时整袋每帧 SAT
+	for b2 in _balls:
+		if bool(b2["asleep"]):
+			continue
+		var v2: Vector2 = b2["vel"]
+		if absf(v2.x) < SLEEP_SPEED and absf(v2.y) < settle:
+			b2["freeze"] = int(b2["freeze"]) + 1
+			if int(b2["freeze"]) > 8:
+				b2["vel"] = Vector2.ZERO
+				b2["asleep"] = true
+		else:
+			b2["freeze"] = 0
 
 
 func _draw() -> void:
@@ -475,12 +662,14 @@ func _draw_box() -> void:
 		# 按稀有度（v0.4.27）：稀有表面流光 / 更稀有同色辉光 / 最稀有七彩辉光
 		var tier: int = int(st["tier"])
 		var seedv: float = float(aid) * 0.37 + float(b.get("seed", 0.0))
+		var h: float = float(b.get("h", r * 2.0))
+		var fx_r: float = h * 0.36
 		if tier != RarityFx.TIER_COMMON:
-			RarityFx.draw_ball_back(self, pos, r, bg, tier, tsec, seedv)
+			RarityFx.draw_ball_back(self, pos, fx_r, bg, tier, tsec, seedv)
 		var ang: float = float(b.get("ang", 0.0))
-		_draw_bag_bullet(pos, r, ang, bg)
+		_draw_bag_bullet(pos, h, ang, bg)
 		if tier != RarityFx.TIER_COMMON:
-			RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
+			RarityFx.draw_ball_front(self, pos, fx_r, tier, tsec, seedv)
 		# v0.4.36：仅 TTL>0 画寿命环（幽灵/小石头）；打出即毁临时只有半透明，无环无秒数
 		if is_temp_ball:
 			var life: float = float(b.get("life", 0.0))
@@ -488,29 +677,35 @@ func _draw_box() -> void:
 				var full: float = float(temp_full_life_by_id.get(aid, temp_full_life))
 				var frac: float = clampf(life / maxf(full, 0.01), 0.0, 1.0)
 				var ring_col: Color = Color(1.0, 0.3, 0.25, 0.95) if frac <= 0.25 else Color(1.0, 0.95, 0.8, 0.9)
-				draw_arc(pos, r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, false)
+				draw_arc(pos, fx_r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, false)
 		var glyph: String = st["glyph"]
-		var fsize := int(maxi(9, int(r * 0.95)))
+		var fsize := label_font_size_for_height(h)
 		if font != null:
-			# draw_string 的 y 是基线：用 ascent 把单字框中心对齐球心（尺寸按 字+字号 缓存）
+			# 字写在弹身中段（单位坐标 y≈0.095），随子弹小幅倾斜
 			var tkey: String = "%s|%d" % [glyph, fsize]
 			var off = _text_off_cache.get(tkey)
 			if off == null:
 				var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
 				off = Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
 				_text_off_cache[tkey] = off
-			var text_pos: Vector2 = off as Vector2
+			var body_mid_y: float = ((-0.5 + BULLET_NOSE_FRAC) + (-0.5 + BULLET_BODY_END)) * 0.5 * h
+			var text_pos: Vector2 = (off as Vector2) + Vector2(0.0, body_mid_y)
 			draw_set_transform(pos, ang, Vector2.ONE)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
 			elif tier == RarityFx.TIER_SIN:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.sin_text_outline(tsec, seedv))
+			else:
+				# 细描边，720 视口上单字更清楚
+				var oc := Color(fg.r, fg.g, fg.b, fg.a)
+				oc = Color(0.08, 0.08, 0.1, 0.7) if fg.r + fg.g + fg.b > 1.6 else Color(1, 1, 1, 0.35)
+				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 2, oc)
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		# v0.4.30 嫉妒一次性复制：右上角绿菱
 		if bool(b.get("envy", false)):
-			var d: float = maxf(3.5, r * 0.35)
-			var tip: Vector2 = pos + Vector2(r * 0.55, -r * 0.55)
+			var d: float = maxf(3.5, h * 0.12)
+			var tip: Vector2 = pos + Vector2(h * 0.18, -h * 0.22)
 			draw_colored_polygon(PackedVector2Array([
 				tip + Vector2(0, -d), tip + Vector2(d, 0), tip + Vector2(0, d), tip + Vector2(-d, 0)
 			]), Color(0.25, 0.95, 0.45, 0.95))
@@ -541,12 +736,22 @@ func _ball_at_pointer(local_pos: Vector2 = Vector2.INF) -> Variant:
 	var p := local_pos
 	if p.x == INF:
 		p = get_local_mouse_position()
-	# 从上往下优先（后画的在上层，近似取最近）
+	# 点选跟可见外形走（单位多边形，含抽壳槽往里收的部分）
+	_ensure_bullet_unit()
 	var best = null
 	var best_d := INF
 	for b in _balls:
-		var d: float = p.distance_to(b["pos"])
-		if d <= float(b["r"]) + 1.0 and d < best_d:
+		var pos: Vector2 = b["pos"]
+		var h: float = maxf(float(b.get("h", DEFAULT_HEIGHT)), 0.001)
+		var ang: float = float(b.get("ang", 0.0))
+		var dp: Vector2 = p - pos
+		var cs := cos(-ang)
+		var sn := sin(-ang)
+		var local := Vector2(dp.x * cs - dp.y * sn, dp.x * sn + dp.y * cs) / h
+		if not _point_in_poly(local, _bullet_unit):
+			continue
+		var d: float = dp.length()
+		if d < best_d:
 			best_d = d
 			best = b
 	return best
@@ -597,8 +802,8 @@ func _notification(what: int) -> void:
 			_hover_ammo = -1
 
 
-func _draw_bag_bullet(pos: Vector2, r: float, ang: float, fill: Color) -> void:
-	var pts := _bag_bullet_points(pos, r, ang)
+func _draw_bag_bullet(pos: Vector2, h: float, ang: float, fill: Color) -> void:
+	var pts := _bag_bullet_points(pos, h, ang)
 	if pts.size() < 3:
 		return
 	draw_colored_polygon(pts, fill)
@@ -607,10 +812,9 @@ func _draw_bag_bullet(pos: Vector2, r: float, ang: float, fill: Color) -> void:
 	draw_polyline(outline, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
 
 
-func _bag_bullet_points(pos: Vector2, r: float, ang: float) -> PackedVector2Array:
-	## 高度与原圆球直径一致（2r），落在圆形碰撞范围内。
+func _bag_bullet_points(pos: Vector2, h: float, ang: float) -> PackedVector2Array:
+	## 单位多边形乘高度后旋转；原点在几何中心。
 	_ensure_bullet_unit()
-	var h: float = r * 2.0
 	var cs := cos(ang)
 	var sn := sin(ang)
 	var pts := PackedVector2Array()
@@ -622,55 +826,115 @@ func _bag_bullet_points(pos: Vector2, r: float, ang: float) -> PackedVector2Arra
 
 
 func _ensure_bullet_unit() -> void:
-	if not _bullet_unit.is_empty():
+	if not _bullet_unit.is_empty() and not _bullet_hull.is_empty():
 		return
 	_bullet_unit = build_bag_bullet_unit()
+	_bullet_hull = build_bag_bullet_hull_unit()
 
 
 ## 单位高度 1、原点在中心、尖朝 -Y。给绘制和测试共用。
 static func build_bag_bullet_unit() -> PackedVector2Array:
 	var pts := PackedVector2Array()
 	var hw: float = BULLET_BODY_W * 0.5
+	var nw: float = BULLET_NOSE_W * 0.5
+	var gw: float = BULLET_GROOVE_W * 0.5
 	var rw: float = BULLET_RIM_W * 0.5
 	var y_tip: float = -0.5
 	var y_nose: float = -0.5 + BULLET_NOSE_FRAC
-	var y_rim: float = 0.5 - BULLET_RIM_FRAC
+	var y_body: float = -0.5 + BULLET_BODY_END
+	var y_gr: float = -0.5 + BULLET_GROOVE_Y
 	var y_bot: float = 0.5
-	var cr: float = BULLET_RIM_CORNER
-	# 尖头左侧：t=0 在尖，t=1 到弹身。x=(w/2)*sin(t*pi/2)^0.85
+	# 弹头左侧：t=0 在尖，t=1 到弹头底部（宽 0.90w）。x=(0.90w/2)*sin(t*pi/2)^0.55
 	for i in BULLET_OGIVE_STEPS + 1:
 		var t: float = float(i) / float(BULLET_OGIVE_STEPS)
-		var x: float = hw * pow(sin(t * PI * 0.5), 0.85)
+		var x: float = nw * pow(sin(t * PI * 0.5), BULLET_OGIVE_EXP)
 		var y: float = y_tip + BULLET_NOSE_FRAC * t
 		pts.append(Vector2(-x, y))
-	# 左侧弹身（补一个中段点，方便测宽）直到底缘顶
+	# 肩部横出台阶，接到弹身全宽，再沿弹身向下
+	pts.append(Vector2(-hw, y_nose))
 	pts.append(Vector2(-hw, 0.0))
-	pts.append(Vector2(-hw, y_rim))
-	# 底缘顶左侧（直角台阶）
-	pts.append(Vector2(-rw, y_rim))
-	# 左下圆角：从左侧（角 PI）到下侧（角 PI/2）
-	var cl := Vector2(-rw + cr, y_bot - cr)
-	var steps := 4
-	for i in steps + 1:
-		var t2: float = float(i) / float(steps)
-		var a: float = PI - t2 * PI * 0.5
-		pts.append(cl + Vector2(cos(a), sin(a)) * cr)
-	# 右下圆角：从下侧（PI/2）到右侧（0）
-	var cr_c := Vector2(rw - cr, y_bot - cr)
-	for i in steps + 1:
-		var t3: float = float(i) / float(steps)
-		var a2: float = PI * 0.5 - t3 * PI * 0.5
-		pts.append(cr_c + Vector2(cos(a2), sin(a2)) * cr)
-	# 底缘顶右侧，回到弹身
-	pts.append(Vector2(rw, y_rim))
-	pts.append(Vector2(hw, y_rim))
+	pts.append(Vector2(-hw, y_body))
+	# 抽壳槽向内收到 0.88w，再横出到底缘 1.04w
+	pts.append(Vector2(-gw, y_gr))
+	pts.append(Vector2(-rw, y_gr))
+	pts.append(Vector2(-rw, y_bot))
+	pts.append(Vector2(rw, y_bot))
+	pts.append(Vector2(rw, y_gr))
+	pts.append(Vector2(gw, y_gr))
+	pts.append(Vector2(hw, y_body))
 	pts.append(Vector2(hw, 0.0))
-	# 右侧弹身到尖头交接
 	pts.append(Vector2(hw, y_nose))
-	# 尖头右侧，从底回到尖
+	# 弹头右侧，从底回到尖
 	for i in range(BULLET_OGIVE_STEPS, -1, -1):
 		var t4: float = float(i) / float(BULLET_OGIVE_STEPS)
-		var x2: float = hw * pow(sin(t4 * PI * 0.5), 0.85)
+		var x2: float = nw * pow(sin(t4 * PI * 0.5), BULLET_OGIVE_EXP)
 		var y2: float = y_tip + BULLET_NOSE_FRAC * t4
 		pts.append(Vector2(x2, y2))
 	return pts
+
+## 外形凸包（抽壳槽往里收的部分被填上，避免非凸多边形 SAT）。绘制仍用完整轮廓。
+static func build_bag_bullet_hull_unit() -> PackedVector2Array:
+	## 碰撞凸包只保留外形极值（尖、弹头样点、肩、身、缘），比完整绘制多边形更少顶点。
+	var hw: float = BULLET_BODY_W * 0.5
+	var nw: float = BULLET_NOSE_W * 0.5
+	var rw: float = BULLET_RIM_W * 0.5
+	var y_tip: float = -0.5
+	var y_nose: float = -0.5 + BULLET_NOSE_FRAC
+	var y_body: float = -0.5 + BULLET_BODY_END
+	var y_gr: float = -0.5 + BULLET_GROOVE_Y
+	var y_bot: float = 0.5
+	var pts := PackedVector2Array()
+	pts.append(Vector2(0.0, y_tip))
+	for i in [4, 8, 12]:
+		var t: float = float(i) / float(BULLET_OGIVE_STEPS)
+		var x: float = nw * pow(sin(t * PI * 0.5), BULLET_OGIVE_EXP)
+		var y: float = y_tip + BULLET_NOSE_FRAC * t
+		pts.append(Vector2(-x, y))
+		pts.append(Vector2(x, y))
+	pts.append(Vector2(-hw, y_nose))
+	pts.append(Vector2(hw, y_nose))
+	pts.append(Vector2(-hw, y_body))
+	pts.append(Vector2(hw, y_body))
+	pts.append(Vector2(-rw, y_gr))
+	pts.append(Vector2(rw, y_gr))
+	pts.append(Vector2(-rw, y_bot))
+	pts.append(Vector2(rw, y_bot))
+	return _convex_hull(pts)
+
+
+static func _cross(o: Vector2, a: Vector2, b: Vector2) -> float:
+	return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+
+
+static func _convex_hull(src: PackedVector2Array) -> PackedVector2Array:
+	var pts: Array = []
+	for p in src:
+		pts.append(p)
+	pts.sort_custom(func(u, v):
+		return u.x < v.x - 0.0000001 or (absf(u.x - v.x) <= 0.0000001 and u.y < v.y)
+	)
+	if pts.size() <= 3:
+		return PackedVector2Array(pts)
+	var lower: Array = []
+	for p in pts:
+		while lower.size() >= 2 and _cross(lower[lower.size() - 2], lower[lower.size() - 1], p) <= 0.0:
+			lower.pop_back()
+		lower.append(p)
+	var upper: Array = []
+	var i: int = pts.size() - 1
+	while i >= 0:
+		var p2: Vector2 = pts[i]
+		while upper.size() >= 2 and _cross(upper[upper.size() - 2], upper[upper.size() - 1], p2) <= 0.0:
+			upper.pop_back()
+		upper.append(p2)
+		i -= 1
+	if not lower.is_empty():
+		lower.pop_back()
+	if not upper.is_empty():
+		upper.pop_back()
+	var out := PackedVector2Array()
+	for q in lower:
+		out.append(q)
+	for q2 in upper:
+		out.append(q2)
+	return out

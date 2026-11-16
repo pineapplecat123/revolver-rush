@@ -269,7 +269,8 @@ func test_bag_broadphase_separates_overlaps() -> void:
 	for _i in 30:
 		box._physics_step(1.0 / 60.0)
 	var d: float = Vector2(box._balls[0]["pos"]).distance_to(box._balls[1]["pos"])
-	assert_gt(d, float(box._balls[0]["r"]) * 2.0 - 1.5, "重叠的球被推开")
+	var hh: float = float(box._balls[0].get("h", float(box._balls[0]["r"]) * 2.0))
+	assert_gt(d, BagPhysicsBox.BULLET_RIM_W * hh - 2.0, "重叠的弹被外形推开")
 
 
 func test_sin_star_fill_no_triangulation_path() -> void:

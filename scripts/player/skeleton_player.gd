@@ -2,7 +2,7 @@ class_name SkeletonPlayer
 extends Node2D
 ## v0.4.21 骨骼动画玩家（纯表现，不碰任何玩法/数值）。
 ## Skeleton2D + Bone2D 搭的站立 Q 版小橘猫（大头二头身半、猫耳胡须大眼、三节尾巴、肉垫爪握大左轮），原点 = 脚底中心，面朝右。
-## 动画：idle（上半身按节奏上下晃，脚站住）/ shoot（后坐+枪口焰，可连点打断）/ reload（装弹）/ hurt（受击）/ death（倒地）。
+## 动画：idle（上半身上下点头，脚站住）/ shoot（后坐+枪口焰，可连点打断）/ reload（装弹）/ hurt（受击）/ death（倒地）。
 ## 用法：bind_state(cs) 后自动订阅 —— on_shot→shoot，on_chamber_loaded→reload，
 ##       player_damaged→hurt，phase_changed(LOST)→death，离开 LOST→revive。
 
@@ -18,6 +18,12 @@ const ANIM_RESET := &"RESET"
 const IDLE_BPM := 105.0
 const IDLE_BEAT := 60.0 / IDLE_BPM
 const IDLE_GUN_LAG := 0.10
+## v0.4.49：上半身上下点头。四拍一圈，左右极端各快速下点一次；前后慢慢平移。
+const IDLE_SWAY_X := 3.2
+const IDLE_DIP_Y := 3.8
+const IDLE_RISE_Y := -2.2
+const IDLE_DIP_IN := 0.42
+const IDLE_DIP_OUT := 1.15
 
 ## 配色：橘猫（暖橘毛 + 奶油肚皮/口鼻 + 深褐描边），红色小领巾，在深蓝底上很醒目
 const COL_FUR := Color(1.0, 0.64, 0.28)
@@ -643,16 +649,17 @@ func _bone_path(bn: String) -> String:
 
 
 ## keys: track_path -> Array of [time, value]；没写到的轨在 0 和末尾钉回静止值
-func _make_anim(length: float, keys: Dictionary, loop: bool = false, hold_end: bool = false) -> Animation:
+func _make_anim(length: float, keys: Dictionary, loop: bool = false, hold_end: bool = false, cubic = null) -> Animation:
 	var a := Animation.new()
 	a.length = length
 	a.loop_mode = Animation.LOOP_LINEAR if loop else Animation.LOOP_NONE
+	var use_cubic: bool = bool(cubic) if cubic != null else loop
 	for tp in _track_paths():
 		var path: String = tp[0]
 		var rest_v = tp[1]
 		var ti := a.add_track(Animation.TYPE_VALUE)
 		a.track_set_path(ti, NodePath(path))
-		a.track_set_interpolation_type(ti, Animation.INTERPOLATION_CUBIC if loop else Animation.INTERPOLATION_LINEAR)
+		a.track_set_interpolation_type(ti, Animation.INTERPOLATION_CUBIC if use_cubic else Animation.INTERPOLATION_LINEAR)
 		a.value_track_set_update_mode(ti, Animation.UPDATE_CONTINUOUS)
 		if keys.has(path):
 			var arr: Array = keys[path]
@@ -747,6 +754,34 @@ func _lag_loop_keys(src: Array, lag: float, length: float) -> Array:
 	out.append([length, v0])
 	return out
 
+static func idle_cycle_phi(t: float, length: float) -> float:
+	## 0 和 PI 是前后两端（下点），半拍/一拍半经过中间（抬起）。
+	return fposmod(TAU * t / maxf(length, 0.001), TAU)
+
+
+static func idle_dip_amount(t: float, length: float) -> float:
+	var phi: float = idle_cycle_phi(t, length)
+	return maxf(_idle_dip_lobe(phi), _idle_dip_lobe(phi - PI))
+
+
+static func _idle_dip_lobe(d: float) -> float:
+	## d=0 在端点。靠近端点用短的 ease-in 快速下点，离开端点用更宽的曲线抬起。
+	var wrapped: float = d - TAU * floor((d + PI) / TAU)
+	if wrapped < 0.0:
+		var u: float = clampf(1.0 + wrapped / IDLE_DIP_IN, 0.0, 1.0)
+		return u * u
+	var u2: float = clampf(1.0 - wrapped / IDLE_DIP_OUT, 0.0, 1.0)
+	return u2 * u2 * (3.0 - 2.0 * u2)
+
+
+static func idle_torso_offset(t: float, length: float) -> Vector2:
+	## +X 向前（面朝右），+Y 向下。水平慢正弦；两端快速下点，路径像两个向下的弧。
+	var phi: float = idle_cycle_phi(t, length)
+	var dip: float = idle_dip_amount(t, length)
+	var x: float = IDLE_SWAY_X * cos(phi)
+	var y: float = lerpf(IDLE_RISE_Y, IDLE_DIP_Y, dip)
+	return Vector2(x, y)
+
 
 func _build_animations() -> void:
 
@@ -772,49 +807,54 @@ func _build_animations() -> void:
 	_eyes_track(reset, [[0.0, e1]])
 	lib.add_animation(ANIM_RESET, reset)
 
-	# idle：105 BPM、四拍循环。拍点上半身下沉并略前倾，弱拍抬起；脚下仍站住。
-	# 头、持枪手臂和枪滞后跟上，带一点下落的分量。尾巴跟着拍子甩。
+	# idle：105 BPM、四拍一圈。上半身慢慢前后移，移到两端时快速下点再抬起，脚下站住。
+	# 不是前后摇晃；枪和头滞后跟上。尾巴跟着拍子甩。
 	var beat := IDLE_BEAT
 	var idle_len := beat * 4.0
 	var torso0: Vector2 = REST["Torso"][0]
-	var down_a: Vector2 = torso0 + Vector2(0.5, 3.4)
-	var down_s: Vector2 = torso0 + Vector2(0.25, 2.4)
-	var up: Vector2 = torso0 + Vector2(-0.2, -2.2)
-	var torso_pos := [
-		[0.0, down_a], [0.5 * beat, up], [1.0 * beat, down_s], [1.5 * beat, up],
-		[2.0 * beat, down_a], [2.5 * beat, up], [3.0 * beat, down_s], [3.5 * beat, up],
-		[idle_len, down_a],
-	]
-	var torso_rot := [
-		[0.0, 0.09], [0.5 * beat, -0.05], [1.0 * beat, 0.06], [1.5 * beat, -0.04],
-		[2.0 * beat, 0.09], [2.5 * beat, -0.05], [3.0 * beat, 0.06], [3.5 * beat, -0.04],
-		[idle_len, 0.09],
-	]
-	var head_rot := [
-		[0.0, 0.11], [0.5 * beat, -0.05], [1.0 * beat, 0.07], [1.5 * beat, -0.04],
-		[2.0 * beat, 0.11], [2.5 * beat, -0.05], [3.0 * beat, 0.07], [3.5 * beat, -0.04],
-		[idle_len, 0.11],
-	]
-	var arm_f := [
-		[0.0, 0.20], [0.5 * beat, 0.05], [1.0 * beat, 0.16], [1.5 * beat, 0.05],
-		[2.0 * beat, 0.20], [2.5 * beat, 0.05], [3.0 * beat, 0.16], [3.5 * beat, 0.05],
-		[idle_len, 0.20],
-	]
-	var fa_f := [
-		[0.0, -0.18], [0.5 * beat, -0.06], [1.0 * beat, -0.15], [1.5 * beat, -0.06],
-		[2.0 * beat, -0.18], [2.5 * beat, -0.06], [3.0 * beat, -0.15], [3.5 * beat, -0.06],
-		[idle_len, -0.18],
-	]
-	var hand_f := [
-		[0.0, 0.11], [0.5 * beat, -0.06], [1.0 * beat, 0.08], [1.5 * beat, -0.05],
-		[2.0 * beat, 0.11], [2.5 * beat, -0.06], [3.0 * beat, 0.08], [3.5 * beat, -0.05],
-		[idle_len, 0.11],
-	]
-	var arm_b := [
-		[0.0, 1.42], [0.5 * beat, 1.30], [1.0 * beat, 1.39], [1.5 * beat, 1.30],
-		[2.0 * beat, 1.42], [2.5 * beat, 1.30], [3.0 * beat, 1.39], [3.5 * beat, 1.30],
-		[idle_len, 1.42],
-	]
+	var nkeys := 32
+	var torso_pos: Array = []
+	var torso_rot: Array = []
+	var head_rot: Array = []
+	var arm_f: Array = []
+	var fa_f: Array = []
+	var hand_f: Array = []
+	var arm_b: Array = []
+	for ki in nkeys + 1:
+		var tt: float = idle_len * float(ki) / float(nkeys)
+		var dip: float = idle_dip_amount(tt, idle_len)
+		var off: Vector2 = idle_torso_offset(tt, idle_len)
+		var phi: float = idle_cycle_phi(tt, idle_len)
+		torso_pos.append([tt, torso0 + off])
+		torso_rot.append([tt, 0.015 * cos(phi)])
+		head_rot.append([tt, 0.02 + 0.09 * dip])
+		arm_f.append([tt, 0.10 + 0.11 * dip])
+		fa_f.append([tt, -0.10 - 0.08 * dip])
+		hand_f.append([tt, 0.02 + 0.10 * dip])
+		arm_b.append([tt, 1.35 + 0.07 * dip])
+	# 端点附近再加密关键帧，让下点更利落
+	for extra in [0.0, idle_len * 0.5]:
+		for dtt in [-0.08, -0.04, -0.02, 0.02, 0.05, 0.10]:
+			var t2: float = fposmod(extra + dtt, idle_len)
+			if t2 <= 0.0001 or t2 >= idle_len - 0.0001:
+				continue
+			var dip2: float = idle_dip_amount(t2, idle_len)
+			var off2: Vector2 = idle_torso_offset(t2, idle_len)
+			var phi2: float = idle_cycle_phi(t2, idle_len)
+			torso_pos.append([t2, torso0 + off2])
+			torso_rot.append([t2, 0.015 * cos(phi2)])
+			head_rot.append([t2, 0.02 + 0.09 * dip2])
+			arm_f.append([t2, 0.10 + 0.11 * dip2])
+			fa_f.append([t2, -0.10 - 0.08 * dip2])
+			hand_f.append([t2, 0.02 + 0.10 * dip2])
+			arm_b.append([t2, 1.35 + 0.07 * dip2])
+	torso_pos.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	torso_rot.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	head_rot.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	arm_f.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	fa_f.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	hand_f.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	arm_b.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
 	var idle := _make_anim(idle_len, {
 		hip_p: [[0.0, hip0], [idle_len, hip0]],
 		("%s:position" % _bone_path("Torso")): torso_pos,
@@ -839,7 +879,7 @@ func _build_animations() -> void:
 			[2.0 * beat, t3r], [2.5 * beat, t3r + 0.38], [3.0 * beat, t3r - 0.12], [3.5 * beat, t3r - 0.36],
 			[idle_len, t3r],
 		],
-	}, true)
+	}, true, false, false)
 	_flash_track(idle, -1.0, -1.0)
 	_cyl_track(idle, [[0.0, cyl0]])
 	_vis_track(idle, eyes, [[0.0, true]])

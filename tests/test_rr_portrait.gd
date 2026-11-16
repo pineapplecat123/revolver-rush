@@ -21,10 +21,15 @@ func test_combat_scene_thirds_two_buttons_no_log() -> void:
 	for gone in ["%BtnLoad", "%BtnRoll", "%BtnUnload"]:
 		assert_null(ui.get_node_or_null(gone), "%s removed" % gone)
 	var sections := ["Margin/RootVBox/TopPanel", "Margin/RootVBox/MidPanel", "Margin/RootVBox/BottomPanel"]
+	var stretch := {
+		"TopPanel": 1.0,
+		"MidPanel": 1.16,
+		"BottomPanel": 0.90,
+	}
 	for p in sections:
 		var c: Control = ui.get_node(p)
 		assert_eq(c.size_flags_vertical & Control.SIZE_EXPAND, Control.SIZE_EXPAND, "%s expands" % p)
-		assert_almost_eq(c.size_flags_stretch_ratio, 1.0, 0.001)
+		assert_almost_eq(c.size_flags_stretch_ratio, float(stretch[c.name]), 0.001, "%s stretch" % p)
 	assert_true(ui.get_node("Margin/RootVBox/TopPanel").is_ancestor_of(ui.get_node("%BoardRow")), "board in top third")
 	var mid: Node = ui.get_node("Margin/RootVBox/MidPanel")
 	assert_true(mid.is_ancestor_of(ui.get_node("%MagWheel")), "cylinder in middle third")
