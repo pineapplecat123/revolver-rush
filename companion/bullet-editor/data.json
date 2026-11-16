@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-16T00:29:00+08:00",
+  "updated_at": "2026-11-16T10:34:10+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -107,6 +107,21 @@
       "in_game": true,
       "created_at": "2026-11-14T15:43:24+08:00",
       "updated_at": "2026-11-16T00:29:00+08:00"
+    },
+    {
+      "id": "b20261116-103402-h4ot",
+      "name": "衔尾蛇弹",
+      "type": "开始",
+      "damage": "3",
+      "rarity": "",
+      "school": "通用",
+      "effect": "弹夹里每有一个结束弹伤害+3",
+      "notes": "",
+      "muzzle_color": "#52C76B",
+      "bullet_color": "#4DE036",
+      "in_game": false,
+      "created_at": "2026-11-16T10:34:10+08:00",
+      "updated_at": "2026-11-16T10:34:10+08:00"
     }
   ]
 }
