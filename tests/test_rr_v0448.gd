@@ -116,7 +116,8 @@ func test_bag_spawns_rotated_bullets_and_keeps_round_physics_and_clicks() -> voi
 	for b in box._balls:
 		assert_true(b.has("ang"), "each bag bullet should have a random rotation")
 		var a: float = float(b["ang"])
-		assert_between(a, -BagPhysicsBox.BULLET_MAX_TILT - 0.001, BagPhysicsBox.BULLET_MAX_TILT + 0.001)
+		assert_gt(absf(a), -0.001)
+		assert_lte(absf(a), PI + 0.001)
 		angs[snapped(a, 0.0001)] = true
 		assert_gt(float(b.get("h", 0.0)), 8.0)
 	assert_gt(angs.size(), 1, "rotations should not all be identical")

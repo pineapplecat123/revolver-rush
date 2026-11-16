@@ -253,7 +253,7 @@ custom_minimum_size = Vector2(280, 200)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-size_flags_stretch_ratio = 1.45
+size_flags_stretch_ratio = 1.70
 
 [node name="HandPanel" type="PanelContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol"]
 unique_name_in_owner = true
@@ -261,7 +261,7 @@ custom_minimum_size = Vector2(280, 150)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-size_flags_stretch_ratio = 0.85
+size_flags_stretch_ratio = 0.75
 
 [node name="HandMargin" type="MarginContainer" parent="Margin/RootVBox/MidPanel/MidSection/RightCol/HandPanel"]
 layout_mode = 2

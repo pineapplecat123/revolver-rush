@@ -12,8 +12,9 @@ const GRAVITY := 1400.0
 const DEFAULT_HEIGHT := 48.0
 const MIN_HEIGHT := 28.0
 const LABEL_FONT_MIN := 16
-const BULLET_MAX_TILT := 0.27925268  ## ±16°，字仍可读，略有朝向变化
 const DEFAULT_RADIUS := 9.7344  ## 1.04*0.39*DEFAULT_HEIGHT/2，外形半宽近似；扫掠用半高
+const ANG_DRAG := 0.985
+const ANG_IMPULSE := 0.05
 const MIN_RADIUS := 5.0
 const MAX_BALLS_SOFT := 64
 const RESTITUTION := 0.28
@@ -39,6 +40,7 @@ const BULLET_OGIVE_EXP := 0.55
 
 var _bullet_unit: PackedVector2Array = PackedVector2Array()
 var _bullet_hull: PackedVector2Array = PackedVector2Array()
+var _bullet_tris: PackedInt32Array = PackedInt32Array()
 
 var color_lookup: Callable = Callable()  ## (ammo_id) -> {bg, fg}
 var name_lookup: Callable = Callable()  ## (ammo_id) -> short glyph
@@ -210,14 +212,12 @@ func _fit_bullet_height(n: int, inner_w: float, inner_h: float) -> float:
 
 
 func _pack_capacity(inner_w: float, inner_h: float, h: float) -> int:
-	var ext := _bullet_aabb_half(h, BULLET_MAX_TILT)
-	var gap := 2.0
-	var px: float = ext.x * 2.0 + gap
-	var py: float = ext.y * 2.0 + gap
-	if px < 4.0 or py < 4.0:
+	## 自由旋转时按外形外接圆排，保证横躺的弹也能装进盒内。
+	var cell: float = _bullet_circ_radius(h) * 2.0 + 2.0
+	if cell < 4.0:
 		return 0
-	var cols: int = maxi(1, int(floor(inner_w / px)))
-	var rows: int = maxi(1, int(floor(inner_h / py)))
+	var cols: int = maxi(1, int(floor(inner_w / cell)))
+	var rows: int = maxi(1, int(floor(inner_h / (cell * 0.8660254))))  # 六边形更紧
 	return cols * rows
 
 
@@ -234,6 +234,15 @@ static func _bullet_aabb_half(h: float, tilt: float) -> Vector2:
 		mx = maxf(mx, absf(p.x))
 		my = maxf(my, absf(p.y))
 	return Vector2(mx, my)
+
+
+static func _bullet_circ_radius(h: float) -> float:
+	## 外形中心到凸包最远点，自由旋转时的包围半径。
+	var hull: PackedVector2Array = build_bag_bullet_hull_unit()
+	var m := 0.0
+	for q in hull:
+		m = maxf(m, (q as Vector2).length())
+	return m * h
 
 
 func _refresh_world_hull(b: Dictionary) -> PackedVector2Array:
@@ -390,7 +399,8 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 		"r": r,
 		"h": h,
 		"cr": cr,
-		"ang": randf_range(-BULLET_MAX_TILT, BULLET_MAX_TILT),
+		"ang": randf_range(-PI, PI),
+		"omega": randf_range(-3.5, 3.5),
 		"asleep": false,
 		"freeze": 0,
 	})
@@ -526,7 +536,16 @@ func _physics_step(delta: float) -> void:
 			vel *= AIR_DRAG
 		var pos: Vector2 = b["pos"]
 		pos += vel * delta
+		var ang: float = float(b.get("ang", 0.0))
+		var omega: float = float(b.get("omega", 0.0))
+		ang = wrapf(ang + omega * delta, -PI, PI)
+		omega *= ANG_DRAG
+		b["ang"] = ang
+		b["omega"] = omega
 		b["pos"] = pos
+		# 转角变了，清掉缓存的凸包
+		b.erase("hull")
+		b.erase("ext")
 		var ext: Vector2 = _ball_ext(b)
 		# walls：用外形凸包的包围盒，避免圆盘把细长子弹提前挡住
 		if pos.x - ext.x < left:
@@ -560,7 +579,7 @@ func _physics_step(delta: float) -> void:
 	for k in n:
 		var bk: Dictionary = _balls[k]
 		_world_hull(bk)
-		max_r = maxf(max_r, float(bk.get("h", DEFAULT_HEIGHT)) * 0.5)
+		max_r = maxf(max_r, float(bk.get("h", DEFAULT_HEIGHT)) * 0.56)
 		_order_keys[k] = (int(floor(float(bk["pos"].x) * 16.0)) + 1048576) * 4096 + k
 	_order_keys.sort()
 	for oi in n:
@@ -605,6 +624,11 @@ func _physics_step(delta: float) -> void:
 					var impulse: float = (1.0 + RESTITUTION) * rel * 0.5
 					va = va + nrm * impulse
 					vc = vc - nrm * impulse
+					var tangent := Vector2(-nrm.y, nrm.x)
+					var rel_t: float = (vc - va).dot(tangent)
+					var spin: float = rel_t * ANG_IMPULSE
+					a["omega"] = float(a.get("omega", 0.0)) + spin
+					c["omega"] = float(c.get("omega", 0.0)) - spin
 				a["asleep"] = false
 				c["asleep"] = false
 				a["freeze"] = 0
@@ -622,6 +646,7 @@ func _physics_step(delta: float) -> void:
 			b2["freeze"] = int(b2["freeze"]) + 1
 			if int(b2["freeze"]) > 8:
 				b2["vel"] = Vector2.ZERO
+				b2["omega"] = 0.0
 				b2["asleep"] = true
 		else:
 			b2["freeze"] = 0
@@ -681,16 +706,15 @@ func _draw_box() -> void:
 		var glyph: String = st["glyph"]
 		var fsize := label_font_size_for_height(h)
 		if font != null:
-			# 字写在弹身中段（单位坐标 y≈0.095），随子弹小幅倾斜
+			# 字永远正向对着玩家，画在子弹中心，不跟外形一起转
 			var tkey: String = "%s|%d" % [glyph, fsize]
 			var off = _text_off_cache.get(tkey)
 			if off == null:
 				var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
 				off = Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
 				_text_off_cache[tkey] = off
-			var body_mid_y: float = ((-0.5 + BULLET_NOSE_FRAC) + (-0.5 + BULLET_BODY_END)) * 0.5 * h
-			var text_pos: Vector2 = (off as Vector2) + Vector2(0.0, body_mid_y)
-			draw_set_transform(pos, ang, Vector2.ONE)
+			var text_pos: Vector2 = off as Vector2
+			draw_set_transform(pos, 0.0, Vector2.ONE)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
 			elif tier == RarityFx.TIER_SIN:
@@ -806,7 +830,24 @@ func _draw_bag_bullet(pos: Vector2, h: float, ang: float, fill: Color) -> void:
 	var pts := _bag_bullet_points(pos, h, ang)
 	if pts.size() < 3:
 		return
-	draw_colored_polygon(pts, fill)
+	_ensure_bullet_unit()
+	# 按预计算三角形填充，避免带抽壳槽的凹多边形在某些角度三角化失败。
+	if _bullet_tris.size() >= 3:
+		var tri := PackedVector2Array()
+		tri.resize(3)
+		var i := 0
+		while i + 2 < _bullet_tris.size():
+			var a: int = int(_bullet_tris[i])
+			var b: int = int(_bullet_tris[i + 1])
+			var c: int = int(_bullet_tris[i + 2])
+			if a >= 0 and b >= 0 and c >= 0 and a < pts.size() and b < pts.size() and c < pts.size():
+				tri[0] = pts[a]
+				tri[1] = pts[b]
+				tri[2] = pts[c]
+				draw_colored_polygon(tri, fill)
+			i += 3
+	else:
+		draw_colored_polygon(_xform_unit_poly(_bullet_hull, pos, h, ang), fill)
 	var outline := PackedVector2Array(pts)
 	outline.append(pts[0])
 	draw_polyline(outline, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
@@ -826,10 +867,23 @@ func _bag_bullet_points(pos: Vector2, h: float, ang: float) -> PackedVector2Arra
 
 
 func _ensure_bullet_unit() -> void:
-	if not _bullet_unit.is_empty() and not _bullet_hull.is_empty():
+	if not _bullet_unit.is_empty() and not _bullet_hull.is_empty() and not _bullet_tris.is_empty():
 		return
 	_bullet_unit = build_bag_bullet_unit()
 	_bullet_hull = build_bag_bullet_hull_unit()
+	_bullet_tris = Geometry2D.triangulate_polygon(_bullet_unit)
+	if _bullet_tris.is_empty() and _bullet_unit.size() >= 2:
+		# 首尾可能都是弹尖，去掉重复点再三角化
+		var dedup := PackedVector2Array()
+		for i in _bullet_unit.size():
+			var q: Vector2 = _bullet_unit[i]
+			if dedup.is_empty() or q.distance_squared_to(dedup[dedup.size() - 1]) > 0.00000001:
+				if dedup.size() == 0 or q.distance_squared_to(dedup[0]) > 0.00000001 or i < _bullet_unit.size() - 1:
+					dedup.append(q)
+		if dedup.size() >= 2 and dedup[0].distance_squared_to(dedup[dedup.size() - 1]) <= 0.00000001:
+			dedup.remove_at(dedup.size() - 1)
+		_bullet_unit = dedup
+		_bullet_tris = Geometry2D.triangulate_polygon(_bullet_unit)
 
 
 ## 单位高度 1、原点在中心、尖朝 -Y。给绘制和测试共用。

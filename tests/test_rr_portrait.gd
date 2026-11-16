@@ -23,8 +23,8 @@ func test_combat_scene_thirds_two_buttons_no_log() -> void:
 	var sections := ["Margin/RootVBox/TopPanel", "Margin/RootVBox/MidPanel", "Margin/RootVBox/BottomPanel"]
 	var stretch := {
 		"TopPanel": 1.0,
-		"MidPanel": 1.16,
-		"BottomPanel": 0.90,
+		"MidPanel": 1.36,
+		"BottomPanel": 0.84,
 	}
 	for p in sections:
 		var c: Control = ui.get_node(p)

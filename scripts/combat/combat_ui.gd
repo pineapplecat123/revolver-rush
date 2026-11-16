@@ -548,11 +548,11 @@ func _ensure_combat_layout() -> void:
 		var sec := get_node_or_null(path) as Control
 		if sec != null:
 			sec.size_flags_vertical = Control.SIZE_EXPAND_FILL
-			# v0.4.49：中段略加高，给袋里更大的子弹留空；底栏按钮仍够用。
+			# v0.4.50：中段再加高，自由旋转的大子弹仍能 30 发装进袋、不用上下滚。
 			if path.ends_with("MidPanel"):
-				sec.size_flags_stretch_ratio = 1.16
+				sec.size_flags_stretch_ratio = 1.36
 			elif path.ends_with("BottomPanel"):
-				sec.size_flags_stretch_ratio = 0.90
+				sec.size_flags_stretch_ratio = 0.84
 			else:
 				sec.size_flags_stretch_ratio = 1.0
 	if board_row != null:
@@ -570,15 +570,15 @@ func _ensure_combat_layout() -> void:
 		right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if bag_panel != null:
-		bag_panel.custom_minimum_size = Vector2(280, 200)
+		bag_panel.custom_minimum_size = Vector2(280, 260)
 		bag_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bag_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		bag_panel.size_flags_stretch_ratio = 1.45
+		bag_panel.size_flags_stretch_ratio = 1.70
 	if hand_panel != null:
 		hand_panel.custom_minimum_size = Vector2(280, 150)
 		hand_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		hand_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		hand_panel.size_flags_stretch_ratio = 0.85
+		hand_panel.size_flags_stretch_ratio = 0.75
 		hand_panel.visible = true
 	var bag_scroll := get_node_or_null("Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagScroll") as ScrollContainer
 	if bag_scroll != null:
