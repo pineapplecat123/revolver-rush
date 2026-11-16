@@ -459,6 +459,17 @@ func _clear_bag_area_chrome() -> void:
 		return
 	bag_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
 	bag_panel.clip_contents = false
+	var bag_scroll := get_node_or_null("Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagScroll") as Control
+	if bag_scroll != null:
+		bag_scroll.clip_contents = false
+	if bag_list != null:
+		bag_list.clip_contents = false
+	var bag_margin: Control = bag_panel.get_node_or_null("BagMargin") as Control
+	if bag_margin != null:
+		bag_margin.clip_contents = false
+	var bag_vbox: Control = bag_panel.get_node_or_null("BagMargin/BagVBox") as Control
+	if bag_vbox != null:
+		bag_vbox.clip_contents = false
 	if bag_header_label != null:
 		bag_header_label.visible = false
 	var header: Control = get_node_or_null("%BagHeader") as Control
@@ -4880,7 +4891,7 @@ func _refresh_hand_list() -> void:
 
 func _hand_bullet_wh(h: float) -> Vector2:
 	var hh := maxf(h, 8.0)
-	return Vector2(BagPhysicsBox.BULLET_RIM_W * hh + 2.0, hh)
+	return Vector2(hh + 2.0, hh + 2.0)
 
 
 func _make_hand_ball_panel(hand_index: int, aid: int) -> Control:
@@ -4916,17 +4927,17 @@ func _hand_grid_capacity(avail: Vector2, h: float) -> int:
 
 func _largest_hand_ball(avail: Vector2, n: int) -> float:
 	var hi := minf(HAND_BALL_SIZE, avail.y)
-	hi = minf(hi, maxf(8.0, (avail.x - 2.0) / maxf(BagPhysicsBox.BULLET_RIM_W, 0.1)))
+	hi = minf(hi, maxf(8.0, (avail.x - 2.0) / maxf(1.0, 0.1)))
 	if n <= 1:
 		return hi
 	if _hand_grid_capacity(avail, hi) >= n:
 		return hi
 	var lo := 8.0
 	if _hand_grid_capacity(avail, lo) < n:
-		var cols: int = maxi(1, int(ceil(sqrt(float(n) * avail.x / maxf(avail.y * BagPhysicsBox.BULLET_RIM_W, 1.0)))))
+		var cols: int = maxi(1, int(ceil(sqrt(float(n) * avail.x / maxf(avail.y * 1.0, 1.0)))))
 		var rows: int = maxi(1, int(ceil(float(n) / float(cols))))
 		var max_w: float = avail.x / float(cols)
-		return maxf(4.0, minf((max_w - 2.0) / maxf(BagPhysicsBox.BULLET_RIM_W, 0.1), avail.y / float(rows)))
+		return maxf(4.0, minf((max_w - 2.0) / maxf(1.0, 0.1), avail.y / float(rows)))
 	var best := lo
 	for _i in 18:
 		var mid := (lo + hi) * 0.5
@@ -4972,7 +4983,7 @@ func _compute_hand_scatter(n: int, area: Vector2, seed: int) -> Dictionary:
 		ball = cell_h
 		wh = _hand_bullet_wh(ball)
 	if wh.x > cell_w:
-		ball = maxf(8.0, (cell_w - 2.0) / maxf(BagPhysicsBox.BULLET_RIM_W, 0.1))
+		ball = maxf(8.0, (cell_w - 2.0) / maxf(1.0, 0.1))
 		wh = _hand_bullet_wh(ball)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(seed) & 0x7fffffff
@@ -5087,7 +5098,7 @@ func _find_free_hand_spot(area: Vector2, h: float, taken: Array, salt: int) -> V
 	var h_use := minf(maxf(h, 4.0), avail.y)
 	var wh := _hand_bullet_wh(h_use)
 	if wh.x > avail.x:
-		h_use = maxf(8.0, (avail.x - 2.0) / maxf(BagPhysicsBox.BULLET_RIM_W, 0.1))
+		h_use = maxf(8.0, (avail.x - 2.0) / maxf(1.0, 0.1))
 		wh = _hand_bullet_wh(h_use)
 	var cols := maxi(1, int(floor(avail.x / maxf(wh.x, 1.0))))
 	var rows := maxi(1, int(floor(avail.y / maxf(wh.y, 1.0))))
@@ -5100,7 +5111,7 @@ func _find_free_hand_spot(area: Vector2, h: float, taken: Array, salt: int) -> V
 		h_use = cell_h
 		wh = _hand_bullet_wh(h_use)
 	if wh.x > cell_w:
-		h_use = maxf(8.0, (cell_w - 2.0) / maxf(BagPhysicsBox.BULLET_RIM_W, 0.1))
+		h_use = maxf(8.0, (cell_w - 2.0) / maxf(1.0, 0.1))
 		wh = _hand_bullet_wh(h_use)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(salt) & 0x7fffffff
@@ -7206,18 +7217,39 @@ func _play_dump_pour() -> void:
 			_dump_pouring = false
 			_refresh()
 			return
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		_dump_pouring = false
+		state.dump_to_hand()
+		_refresh()
+		return
 	var n: int = mini(CombatConstants.HAND_SIZE, state.bag.size())
+	_clear_bag_area_chrome()
+	_bag_physics.clip_contents = false
+	_bag_physics.z_index = 40
+	_bag_physics.pour_cap = n
 	_bag_physics.mark_pour_balls(n)
-	# 倾角取负：屏上口转向左下，子弹仍落到手里。
-	var tw := create_tween()
-	tw.tween_property(_bag_physics, "sack_tilt", -PI * 0.62, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
-	await tw.finished
+	var slots: Control = hand_slots if hand_slots != null else get_node_or_null("%HandSlots")
+	var hand_r: Rect2 = slots.get_global_rect() if slots != null else (
+		hand_panel.get_global_rect() if hand_panel != null else Rect2()
+	)
+	if hand_r.size.x > 4.0:
+		_bag_physics.set_hand_catcher_from_global(hand_r)
+		var mouth_target: Vector2 = Vector2(hand_r.get_center().x, hand_r.position.y - 22.0)
+		var sh: Vector2 = _bag_physics.aim_mouth_above_global(mouth_target)
+		var tw := create_tween()
+		tw.tween_property(_bag_physics, "sack_tilt", -PI, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tw.parallel().tween_property(_bag_physics, "sack_shift", sh, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		await tw.finished
+	else:
+		var tw0 := create_tween()
+		tw0.tween_property(_bag_physics, "sack_tilt", -PI, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		await tw0.finished
 	if not is_instance_valid(_bag_physics):
 		_dump_pouring = false
 		return
 	_bag_physics.mouth_open = true
 	_bag_physics.impulse_pour_balls()
-	# 口朝下时上下快晃两下，同时子弹往外掉。
+	# 口朝下时上下快晃两下，让圆弹从袋口掉出。
 	_bag_physics.sack_bob = 0.0
 	var shake := create_tween()
 	shake.tween_property(_bag_physics, "sack_bob", -16.0, 0.07).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
@@ -7225,30 +7257,53 @@ func _play_dump_pour() -> void:
 	shake.tween_property(_bag_physics, "sack_bob", -16.0, 0.07).set_trans(Tween.TRANS_SINE)
 	shake.tween_property(_bag_physics, "sack_bob", 14.0, 0.07).set_trans(Tween.TRANS_SINE)
 	shake.tween_property(_bag_physics, "sack_bob", 0.0, 0.06).set_trans(Tween.TRANS_SINE)
-	var flyers: Array = []
 	var t0: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t0 < 1100 and flyers.size() < n and is_instance_valid(_bag_physics):
-		for rec in _bag_physics.take_exited_pour_balls():
-			flyers.append(rec)
-			_spawn_pour_flyer(rec)
+	var shook2 := false
+	while Time.get_ticks_msec() - t0 < 4000 and is_instance_valid(_bag_physics):
+		if _bag_physics.fallen_count() >= n:
+			break
+		if not shook2 and Time.get_ticks_msec() - t0 > 1200 and _bag_physics.fallen_count() < n:
+			shook2 = true
+			_bag_physics.impulse_pour_balls()
+			var sh2 := create_tween()
+			sh2.tween_property(_bag_physics, "sack_bob", -14.0, 0.06).set_trans(Tween.TRANS_SINE)
+			sh2.tween_property(_bag_physics, "sack_bob", 12.0, 0.06).set_trans(Tween.TRANS_SINE)
+			sh2.tween_property(_bag_physics, "sack_bob", 0.0, 0.06).set_trans(Tween.TRANS_SINE)
 		await get_tree().process_frame
+	if is_instance_valid(_bag_physics):
+		_bag_physics.mouth_open = false
 	if shake.is_running():
 		await shake.finished
+	# 再等已出袋的弹落进手区
+	var t1: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t1 < 800 and is_instance_valid(_bag_physics):
+		var need := false
+		for b in _bag_physics._balls:
+			if bool(b.get("exited", false)) and not bool(b.get("landed", false)):
+				need = true
+				break
+		if not need:
+			break
+		await get_tree().process_frame
+	var fallen: Array = []
 	if is_instance_valid(_bag_physics):
-		for rec2 in _bag_physics.take_remaining_pour_balls():
-			flyers.append(rec2)
-			_spawn_pour_flyer(rec2)
-	await get_tree().create_timer(0.38).timeout
+		fallen = _bag_physics.take_fallen_balls()
 	_hand_scatter_dirty = true
-	state.dump_to_hand()
+	if fallen.is_empty():
+		# 一发都没掉出就不要随机补抽，保持和画面一致
+		pass
+	else:
+		state.dump_to_hand_items(fallen)
 	_refresh()
 	if is_instance_valid(_bag_physics):
 		_bag_physics.mouth_open = false
+		_bag_physics.hand_catch_active = false
 		_bag_physics.sack_bob = 0.0
 		var tw2 := create_tween()
-		tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.36).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw2.parallel().tween_property(_bag_physics, "sack_shift", Vector2.ZERO, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		await tw2.finished
-	_clear_pour_flyers()
+		_bag_physics.z_index = 0
 	_dump_pouring = false
 	_refresh()
 

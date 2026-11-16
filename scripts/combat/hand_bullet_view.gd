@@ -1,6 +1,6 @@
 class_name HandBulletView
 extends Control
-## 手里的弹药：和袋里同一套外形、单色填充、字始终正向。
+## 手里的弹药：和袋里一样画成圆，单色填充、字始终正向。
 
 var ammo_id: int = 1
 var fill: Color = Color(0.7, 0.7, 0.7, 1.0)
@@ -23,7 +23,7 @@ func _notification(what: int) -> void:
 
 
 func _draw() -> void:
-	var h: float = maxf(size.y * 0.98, 8.0)
+	var h: float = maxf(minf(size.x, size.y) * 0.92, 8.0)
 	var mid: Vector2 = size * 0.5
 	BagPhysicsBox.stamp_bag_bullet(self, mid, h, 0.0, fill)
 	var font := get_theme_default_font()

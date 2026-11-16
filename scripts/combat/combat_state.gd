@@ -2257,6 +2257,45 @@ func dump_to_hand() -> int:
 	return drawn.size()
 
 
+func dump_to_hand_items(items: Array) -> int:
+	## 把实际从袋口掉出的那些弹入手（与画面一致）；不是再随机抽。
+	if not can_dump_to_hand():
+		return 0
+	if not hand.is_empty():
+		return_hand_to_bag()
+	_sync_temp_arrays()
+	var n := 0
+	for rec in items:
+		if n >= CombatConstants.HAND_SIZE:
+			break
+		var aid: int = int(rec.get("id", -1))
+		if aid < 0:
+			continue
+		var want_temp: bool = bool(rec.get("temp", false))
+		var want_envy: bool = bool(rec.get("envy", false))
+		var idx := -1
+		for i in bag.size():
+			if int(bag[i]) != aid:
+				continue
+			var is_e: bool = i < bag_envy_copy.size() and bool(bag_envy_copy[i])
+			var is_t: bool = is_bag_index_temporary(i)
+			var rec_t: bool = want_temp and not want_envy
+			if is_t == rec_t and is_e == want_envy:
+				idx = i
+				break
+		if idx < 0:
+			continue
+		var tv: float = float(bag_temp[idx]) if idx < bag_temp.size() else 0.0
+		var ev: bool = bool(bag_envy_copy[idx]) if idx < bag_envy_copy.size() else false
+		_bag_remove_at(idx)
+		hooks.emit_hook(&"on_bag_leave", {"cs": self, "ammo_id": aid, "reason": "draw"})
+		_hand_append(aid, tv, ev)
+		n += 1
+	_log("倒出：%d 发入手（手 %d / 袋 %d）。" % [n, hand.size(), bag.size()])
+	_emit()
+	return n
+
+
 func can_auto_load_from_hand() -> bool:
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
 		return false

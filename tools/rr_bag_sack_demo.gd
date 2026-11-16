@@ -45,5 +45,5 @@ func _run() -> void:
 	await create_timer(0.7).timeout
 	if ui.has_method("_on_manual_load"):
 		ui._on_manual_load()
-	await create_timer(8.0).timeout
+	await create_timer(10.0).timeout
 	quit(0)

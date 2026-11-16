@@ -159,5 +159,5 @@ func test_hand_and_chamber_stay_circles() -> void:
 	assert_false(ui._hand_slot_panels.is_empty())
 	var hand: Control = ui._hand_slot_panels[0]
 	assert_true(hand is HandBulletView)
-	assert_gt(hand.size.y, hand.size.x + 8.0)
+	assert_lt(absf(hand.size.y - hand.size.x), 10.0)
 	assert_false(hand.glyph.is_empty())

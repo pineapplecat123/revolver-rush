@@ -122,15 +122,14 @@ func test_bag_outline_hit_and_collision_not_a_disc() -> void:
 	# 中心和弹身在外形内
 	assert_not_null(box._ball_at_pointer(pos))
 	assert_not_null(box._ball_at_pointer(pos + Vector2(0, h * 0.1)))
-	# 圆盘会罩住、但外形两侧是空的：正侧面（半高处外侧）不应命中
-	var side: Vector2 = pos + Vector2(h * 0.45, 0)
-	assert_null(box._ball_at_pointer(side), "hits must follow the slim outline, not a disc")
-	# 底缘比弹身略宽，应能点到
-	var rim: Vector2 = pos + Vector2(BagPhysicsBox.BULLET_RIM_W * h * 0.48, h * 0.48)
-	assert_not_null(box._ball_at_pointer(rim), "rim is part of the outline")
+	# 圆形：半径内能点到，半径外不能
+	var side: Vector2 = pos + Vector2(h * 0.75, 0)
+	assert_null(box._ball_at_pointer(side), "hits follow the circle")
+	var rim: Vector2 = pos + Vector2(BagPhysicsBox.circle_radius_for_height(h) * 0.5, 0)
+	assert_not_null(box._ball_at_pointer(rim), "inside the circle")
 	assert_null(box._ball_at_pointer(Vector2(-40, -40)))
 	assert_lte(absf(float(b["ang"])), PI + 0.001)
-	# 两发肩并肩时按外形推开，水平间距应接近弹宽而不是高度
+	# 两发肩并肩时按圆推开，间距接近直径
 	box.sync_ammo_ids([40, 41])
 	box._balls[0]["ang"] = 0.0
 	box._balls[1]["ang"] = 0.0
@@ -139,14 +138,13 @@ func test_bag_outline_hit_and_collision_not_a_disc() -> void:
 	box._balls[0]["vel"] = Vector2.ZERO
 	box._balls[1]["vel"] = Vector2.ZERO
 	box._update_radii_for_count()
-	box._refresh_world_hull(box._balls[0])
-	box._refresh_world_hull(box._balls[1])
 	for _i in 20:
 		box._physics_process(1.0 / 60.0)
 	var gap: float = absf(float(box._balls[1]["pos"].x) - float(box._balls[0]["pos"].x))
 	var hh: float = float(box._balls[0]["h"])
-	assert_gt(gap, BagPhysicsBox.BULLET_BODY_W * hh * 0.85)
-	assert_lt(gap, hh * 0.85, "side-by-side packing should be slimmer than a circle of height h")
+	var cr: float = BagPhysicsBox.circle_radius_for_height(hh)
+	assert_gt(gap, cr * 2.0 - 3.0)
+	assert_lt(gap, cr * 2.0 + 8.0)
 
 
 func test_full_bag_fits_without_scroll_and_labels_stay_readable() -> void:
