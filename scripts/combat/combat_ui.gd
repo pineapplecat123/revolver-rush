@@ -167,6 +167,7 @@ var _hand_scatter_multi: String = ""
 var _hand_scatter_positions: Array = []  # Vector2 top-left，与当前手序对齐
 var _hand_pos_by_uid: Dictionary = {}
 var _hand_scatter_dirty: bool = true
+var _dump_pouring: bool = false
 var _hand_layout_area: Vector2 = Vector2.ZERO
 var _hand_ball_px: float = 48.0
 var _fit_settle_queued: bool = false
@@ -538,6 +539,9 @@ func _ensure_top_labels_uncropped() -> void:
 			flat.content_margin_left = maxf(flat.content_margin_left, 8.0)
 			flat.content_margin_right = maxf(flat.content_margin_right, 8.0)
 			flat.content_margin_bottom = maxf(flat.content_margin_bottom, 6.0)
+			# 去掉矩形底槽，让布袋外形自己当容器
+			var bgc: Color = flat.bg_color
+			flat.bg_color = Color(bgc.r, bgc.g, bgc.b, 0.12)
 			bag_panel.add_theme_stylebox_override("panel", flat)
 
 
@@ -1478,7 +1482,7 @@ func _input(event: InputEvent) -> void:
 
 
 func _busy() -> bool:
-	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying
+	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying or _dump_pouring
 
 
 func is_shooting() -> bool:
@@ -1499,6 +1503,9 @@ func _on_manual_load() -> void:
 		_refresh()
 		return
 	# 倒出是新的一手：其余路径（拖走一发、仓弹回到手）不得整手重撒。
+	if _should_play_dump_pour():
+		await _play_dump_pour()
+		return
 	_hand_scatter_dirty = true
 	state.dump_to_hand()
 	_refresh()
@@ -7164,3 +7171,137 @@ func _paint_mag_chambers() -> void:
 			panel.modulate = Color(1, 1, 1, 0.48)
 		else:
 			panel.modulate = Color(1, 1, 1, 1)
+
+
+func _should_play_dump_pour() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return false
+	return _bag_physics != null and is_instance_valid(_bag_physics) and is_inside_tree()
+
+
+func _play_dump_pour() -> void:
+	_dump_pouring = true
+	if not state.hand.is_empty():
+		state.return_hand_to_bag()
+		_hand_scatter_dirty = true
+		_refresh()
+		await get_tree().create_timer(0.12).timeout
+	if not state.can_dump_to_hand() or state.bag.is_empty():
+		if state.bag.is_empty():
+			state.ensure_bag_refilled_if_empty()
+			_refresh()
+		if state.bag.is_empty():
+			_dump_pouring = false
+			_refresh()
+			return
+	var n: int = mini(CombatConstants.HAND_SIZE, state.bag.size())
+	_bag_physics.mark_pour_balls(n)
+	var tw := create_tween()
+	tw.tween_property(_bag_physics, "sack_tilt", PI * 0.62, 0.45).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	await tw.finished
+	if not is_instance_valid(_bag_physics):
+		_dump_pouring = false
+		return
+	_bag_physics.mouth_open = true
+	_bag_physics.impulse_pour_balls()
+	var flyers: Array = []
+	var t0: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t0 < 1100 and flyers.size() < n and is_instance_valid(_bag_physics):
+		for rec in _bag_physics.take_exited_pour_balls():
+			flyers.append(rec)
+			_spawn_pour_flyer(rec)
+		await get_tree().process_frame
+	if is_instance_valid(_bag_physics):
+		for rec2 in _bag_physics.take_remaining_pour_balls():
+			flyers.append(rec2)
+			_spawn_pour_flyer(rec2)
+	await get_tree().create_timer(0.38).timeout
+	_hand_scatter_dirty = true
+	state.dump_to_hand()
+	_refresh()
+	if is_instance_valid(_bag_physics):
+		_bag_physics.mouth_open = false
+		var tw2 := create_tween()
+		tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.36).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		await tw2.finished
+	_clear_pour_flyers()
+	_dump_pouring = false
+	_refresh()
+
+
+func _pour_layer() -> Control:
+	var layer: Control = get_node_or_null("PourLayer") as Control
+	if layer == null:
+		layer = Control.new()
+		layer.name = "PourLayer"
+		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(layer)
+		layer.z_index = 80
+	return layer
+
+
+func _spawn_pour_flyer(rec: Dictionary) -> void:
+	var layer := _pour_layer()
+	var start: Vector2 = rec.get("world_pos", _bag_physics.sack_mouth_global() if _bag_physics else global_position)
+	var dest: Vector2 = _pour_hand_target(layer.get_child_count())
+	var flyer := Control.new()
+	flyer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flyer.set_meta("rec", rec)
+	flyer.size = Vector2(48, 48)
+	layer.add_child(flyer)
+	flyer.global_position = start - flyer.size * 0.5
+	flyer.draw.connect(func():
+		if not is_instance_valid(flyer):
+			return
+		var r: Dictionary = flyer.get_meta("rec")
+		var h: float = float(r.get("h", 48.0))
+		var ang: float = float(r.get("ang", 0.0))
+		var aid: int = int(r.get("id", 1))
+		var st: Dictionary = _ammo_colors(aid)
+		var mid: Vector2 = flyer.size * 0.5
+		# 借用袋里的画法：临时把点画在 flyer 本地
+		if _bag_physics != null:
+			_bag_physics._draw_bag_bullet_on(flyer, mid, h, ang, st.get("bg", Color(0.7, 0.7, 0.7)))
+		var font := get_theme_default_font()
+		var glyph: String = _ammo_bag_glyph(aid)
+		if font != null and glyph != "":
+			var fsize: int = BagPhysicsBox.label_font_size_for_height(h)
+			var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+			var off := Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
+			var fg: Color = st.get("fg", Color(0, 0, 0))
+			flyer.draw_string(font, mid + off, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+	)
+	var tw := create_tween()
+	var midp: Vector2 = (start + dest) * 0.5 + Vector2(randf_range(-40, 40), randf_range(20, 70))
+	tw.tween_method(func(t: float):
+		if not is_instance_valid(flyer):
+			return
+		var u := 1.0 - t
+		# 二次贝塞尔
+		var pos: Vector2 = start * u * u + midp * 2.0 * u * t + dest * t * t
+		flyer.global_position = pos - flyer.size * 0.5
+		flyer.queue_redraw()
+	, 0.0, 1.0, 0.36).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func():
+		if is_instance_valid(flyer):
+			flyer.visible = false
+	)
+
+
+func _pour_hand_target(i: int) -> Vector2:
+	var slots: Control = hand_slots if hand_slots != null else get_node_or_null("%HandSlots")
+	if slots == null:
+		return global_position + Vector2(size.x * 0.75, size.y * 0.7)
+	var r: Rect2 = slots.get_global_rect()
+	var n: float = float(maxi(CombatConstants.HAND_SIZE - 1, 1))
+	var x: float = r.position.x + r.size.x * (0.12 + 0.76 * (float(i % CombatConstants.HAND_SIZE) / n))
+	var y: float = r.position.y + r.size.y * 0.5
+	return Vector2(x, y)
+
+
+func _clear_pour_flyers() -> void:
+	var layer := get_node_or_null("PourLayer")
+	if layer != null:
+		for c in layer.get_children():
+			c.queue_free()
