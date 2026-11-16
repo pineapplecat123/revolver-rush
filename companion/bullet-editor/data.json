@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-16T10:38:20+08:00",
+  "updated_at": "2026-11-16T17:50:29+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -152,6 +152,21 @@
       "in_game": false,
       "created_at": "2026-11-16T10:38:20+08:00",
       "updated_at": "2026-11-16T10:38:20+08:00"
+    },
+    {
+      "id": "b20261116-175020-j9oh",
+      "name": "复制弹",
+      "type": "",
+      "damage": "3",
+      "rarity": "",
+      "school": "通用",
+      "effect": "拥有前一个子弹的效果",
+      "notes": "",
+      "muzzle_color": "#F0B916",
+      "bullet_color": "#F0B916",
+      "in_game": false,
+      "created_at": "2026-11-16T17:50:29+08:00",
+      "updated_at": "2026-11-16T17:50:29+08:00"
     }
   ]
 }
