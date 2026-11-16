@@ -23,6 +23,9 @@ const WHEEL_SIZE := 220.0
 const CHAMBER_SIZE := 58.0
 const WHEEL_RADIUS := 78.0
 const DISK_BG_SIZE := 210.0
+## v0.4.47 击发指示圈：浅白，位置仍在正上固定。
+const FIRE_RING_COLOR := Color(0.90, 0.93, 0.98, 1.0)
+const FIRE_RING_GLOW_COLOR := Color(0.82, 0.88, 1.0, 0.42)
 ## 转轮整体动画速度倍率（v0.3.3：×1.5，即下列转轮时长 ÷1.5）。
 const WHEEL_SPEED_MULT := 1.5
 const FIRE_SHOT_DELAY := 0.4 / WHEEL_SPEED_MULT
@@ -188,6 +191,8 @@ var _fire_disk_tweening: bool = false
 var _fire_disk_target: float = 0.0
 var _in_flight_shots: int = 0
 var _fire_ring: Panel = null
+var _fire_ring_glow: Panel = null
+var _fire_ring_shimmer: Tween = null
 var _load_marker: Label = null
 var _muzzle_label: Label = null  ## 「枪口：」框外标签
 const MUZZLE_SLOT_W := 300.0
@@ -1115,7 +1120,7 @@ func _build_wheel_chambers() -> void:
 	_disk_bg.position = Vector2(bg_pad, bg_pad)
 	_disk_bg.size = Vector2(DISK_BG_SIZE, DISK_BG_SIZE)
 	var bg_style := StyleBoxFlat.new()
-	bg_style.bg_color = Color(0.16, 0.17, 0.22, 0.95)
+	bg_style.bg_color = Color(0.16, 0.17, 0.22, 1.0)
 	bg_style.set_border_width_all(4)
 	bg_style.border_color = Color(0.45, 0.48, 0.55)
 	bg_style.set_corner_radius_all(999)
@@ -1136,6 +1141,37 @@ func _build_wheel_chambers() -> void:
 	hub.add_theme_stylebox_override("panel", hub_style)
 	_disk.add_child(hub)
 
+	# v0.4.47: inner groove + center pin, same art as the loading-page cylinder.
+	var groove := Panel.new()
+	groove.name = "Groove"
+	groove.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var groove_sz := 192.0
+	var groove_pad := (WHEEL_SIZE - groove_sz) * 0.5
+	groove.position = Vector2(groove_pad, groove_pad)
+	groove.size = Vector2(groove_sz, groove_sz)
+	var groove_style := StyleBoxFlat.new()
+	groove_style.bg_color = Color(0, 0, 0, 0)
+	groove_style.set_border_width_all(2)
+	groove_style.border_color = Color(0.227, 0.239, 0.282)
+	groove_style.set_corner_radius_all(999)
+	groove.add_theme_stylebox_override("panel", groove_style)
+	_disk.add_child(groove)
+
+	var pin := Panel.new()
+	pin.name = "HubPin"
+	pin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var pin_sz := 8.0
+	pin.position = Vector2(WHEEL_SIZE, WHEEL_SIZE) * 0.5 - Vector2(pin_sz, pin_sz) * 0.5
+	pin.size = Vector2(pin_sz, pin_sz)
+	var pin_style := StyleBoxFlat.new()
+	pin_style.bg_color = Color(0.165, 0.173, 0.196)
+	pin_style.set_border_width_all(1)
+	pin_style.border_color = Color(0.604, 0.627, 0.667)
+	pin_style.set_corner_radius_all(999)
+	pin.add_theme_stylebox_override("panel", pin_style)
+	pin.z_index = 1
+	_disk.add_child(pin)
+
 	var center := Vector2(WHEEL_SIZE, WHEEL_SIZE) * 0.5
 	var n := float(CombatConstants.MAGAZINE_SIZE)
 	for i in CombatConstants.MAGAZINE_SIZE:
@@ -1150,6 +1186,18 @@ func _build_wheel_chambers() -> void:
 		var pos := center + Vector2(cos(angle), sin(angle)) * WHEEL_RADIUS
 		panel.position = pos - Vector2(CHAMBER_SIZE, CHAMBER_SIZE) * 0.5
 		panel.pivot_offset = Vector2(CHAMBER_SIZE, CHAMBER_SIZE) * 0.5
+		var well := Panel.new()
+		well.name = "Well"
+		well.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var well_sz := 40.0
+		var well_pad := (CHAMBER_SIZE - well_sz) * 0.5
+		well.position = Vector2(well_pad, well_pad)
+		well.size = Vector2(well_sz, well_sz)
+		var well_style := StyleBoxFlat.new()
+		well_style.bg_color = Color(0.078, 0.078, 0.094)
+		well_style.set_corner_radius_all(999)
+		well.add_theme_stylebox_override("panel", well_style)
+		panel.add_child(well)
 		var label := Label.new()
 		label.name = "Info"
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1162,26 +1210,48 @@ func _build_wheel_chambers() -> void:
 		_chamber_panels.append(panel)
 
 	# —— 屏幕固定层（parent=MagWheel，不随 _disk 转）——
-	# 红色击发指示圈：正上方，永远不动
+	# 击发指示圈：正上方，永远不动（v0.4.47 浅白 + 轻微闪光）
+	if _fire_ring_shimmer != null and _fire_ring_shimmer.is_valid():
+		_fire_ring_shimmer.kill()
+	_fire_ring_shimmer = null
 	if _fire_ring != null and is_instance_valid(_fire_ring):
 		_fire_ring.queue_free()
+	if _fire_ring_glow != null and is_instance_valid(_fire_ring_glow):
+		_fire_ring_glow.queue_free()
+	var ring_sz := CHAMBER_SIZE + 10.0
+	var fire_center := Vector2(WHEEL_SIZE, WHEEL_SIZE) * 0.5 + Vector2(0, -WHEEL_RADIUS)
+	var top_pos := fire_center - Vector2(ring_sz, ring_sz) * 0.5
+	var glow_sz := ring_sz + 16.0
+	_fire_ring_glow = Panel.new()
+	_fire_ring_glow.name = "FireRingGlow"
+	_fire_ring_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fire_ring_glow.position = fire_center - Vector2(glow_sz, glow_sz) * 0.5
+	_fire_ring_glow.size = Vector2(glow_sz, glow_sz)
+	_fire_ring_glow.pivot_offset = Vector2(glow_sz, glow_sz) * 0.5
+	var glow_style := StyleBoxFlat.new()
+	glow_style.bg_color = Color(0, 0, 0, 0)
+	glow_style.set_border_width_all(8)
+	glow_style.border_color = FIRE_RING_GLOW_COLOR
+	glow_style.set_corner_radius_all(999)
+	_fire_ring_glow.add_theme_stylebox_override("panel", glow_style)
+	_fire_ring_glow.z_index = 3
+	mag_wheel.add_child(_fire_ring_glow)
 	_fire_ring = Panel.new()
 	_fire_ring.name = "FireRing"
 	_fire_ring.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var ring_sz := CHAMBER_SIZE + 10.0
-	var top_pos := Vector2(WHEEL_SIZE, WHEEL_SIZE) * 0.5 + Vector2(0, -WHEEL_RADIUS) - Vector2(ring_sz, ring_sz) * 0.5
 	_fire_ring.position = top_pos
 	_fire_ring.size = Vector2(ring_sz, ring_sz)
 	var ring_style := StyleBoxFlat.new()
 	ring_style.bg_color = Color(0, 0, 0, 0)
 	ring_style.set_border_width_all(4)
-	ring_style.border_color = Color(1.0, 0.15, 0.12, 1.0)
+	ring_style.border_color = FIRE_RING_COLOR
 	ring_style.set_corner_radius_all(999)
 	_fire_ring.add_theme_stylebox_override("panel", ring_style)
 	_fire_ring.z_index = 4
 	mag_wheel.add_child(_fire_ring)
+	_start_fire_ring_shimmer()
 
-	# 只留红圈；去掉「▼ 击发」红字
+	# 只留指示圈；去掉「▼ 击发」红字
 	if fire_marker != null:
 		fire_marker.visible = false
 		fire_marker.text = ""
@@ -1207,6 +1277,25 @@ func _build_wheel_chambers() -> void:
 
 	_wheel_visual_steps = 0.0
 	_apply_disk_rotation(0.0)
+
+
+func _start_fire_ring_shimmer() -> void:
+	if _fire_ring_shimmer != null and _fire_ring_shimmer.is_valid():
+		_fire_ring_shimmer.kill()
+	_fire_ring_shimmer = null
+	if _fire_ring_glow == null or not is_instance_valid(_fire_ring_glow):
+		return
+	_fire_ring_glow.modulate = Color(1, 1, 1, 0.40)
+	_fire_ring_glow.scale = Vector2.ONE
+	# Gentle in-out pulse (alpha + tiny scale). Sequential steps loop cleanly.
+	_fire_ring_shimmer = create_tween()
+	_fire_ring_shimmer.set_loops()
+	_fire_ring_shimmer.set_trans(Tween.TRANS_SINE)
+	_fire_ring_shimmer.set_ease(Tween.EASE_IN_OUT)
+	_fire_ring_shimmer.tween_property(_fire_ring_glow, "modulate:a", 0.88, 1.15)
+	_fire_ring_shimmer.parallel().tween_property(_fire_ring_glow, "scale", Vector2(1.04, 1.04), 1.15)
+	_fire_ring_shimmer.tween_property(_fire_ring_glow, "modulate:a", 0.32, 1.15)
+	_fire_ring_shimmer.parallel().tween_property(_fire_ring_glow, "scale", Vector2.ONE, 1.15)
 
 
 func _apply_disk_rotation(steps: float) -> void:
@@ -3432,7 +3521,7 @@ func _begin_fire_flash(slot_i: int, puff_only: bool = false, ammo_id: int = -1) 
 	_fire_flash_tween = create_tween()
 	_fire_flash_tween.set_parallel(true)
 	var flash_col := Color(1.85, 1.55, 0.35)
-	# 固定红圈脉冲：正上击发点
+	# 固定指示圈脉冲：正上击发点
 	if _fire_ring != null and is_instance_valid(_fire_ring):
 		_fire_ring.modulate = flash_col
 		_fire_flash_tween.tween_property(_fire_ring, "modulate", Color.WHITE, 0.28)
@@ -7016,12 +7105,21 @@ func _paint_mag_chambers() -> void:
 		var style := StyleBoxFlat.new()
 		style.set_corner_radius_all(999)
 		style.set_border_width_all(2)
+		var well: Panel = panel.get_node_or_null("Well") as Panel
 		if ammo_id == Magazine.EMPTY:
 			style.bg_color = Color(0.18, 0.18, 0.22)
 			style.border_color = Color(0.4, 0.4, 0.45)
-			info.text = "空"
+			info.text = ""
 			info.add_theme_color_override("font_color", Color(0.7, 0.7, 0.75))
+			if well != null:
+				var ws := StyleBoxFlat.new()
+				ws.bg_color = Color(0.078, 0.078, 0.094)
+				ws.set_corner_radius_all(999)
+				well.add_theme_stylebox_override("panel", ws)
+				well.visible = true
 		else:
+			if well != null:
+				well.visible = false
 			var def: Dictionary = DataRegistry.get_ammo(ammo_id)
 			var short: String
 			if ammo_id == CombatConstants.INVALID_AMMO_ID:
@@ -7052,7 +7150,7 @@ func _paint_mag_chambers() -> void:
 			style.border_color = Color(0.35, 0.95, 0.7)
 			style.set_border_width_all(4)
 		elif at_fire:
-			style.border_color = Color(1.0, 0.15, 0.12)
+			style.border_color = FIRE_RING_COLOR
 			style.set_border_width_all(4)
 		# 无击发白色蒙版；黄闪只用 panel.modulate，转盘前已 clear
 		panel.add_theme_stylebox_override("panel", style)

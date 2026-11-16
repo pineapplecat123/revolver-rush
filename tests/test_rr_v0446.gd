@@ -2,8 +2,8 @@ extends GutTest
 ## v0.4.46: web loading page uses a spinning cylinder instead of the Godot logo.
 
 
-func test_version_is_0_4_46() -> void:
-	assert_eq(GameVersion.STRING, "0.4.46")
+func test_version_is_at_least_0_4_46() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.46") >= 0)
 	assert_true("0.4.46" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
