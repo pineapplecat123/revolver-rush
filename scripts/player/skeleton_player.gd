@@ -18,6 +18,9 @@ const ANIM_RESET := &"RESET"
 const IDLE_BPM := 105.0
 const IDLE_BEAT := 60.0 / IDLE_BPM
 const IDLE_GUN_LAG := 0.10
+## v0.4.51：头和持枪手臂跟身子同一套下点节奏，但晚一拍再跟上（二次运动）。
+const IDLE_HEAD_LAG := IDLE_BEAT
+const IDLE_ARM_LAG := IDLE_BEAT + 0.08
 ## v0.4.49：上半身上下点头。四拍一圈，左右极端各快速下点一次；前后慢慢平移。
 const IDLE_SWAY_X := 3.2
 const IDLE_DIP_Y := 3.8
@@ -639,6 +642,9 @@ func _track_paths() -> Array:
 		out.append(["%s:rotation" % _bone_path(bn), REST[bn][1]])
 	out.append(["%s:position" % _bone_path("Hip"), REST["Hip"][0]])
 	out.append(["%s:position" % _bone_path("Torso"), REST["Torso"][0]])
+	out.append(["%s:position" % _bone_path("Head"), REST["Head"][0]])
+	out.append(["%s:position" % _bone_path("UpperArmF"), REST["UpperArmF"][0]])
+	out.append(["%s:position" % _bone_path("UpperArmB"), REST["UpperArmB"][0]])
 	out.append(["PixelRig/Rig:modulate", Color(1, 1, 1, 1)])
 	out.append(["PixelRig/Rig:position", Vector2.ZERO])
 	return out
@@ -783,6 +789,11 @@ static func idle_torso_offset(t: float, length: float) -> Vector2:
 	return Vector2(x, y)
 
 
+static func idle_follow_local(t: float, length: float, lag: float) -> Vector2:
+	## 世界路径跟身子同一套，只是晚 lag 秒；本地要减去当前身子位移。
+	return idle_torso_offset(t - lag, length) - idle_torso_offset(t, length)
+
+
 func _build_animations() -> void:
 
 	anim = AnimationPlayer.new()
@@ -808,13 +819,19 @@ func _build_animations() -> void:
 	lib.add_animation(ANIM_RESET, reset)
 
 	# idle：105 BPM、四拍一圈。上半身慢慢前后移，移到两端时快速下点再抬起，脚下站住。
-	# 不是前后摇晃；枪和头滞后跟上。尾巴跟着拍子甩。
+	# 不是前后摇晃。头和持枪手臂按同一节奏，比身子晚一拍再下点。尾巴跟着拍子甩。
 	var beat := IDLE_BEAT
 	var idle_len := beat * 4.0
 	var torso0: Vector2 = REST["Torso"][0]
+	var head0: Vector2 = REST["Head"][0]
+	var armf0: Vector2 = REST["UpperArmF"][0]
+	var armb0: Vector2 = REST["UpperArmB"][0]
 	var nkeys := 32
 	var torso_pos: Array = []
 	var torso_rot: Array = []
+	var head_pos: Array = []
+	var armf_pos: Array = []
+	var armb_pos: Array = []
 	var head_rot: Array = []
 	var arm_f: Array = []
 	var fa_f: Array = []
@@ -827,13 +844,16 @@ func _build_animations() -> void:
 		var phi: float = idle_cycle_phi(tt, idle_len)
 		torso_pos.append([tt, torso0 + off])
 		torso_rot.append([tt, 0.015 * cos(phi)])
+		head_pos.append([tt, head0 + idle_follow_local(tt, idle_len, IDLE_HEAD_LAG)])
+		armf_pos.append([tt, armf0 + idle_follow_local(tt, idle_len, IDLE_ARM_LAG)])
+		armb_pos.append([tt, armb0 + idle_follow_local(tt, idle_len, IDLE_ARM_LAG)])
 		head_rot.append([tt, 0.02 + 0.09 * dip])
 		arm_f.append([tt, 0.10 + 0.11 * dip])
 		fa_f.append([tt, -0.10 - 0.08 * dip])
 		hand_f.append([tt, 0.02 + 0.10 * dip])
 		arm_b.append([tt, 1.35 + 0.07 * dip])
-	# 端点附近再加密关键帧，让下点更利落
-	for extra in [0.0, idle_len * 0.5]:
+	# 端点附近再加密关键帧，让下点更利落（身子和滞后的头/手臂各采一次）
+	for extra in [0.0, idle_len * 0.5, IDLE_HEAD_LAG, IDLE_HEAD_LAG + idle_len * 0.5, IDLE_ARM_LAG, IDLE_ARM_LAG + idle_len * 0.5]:
 		for dtt in [-0.08, -0.04, -0.02, 0.02, 0.05, 0.10]:
 			var t2: float = fposmod(extra + dtt, idle_len)
 			if t2 <= 0.0001 or t2 >= idle_len - 0.0001:
@@ -843,6 +863,9 @@ func _build_animations() -> void:
 			var phi2: float = idle_cycle_phi(t2, idle_len)
 			torso_pos.append([t2, torso0 + off2])
 			torso_rot.append([t2, 0.015 * cos(phi2)])
+			head_pos.append([t2, head0 + idle_follow_local(t2, idle_len, IDLE_HEAD_LAG)])
+			armf_pos.append([t2, armf0 + idle_follow_local(t2, idle_len, IDLE_ARM_LAG)])
+			armb_pos.append([t2, armb0 + idle_follow_local(t2, idle_len, IDLE_ARM_LAG)])
 			head_rot.append([t2, 0.02 + 0.09 * dip2])
 			arm_f.append([t2, 0.10 + 0.11 * dip2])
 			fa_f.append([t2, -0.10 - 0.08 * dip2])
@@ -850,6 +873,9 @@ func _build_animations() -> void:
 			arm_b.append([t2, 1.35 + 0.07 * dip2])
 	torso_pos.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
 	torso_rot.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	head_pos.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	armf_pos.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	armb_pos.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
 	head_rot.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
 	arm_f.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
 	fa_f.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
@@ -858,6 +884,9 @@ func _build_animations() -> void:
 	var idle := _make_anim(idle_len, {
 		hip_p: [[0.0, hip0], [idle_len, hip0]],
 		("%s:position" % _bone_path("Torso")): torso_pos,
+		("%s:position" % _bone_path("Head")): head_pos,
+		("%s:position" % _bone_path("UpperArmF")): armf_pos,
+		("%s:position" % _bone_path("UpperArmB")): armb_pos,
 		_r("Torso"): torso_rot,
 		_r("Head"): _lag_loop_keys(head_rot, 0.07, idle_len),
 		_r("UpperArmF"): _lag_loop_keys(arm_f, IDLE_GUN_LAG, idle_len),

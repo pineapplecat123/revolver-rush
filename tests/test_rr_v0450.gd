@@ -2,8 +2,8 @@ extends GutTest
 ## v0.4.50：袋内子弹自由旋转，短名字始终正向对着玩家。
 
 
-func test_version_0_4_50() -> void:
-	assert_eq(GameVersion.STRING, "0.4.50")
+func test_version_is_at_least_0_4_50() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.50") >= 0)
 	assert_true("0.4.50" in FileAccess.get_file_as_string("res://data/changelog.json"))
 	assert_true("正向对着玩家" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
