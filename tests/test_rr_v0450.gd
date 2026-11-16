@@ -11,7 +11,7 @@ func test_version_0_4_50() -> void:
 func test_bag_bullets_rotate_freely_and_label_stays_upright() -> void:
 	var src: String = (load("res://scripts/combat/bag_physics_box.gd") as GDScript).source_code
 	assert_false("BULLET_MAX_TILT" in src)
-	assert_true("draw_set_transform(pos, 0.0, Vector2.ONE)" in src, "label is drawn unrotated")
+	assert_true("draw_set_transform(_sack_xform() * Vector2(b[\"pos\"]), 0.0, Vector2.ONE)" in src, "label is drawn unrotated")
 	assert_false("draw_set_transform(pos, ang, Vector2.ONE)" in src)
 	var box: BagPhysicsBox = BagPhysicsBox.new()
 	box.size = Vector2(360, 300)

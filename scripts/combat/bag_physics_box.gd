@@ -92,8 +92,8 @@ var _order_keys := PackedInt64Array()
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	clip_contents = true
-	custom_minimum_size = Vector2(200, 200)
+	clip_contents = false
+	custom_minimum_size = Vector2(350, 370)
 
 
 func ball_local_positions(ammo_id: int) -> Array:
@@ -231,15 +231,28 @@ func _fit_bullet_height(n: int, inner_w: float, inner_h: float) -> float:
 	return maxf(MIN_HEIGHT, h)
 
 
-func _pack_capacity(inner_w: float, inner_h: float, h: float) -> int:
-	## 自由旋转时按外形外接圆排，保证横躺的弹也能装进盒内。
-	# 各种朝向时比外接圆网格更吃得下，容量略收紧以免把字缩到 16 以下。
-	var cell: float = _bullet_circ_radius(h) * 1.76 + 2.0
+func _pack_capacity(_inner_w: float, _inner_h: float, h: float) -> int:
+	## 在圆形袋肚里按外接圆做六角格，只计落在椭圆内的格子。
+	var cell: float = _bullet_circ_radius(h) * 1.62 + 2.0
 	if cell < 4.0:
 		return 0
-	var cols: int = maxi(1, int(floor(inner_w / cell)))
-	var rows: int = maxi(1, int(floor(inner_h / (cell * 0.8660254))))
-	return cols * rows
+	var sz := size if size.x >= 8.0 else custom_minimum_size
+	var c := Vector2(SACK_BELLY_C.x * sz.x, SACK_BELLY_C.y * sz.y)
+	var rx: float = SACK_BELLY_RX * sz.x - cell * 0.48
+	var ry: float = SACK_BELLY_RY * sz.y - cell * 0.48
+	if rx <= cell * 0.4 or ry <= cell * 0.4:
+		return 0
+	var cols: int = int(ceil((2.0 * rx) / cell)) + 2
+	var rows: int = int(ceil((2.0 * ry) / (cell * 0.8660254))) + 2
+	var n := 0
+	for r in rows:
+		for col in cols:
+			var x: float = c.x - rx + float(col) * cell + float(r % 2) * cell * 0.5
+			var y: float = c.y - ry + float(r) * cell * 0.8660254
+			var q := Vector2((x - c.x) / rx, (y - c.y) / ry)
+			if q.length_squared() <= 1.0:
+				n += 1
+	return n
 
 
 static func _bullet_aabb_half(h: float, tilt: float) -> Vector2:
@@ -404,9 +417,11 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 	var cr: float = h * BULLET_RIM_W * 0.5
 	var r: float = h * 0.5
 	var aabb := _sack_interior_aabb()
-	var x: float = aabb.get_center().x + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
+	var mid: Vector2 = aabb.get_center()
+	var x: float = mid.x + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
+	var y: float = mid.y + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
 	x = clampf(x, aabb.position.x + cr, maxf(aabb.position.x + cr, aabb.end.x - cr))
-	var y: float = aabb.position.y + r + randf_range(4.0, 16.0)
+	y = clampf(y, aabb.position.y + r, maxf(aabb.position.y + r, aabb.end.y - r))
 	_balls.append({
 		"id": ammo_id,
 		"temp": temporary or envy_copy,
@@ -719,7 +734,8 @@ func _draw_box() -> void:
 				off = Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
 				_text_off_cache[tkey] = off
 			var text_pos: Vector2 = off as Vector2
-			draw_set_transform(pos, 0.0, Vector2.ONE)
+			# 正向字画在子弹的屏幕位置（袋变换后的点），不要用 pos-pivot 当原点。
+			draw_set_transform(_sack_xform() * Vector2(b["pos"]), 0.0, Vector2.ONE)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
 			elif tier == RarityFx.TIER_SIN:
@@ -730,7 +746,8 @@ func _draw_box() -> void:
 				oc = Color(0.08, 0.08, 0.1, 0.7) if fg.r + fg.g + fg.b > 1.6 else Color(1, 1, 1, 0.35)
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 2, oc)
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+			# 字画完立刻回到袋子的倾角变换，否则后面的弹会错位画到袋外。
+			draw_set_transform(pv + Vector2(0.0, _sack_bob), _sack_tilt, Vector2.ONE)
 		# v0.4.30 嫉妒一次性复制：右上角绿菱
 		if bool(b.get("envy", false)):
 			var d: float = maxf(3.5, h * 0.12)
@@ -1023,19 +1040,28 @@ func sack_mouth_global() -> Vector2:
 	return get_global_transform() * (_sack_xform() * sack_mouth_local())
 
 
+const SACK_BELLY_C := Vector2(0.50, 0.58)
+const SACK_BELLY_RX := 0.47
+const SACK_BELLY_RY := 0.40
+const SACK_NECK_GAP := 0.42
+
+
+static func _ellipse_pts(c: Vector2, rx: float, ry: float, n: int, a0: float = 0.0, a1: float = TAU) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	if n < 3:
+		return pts
+	pts.resize(n)
+	for i in n:
+		var a: float = a0 + (a1 - a0) * float(i) / float(n)
+		pts[i] = Vector2(c.x + rx * cos(a), c.y + ry * sin(a))
+	return pts
+
+
 static func sack_interior_unit() -> PackedVector2Array:
-	## 袋内轮廓：口在上，下部较宽。单位盒 0-1，Y 向下。
-	return PackedVector2Array([
-		Vector2(0.34, 0.06),
-		Vector2(0.16, 0.22),
-		Vector2(0.06, 0.50),
-		Vector2(0.10, 0.86),
-		Vector2(0.50, 0.97),
-		Vector2(0.90, 0.86),
-		Vector2(0.94, 0.50),
-		Vector2(0.84, 0.22),
-		Vector2(0.66, 0.06),
-	])
+	## 下部圆形袋肚，顶部留一条窄缝当袋口（倒出时由此出去）。单位盒 0-1，Y 向下。
+	var a0: float = -PI * 0.5 + SACK_NECK_GAP
+	var a1: float = -PI * 0.5 - SACK_NECK_GAP + TAU
+	return _ellipse_pts(SACK_BELLY_C, SACK_BELLY_RX, SACK_BELLY_RY, 24, a0, a1)
 
 
 func _sack_interior_local() -> PackedVector2Array:
@@ -1158,52 +1184,64 @@ func take_remaining_pour_balls() -> Array:
 
 
 func _draw_sack(off: Vector2, sz: Vector2) -> void:
-	## off 是 -pivot，因为外层已按 pivot 旋转。
-	var cloth := Color(0.55, 0.34, 0.18, 1.0)
-	var cloth_d := Color(0.36, 0.20, 0.10, 1.0)
-	var stitch := Color(0.22, 0.12, 0.06, 0.95)
-	var cord := Color(0.78, 0.64, 0.36, 1.0)
-	# 外轮廓比里面略大
-	var outer := PackedVector2Array()
-	for q in [
-		Vector2(0.40, 0.015), Vector2(0.37, 0.10), Vector2(0.22, 0.22),
-		Vector2(0.08, 0.46), Vector2(0.10, 0.78), Vector2(0.30, 0.96),
-		Vector2(0.50, 0.99), Vector2(0.70, 0.96), Vector2(0.90, 0.78),
-		Vector2(0.92, 0.46), Vector2(0.78, 0.22), Vector2(0.63, 0.10),
-		Vector2(0.60, 0.015),
-	]:
-		outer.append(off + Vector2(q.x * sz.x, q.y * sz.y))
-	if outer.size() >= 3:
-		draw_colored_polygon(outer, cloth)
-		# 底部暗一点
-		var shadow := PackedVector2Array()
-		for q2 in [Vector2(0.16, 0.70), Vector2(0.12, 0.84), Vector2(0.50, 0.98), Vector2(0.88, 0.84), Vector2(0.84, 0.70)]:
-			shadow.append(off + Vector2(q2.x * sz.x, q2.y * sz.y))
-		draw_colored_polygon(shadow, cloth_d)
-		var ol := PackedVector2Array(outer)
-		ol.append(outer[0])
-		draw_polyline(ol, stitch, 2.4, true)
-	# 袋口和束带
+	## off 是 -pivot，因为外层已按 pivot 旋转。扁平卡通皮袋：圆底、束带、口上翻边。
+	var leather := Color(0.83, 0.65, 0.43, 1.0)
+	var leather_d := Color(0.66, 0.46, 0.28, 0.55)
+	var leather_l := Color(0.91, 0.76, 0.56, 0.40)
+	var line := Color(0.45, 0.30, 0.16, 1.0)
+	var tie := Color(0.27, 0.15, 0.09, 1.0)
 	var mx := sz.x
 	var my := sz.y
-	var mouth_l := off + Vector2(0.33 * mx, 0.04 * my)
-	var mouth_r := off + Vector2(0.67 * mx, 0.04 * my)
-	var neck_y := off.y + 0.09 * my
-	draw_line(mouth_l, mouth_r, stitch, 3.0, true)
-	draw_line(off + Vector2(0.34 * mx, 0.09 * my), off + Vector2(0.66 * mx, 0.09 * my), cord, 3.2, true)
-	# 两侧落下的带子
+	var c: Vector2 = off + Vector2(SACK_BELLY_C.x * mx, SACK_BELLY_C.y * my)
+	var rx: float = (SACK_BELLY_RX + 0.025) * mx
+	var ry: float = (SACK_BELLY_RY + 0.025) * my
+	var belly: PackedVector2Array = _ellipse_pts(c, rx, ry, 28)
+	if belly.size() >= 3:
+		draw_colored_polygon(belly, leather)
+		var shade: PackedVector2Array = _ellipse_pts(c + Vector2(0.0, ry * 0.28), rx * 0.72, ry * 0.50, 18)
+		draw_colored_polygon(shade, leather_d)
+		var hi: PackedVector2Array = _ellipse_pts(c + Vector2(-rx * 0.18, -ry * 0.22), rx * 0.36, ry * 0.26, 14)
+		draw_colored_polygon(hi, leather_l)
+		var ol := PackedVector2Array(belly)
+		ol.append(belly[0])
+		draw_polyline(ol, line, 2.2, true)
+	# 短口连到束带
+	var neck := PackedVector2Array([
+		off + Vector2(0.40 * mx, 0.22 * my),
+		off + Vector2(0.36 * mx, 0.155 * my),
+		off + Vector2(0.64 * mx, 0.155 * my),
+		off + Vector2(0.60 * mx, 0.22 * my),
+	])
+	draw_colored_polygon(neck, leather)
+	# 口上翻边：三个相叠的圆角，扁平卡通
+	var flaps := [
+		[Vector2(0.38, 0.09), 0.10, 0.085],
+		[Vector2(0.50, 0.07), 0.15, 0.095],
+		[Vector2(0.62, 0.09), 0.10, 0.085],
+	]
+	for fl in flaps:
+		var fc: Vector2 = off + Vector2(float(fl[0].x) * mx, float(fl[0].y) * my)
+		var fp: PackedVector2Array = _ellipse_pts(fc, float(fl[1]) * mx, float(fl[2]) * my, 16)
+		draw_colored_polygon(fp, leather)
+		var fo := PackedVector2Array(fp)
+		fo.append(fp[0])
+		draw_polyline(fo, line, 1.6, true)
+	# 深色束带
+	var band_c: Vector2 = off + Vector2(0.50 * mx, 0.165 * my)
+	var band: PackedVector2Array = _ellipse_pts(band_c, 0.13 * mx, 0.028 * my, 16)
+	draw_colored_polygon(band, tie)
+	# 带子向右落下
 	draw_polyline(PackedVector2Array([
-		off + Vector2(0.36 * mx, 0.09 * my),
-		off + Vector2(0.28 * mx, -0.02 * my),
-		off + Vector2(0.24 * mx, 0.12 * my),
-	]), cord, 2.2, true)
+		off + Vector2(0.60 * mx, 0.165 * my),
+		off + Vector2(0.72 * mx, 0.13 * my),
+		off + Vector2(0.80 * mx, 0.22 * my),
+	]), tie, maxf(3.0, mx * 0.016), true)
 	draw_polyline(PackedVector2Array([
-		off + Vector2(0.64 * mx, 0.09 * my),
-		off + Vector2(0.72 * mx, -0.02 * my),
-		off + Vector2(0.76 * mx, 0.12 * my),
-	]), cord, 2.2, true)
-	# 口上小结
-	draw_circle(off + Vector2(0.50 * mx, 0.07 * my), maxf(3.5, mx * 0.018), cord)
+		off + Vector2(0.61 * mx, 0.175 * my),
+		off + Vector2(0.74 * mx, 0.16 * my),
+		off + Vector2(0.82 * mx, 0.28 * my),
+	]), tie, maxf(2.4, mx * 0.013), true)
+
 
 
 func _draw_bag_bullet_on(ci: CanvasItem, pos: Vector2, h: float, ang: float, fill: Color) -> void:

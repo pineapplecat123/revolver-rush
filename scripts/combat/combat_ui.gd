@@ -429,19 +429,8 @@ func _style_overlay_panels() -> void:
 		style.content_margin_top = 4
 		style.content_margin_bottom = 4
 		panel.add_theme_stylebox_override("panel", style)
-	# 右侧常驻袋：暖色描边更醒目
-	var bag_style := StyleBoxFlat.new()
-	bag_style.bg_color = Color(0.14, 0.12, 0.1, 0.94)
-	bag_style.set_border_width_all(2)
-	bag_style.border_color = Color(0.92, 0.72, 0.35, 0.95)
-	bag_style.set_corner_radius_all(10)
-	bag_style.content_margin_left = 2
-	bag_style.content_margin_right = 2
-	bag_style.content_margin_top = 2
-	bag_style.content_margin_bottom = 2
-	bag_panel.add_theme_stylebox_override("panel", bag_style)
-	if bag_header_label != null:
-		bag_header_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
+	# 袋区不要矩形框、底板或标题栏，只留皮袋画在场景底上。
+	_clear_bag_area_chrome()
 	# 竖屏三等分：战斗区 / 转轮+弹药袋 / 操作区 各一块底板
 	var thirds := {
 		"Margin/RootVBox/TopPanel": Color(0.1, 0.11, 0.15, 1.0),
@@ -462,6 +451,23 @@ func _style_overlay_panels() -> void:
 		sb.content_margin_top = 6
 		sb.content_margin_bottom = 6
 		sec.add_theme_stylebox_override("panel", sb)
+
+
+
+func _clear_bag_area_chrome() -> void:
+	if bag_panel == null:
+		return
+	bag_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	bag_panel.clip_contents = false
+	if bag_header_label != null:
+		bag_header_label.visible = false
+	var header: Control = get_node_or_null("%BagHeader") as Control
+	if header != null:
+		header.visible = false
+	if bag_list != null:
+		var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
+		if stats != null:
+			stats.visible = false
 
 
 func _style_corner_buttons() -> void:
@@ -530,19 +536,7 @@ func _ensure_top_labels_uncropped() -> void:
 			floor_h = 30.0
 		var min_h := maxf(lab.get_minimum_size().y, floor_h)
 		lab.custom_minimum_size = Vector2(lab.custom_minimum_size.x, min_h)
-	if bag_panel != null:
-		bag_panel.clip_contents = false
-		var style := bag_panel.get_theme_stylebox("panel")
-		if style is StyleBoxFlat:
-			var flat := (style as StyleBoxFlat).duplicate() as StyleBoxFlat
-			flat.content_margin_top = maxf(flat.content_margin_top, 12.0)
-			flat.content_margin_left = maxf(flat.content_margin_left, 8.0)
-			flat.content_margin_right = maxf(flat.content_margin_right, 8.0)
-			flat.content_margin_bottom = maxf(flat.content_margin_bottom, 6.0)
-			# 去掉矩形底槽，让布袋外形自己当容器
-			var bgc: Color = flat.bg_color
-			flat.bg_color = Color(bgc.r, bgc.g, bgc.b, 0.12)
-			bag_panel.add_theme_stylebox_override("panel", flat)
+	_clear_bag_area_chrome()
 
 
 
@@ -574,10 +568,10 @@ func _ensure_combat_layout() -> void:
 		right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if bag_panel != null:
-		bag_panel.custom_minimum_size = Vector2(280, 260)
+		bag_panel.custom_minimum_size = Vector2(350, 370)
 		bag_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bag_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		bag_panel.size_flags_stretch_ratio = 1.70
+		bag_panel.size_flags_stretch_ratio = 1.90
 	if hand_panel != null:
 		hand_panel.custom_minimum_size = Vector2(280, 150)
 		hand_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -5474,18 +5468,13 @@ func _refresh_bag_list() -> void:
 	var disc_n: int = state.discard.size()
 	var total_n: int = bag_n + mag_n + disc_n
 	if bag_header_label != null:
-		bag_header_label.text = "弹药袋 · 袋%d" % bag_n
+		bag_header_label.visible = false
+	_clear_bag_area_chrome()
 	# 结构只建一次：统计 + 物理盒 + 提示
 	if _bag_physics == null or not is_instance_valid(_bag_physics):
 		_bag_refreshing = true
 		for c in bag_list.get_children():
 			c.queue_free()
-		var title := Label.new()
-		title.name = "BagStatsLabel"
-		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		title.add_theme_font_size_override("font_size", 12)
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		bag_list.add_child(title)
 		_bag_physics = BagPhysicsBox.new()
 		_bag_physics.name = "BagPhysicsBox"
 		_bag_physics.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -5500,9 +5489,7 @@ func _refresh_bag_list() -> void:
 		_bag_refreshing = false
 	var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
 	if stats != null:
-		stats.text = "共%d · 袋%d · 膛%d · 弃%d · 金%d" % [
-			total_n, bag_n, mag_n, disc_n, state.gold
-		]
+		stats.visible = false
 	if fp == _bag_inv_fingerprint and _bag_physics != null and _bag_physics.ball_count() == bag_n:
 		return
 	_bag_inv_fingerprint = fp

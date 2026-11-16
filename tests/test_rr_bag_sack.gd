@@ -5,26 +5,51 @@ extends GutTest
 func test_sack_has_neck_and_contains_bullets() -> void:
 	var unit: PackedVector2Array = BagPhysicsBox.sack_interior_unit()
 	assert_gt(unit.size(), 6)
-	var mouth_w := 0.0
+	var mouth_w: float = absf(unit[0].x - unit[unit.size() - 1].x)
 	var belly_w := 0.0
 	for p in unit:
-		if p.y < 0.15:
-			mouth_w = maxf(mouth_w, absf(p.x - 0.5) * 2.0)
 		if p.y > 0.45 and p.y < 0.70:
 			belly_w = maxf(belly_w, absf(p.x - 0.5) * 2.0)
-	assert_gt(belly_w, mouth_w + 0.08, "sack belly is wider than the neck")
+	assert_gt(belly_w, mouth_w + 0.15, "sack belly is wider than the neck")
 	var box: BagPhysicsBox = BagPhysicsBox.new()
-	box.size = Vector2(320, 280)
+	box.size = Vector2(350, 370)
 	add_child_autofree(box)
-	box.sync_ammo_ids([1, 40, 41, 42])
-	assert_eq(box.ball_count(), 4)
-	for _i in 40:
+	var ids: Array = []
+	for i in 30:
+		ids.append(1 if i % 2 == 0 else 40)
+	box.sync_ammo_ids(ids)
+	assert_eq(box.ball_count(), 30)
+	for _i in 90:
 		box._physics_process(1.0 / 60.0)
-	var aabb: Rect2 = box._sack_interior_aabb()
-	assert_gt(aabb.size.x, 40.0)
+	var poly: PackedVector2Array = box._sack_interior_local()
+	assert_gt(poly.size(), 6)
 	for b in box._balls:
+		if bool(b.get("exited", false)):
+			continue
 		var p: Vector2 = b["pos"]
-		assert_true(aabb.grow(12.0).has_point(p), "bullets stay in the sack")
+		assert_true(Geometry2D.is_point_in_polygon(p, poly), "every bullet stays inside the sack")
+		var ext: Vector2 = box._ball_ext(b)
+		var rad: float = maxf(ext.x, ext.y) * 0.85
+		var np: Vector2 = box._contain_point_in_sack(p, rad)
+		assert_lt(np.distance_to(p), 2.5, "bullet is not sitting on the sack wall")
+	assert_gte(BagPhysicsBox.label_font_size_for_height(float(box._balls[0]["h"])), 16)
+
+
+func test_bag_area_has_no_rectangle_chrome() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(2)
+	ui._clear_bag_area_chrome()
+	var stl = ui.bag_panel.get_theme_stylebox("panel")
+	if stl is StyleBoxFlat:
+		assert_lt((stl as StyleBoxFlat).bg_color.a, 0.04)
+		assert_eq((stl as StyleBoxFlat).get_border_width(SIDE_LEFT), 0)
+	else:
+		assert_true(stl is StyleBoxEmpty)
+	if ui.bag_header_label != null:
+		assert_false(ui.bag_header_label.visible)
+	if ui.bag_list != null:
+		var stats: Label = ui.bag_list.get_node_or_null("BagStatsLabel") as Label
+		assert_true(stats == null or not stats.visible)
 
 
 func test_dump_to_hand_still_moves_up_to_six() -> void:
