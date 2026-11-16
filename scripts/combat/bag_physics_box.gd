@@ -1,6 +1,6 @@
 class_name BagPhysicsBox
 extends Control
-## 弹药袋物理盒：袋内每发为带重力/碰撞的小球（Control 内自研圆盘物理，等价 RigidBody2D，利于嵌 UI / Web）。
+## 弹药袋物理盒：袋内每发为带重力/碰撞的圆盘物理（利于嵌 UI / Web）；绘制为尖头厚底子弹外形。
 
 signal ball_hover(ammo_id: int)
 signal ball_hover_exit(ammo_id: int)
@@ -17,6 +17,17 @@ const AIR_DRAG := 0.995
 const SLEEP_SPEED := 12.0
 const WALL_PAD := 5.0
 const SPAWN_JITTER := 18.0
+## v0.4.48 袋内子弹外形（相对高度 1，尖朝上）：尖头约占 40%，底缘约占 12%、宽为弹身 1.18 倍。
+const BULLET_NOSE_FRAC := 0.40
+const BULLET_RIM_FRAC := 0.12
+const BULLET_BODY_W := 0.45
+const BULLET_RIM_W := 0.45 * 1.18
+const BULLET_RIM_CORNER := 0.12 * 0.30
+const BULLET_OUTLINE := Color(0.086, 0.086, 0.102, 0.92)
+const BULLET_OUTLINE_W := 1.45
+const BULLET_OGIVE_STEPS := 10
+
+var _bullet_unit: PackedVector2Array = PackedVector2Array()
 
 var color_lookup: Callable = Callable()  ## (ammo_id) -> {bg, fg}
 var name_lookup: Callable = Callable()  ## (ammo_id) -> short glyph
@@ -212,6 +223,7 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 		"pos": Vector2(x, y),
 		"vel": Vector2(randf_range(-40.0, 40.0), randf_range(0.0, 30.0)),
 		"r": r,
+		"ang": randf() * TAU,
 		"asleep": false,
 		"freeze": 0,
 	})
@@ -465,8 +477,8 @@ func _draw_box() -> void:
 		var seedv: float = float(aid) * 0.37 + float(b.get("seed", 0.0))
 		if tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_back(self, pos, r, bg, tier, tsec, seedv)
-		draw_circle(pos, r, bg)
-		draw_arc(pos, r, 0.0, TAU, 24, Color(0.1, 0.1, 0.12, 0.75), 1.5, true)
+		var ang: float = float(b.get("ang", 0.0))
+		_draw_bag_bullet(pos, r, ang, bg)
 		if tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_front(self, pos, r, tier, tsec, seedv)
 		# v0.4.36：仅 TTL>0 画寿命环（幽灵/小石头）；打出即毁临时只有半透明，无环无秒数
@@ -487,12 +499,14 @@ func _draw_box() -> void:
 				var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
 				off = Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
 				_text_off_cache[tkey] = off
-			var text_pos: Vector2 = pos + (off as Vector2)
+			var text_pos: Vector2 = off as Vector2
+			draw_set_transform(pos, ang, Vector2.ONE)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
 			elif tier == RarityFx.TIER_SIN:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.sin_text_outline(tsec, seedv))
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		# v0.4.30 嫉妒一次性复制：右上角绿菱
 		if bool(b.get("envy", false)):
 			var d: float = maxf(3.5, r * 0.35)
@@ -581,3 +595,82 @@ func _notification(what: int) -> void:
 		if _hover_ammo >= 0:
 			ball_hover_exit.emit(_hover_ammo)
 			_hover_ammo = -1
+
+
+func _draw_bag_bullet(pos: Vector2, r: float, ang: float, fill: Color) -> void:
+	var pts := _bag_bullet_points(pos, r, ang)
+	if pts.size() < 3:
+		return
+	draw_colored_polygon(pts, fill)
+	var outline := PackedVector2Array(pts)
+	outline.append(pts[0])
+	draw_polyline(outline, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
+
+
+func _bag_bullet_points(pos: Vector2, r: float, ang: float) -> PackedVector2Array:
+	## 高度与原圆球直径一致（2r），落在圆形碰撞范围内。
+	_ensure_bullet_unit()
+	var h: float = r * 2.0
+	var cs := cos(ang)
+	var sn := sin(ang)
+	var pts := PackedVector2Array()
+	pts.resize(_bullet_unit.size())
+	for i in _bullet_unit.size():
+		var q: Vector2 = _bullet_unit[i] * h
+		pts[i] = pos + Vector2(q.x * cs - q.y * sn, q.x * sn + q.y * cs)
+	return pts
+
+
+func _ensure_bullet_unit() -> void:
+	if not _bullet_unit.is_empty():
+		return
+	_bullet_unit = build_bag_bullet_unit()
+
+
+## 单位高度 1、原点在中心、尖朝 -Y。给绘制和测试共用。
+static func build_bag_bullet_unit() -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var hw: float = BULLET_BODY_W * 0.5
+	var rw: float = BULLET_RIM_W * 0.5
+	var y_tip: float = -0.5
+	var y_nose: float = -0.5 + BULLET_NOSE_FRAC
+	var y_rim: float = 0.5 - BULLET_RIM_FRAC
+	var y_bot: float = 0.5
+	var cr: float = BULLET_RIM_CORNER
+	# 尖头左侧：t=0 在尖，t=1 到弹身。x=(w/2)*sin(t*pi/2)^0.85
+	for i in BULLET_OGIVE_STEPS + 1:
+		var t: float = float(i) / float(BULLET_OGIVE_STEPS)
+		var x: float = hw * pow(sin(t * PI * 0.5), 0.85)
+		var y: float = y_tip + BULLET_NOSE_FRAC * t
+		pts.append(Vector2(-x, y))
+	# 左侧弹身（补一个中段点，方便测宽）直到底缘顶
+	pts.append(Vector2(-hw, 0.0))
+	pts.append(Vector2(-hw, y_rim))
+	# 底缘顶左侧（直角台阶）
+	pts.append(Vector2(-rw, y_rim))
+	# 左下圆角：从左侧（角 PI）到下侧（角 PI/2）
+	var cl := Vector2(-rw + cr, y_bot - cr)
+	var steps := 4
+	for i in steps + 1:
+		var t2: float = float(i) / float(steps)
+		var a: float = PI - t2 * PI * 0.5
+		pts.append(cl + Vector2(cos(a), sin(a)) * cr)
+	# 右下圆角：从下侧（PI/2）到右侧（0）
+	var cr_c := Vector2(rw - cr, y_bot - cr)
+	for i in steps + 1:
+		var t3: float = float(i) / float(steps)
+		var a2: float = PI * 0.5 - t3 * PI * 0.5
+		pts.append(cr_c + Vector2(cos(a2), sin(a2)) * cr)
+	# 底缘顶右侧，回到弹身
+	pts.append(Vector2(rw, y_rim))
+	pts.append(Vector2(hw, y_rim))
+	pts.append(Vector2(hw, 0.0))
+	# 右侧弹身到尖头交接
+	pts.append(Vector2(hw, y_nose))
+	# 尖头右侧，从底回到尖
+	for i in range(BULLET_OGIVE_STEPS, -1, -1):
+		var t4: float = float(i) / float(BULLET_OGIVE_STEPS)
+		var x2: float = hw * pow(sin(t4 * PI * 0.5), 0.85)
+		var y2: float = y_tip + BULLET_NOSE_FRAC * t4
+		pts.append(Vector2(x2, y2))
+	return pts

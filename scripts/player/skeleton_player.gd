@@ -2,7 +2,7 @@ class_name SkeletonPlayer
 extends Node2D
 ## v0.4.21 骨骼动画玩家（纯表现，不碰任何玩法/数值）。
 ## Skeleton2D + Bone2D 搭的站立 Q 版小橘猫（大头二头身半、猫耳胡须大眼、三节尾巴、肉垫爪握大左轮），原点 = 脚底中心，面朝右。
-## 动画：idle（呼吸循环）/ shoot（后坐+枪口焰，可连点打断）/ reload（装弹）/ hurt（受击）/ death（倒地）。
+## 动画：idle（上半身按节奏上下晃，脚站住）/ shoot（后坐+枪口焰，可连点打断）/ reload（装弹）/ hurt（受击）/ death（倒地）。
 ## 用法：bind_state(cs) 后自动订阅 —— on_shot→shoot，on_chamber_loaded→reload，
 ##       player_damaged→hurt，phase_changed(LOST)→death，离开 LOST→revive。
 
@@ -14,6 +14,10 @@ const ANIM_HURT := &"hurt"
 const ANIM_DEATH := &"death"
 const ANIM_TWIRL := &"twirl"
 const ANIM_RESET := &"RESET"
+## v0.4.48 待机晃动：约 105 BPM，四拍一循环；枪比身子稍晚跟上。
+const IDLE_BPM := 105.0
+const IDLE_BEAT := 60.0 / IDLE_BPM
+const IDLE_GUN_LAG := 0.10
 
 ## 配色：橘猫（暖橘毛 + 奶油肚皮/口鼻 + 深褐描边），红色小领巾，在深蓝底上很醒目
 const COL_FUR := Color(1.0, 0.64, 0.28)
@@ -164,7 +168,11 @@ func update_aim(delta: float) -> void:
 		var sh := to_local(ua.global_position)
 		var tg := to_local(tgt)
 		if sh.distance_to(tg) > 20.0:
-			aim_target_angle = clampf(angle_difference(_rest_muzzle_angle, (tg - sh).angle()), AIM_MIN, AIM_MAX)
+			# 待机晃动时按当前（已去掉瞄准叠加的）枪口算，开火后坐仍用静止基准，避免瞄准把后坐吃掉。
+			var barrel: float = _rest_muzzle_angle
+			if StringName(anim.current_animation) != ANIM_SHOOT:
+				barrel = (to_local(muzzle.global_position) - sh).angle()
+			aim_target_angle = clampf(angle_difference(barrel, (tg - sh).angle()), AIM_MIN, AIM_MAX)
 	aim_angle = lerpf(aim_angle, aim_target_angle, k)
 	_applied_arm = aim_angle * _aim_weight
 	_applied_head = aim_angle * HEAD_TILT_K * _aim_weight
@@ -265,7 +273,8 @@ func _on_gun_twirl_finished(gun: Node2D) -> void:
 		gun.rotation = 0.0
 	anim.speed_scale = 1.0
 	_twirling = false
-	if not is_dead and anim.current_animation == ANIM_TWIRL:
+	# 动画可能已先播完离开 twirl（测试里 advance 不会推 tween），只要没切到其它动作就回待机。
+	if not is_dead and anim.current_animation != ANIM_SHOOT and anim.current_animation != ANIM_RELOAD and anim.current_animation != ANIM_HURT and anim.current_animation != ANIM_DEATH:
 		anim.play(ANIM_IDLE, 0.08)
 
 
@@ -623,6 +632,7 @@ func _track_paths() -> Array:
 	for bn in REST.keys():
 		out.append(["%s:rotation" % _bone_path(bn), REST[bn][1]])
 	out.append(["%s:position" % _bone_path("Hip"), REST["Hip"][0]])
+	out.append(["%s:position" % _bone_path("Torso"), REST["Torso"][0]])
 	out.append(["PixelRig/Rig:modulate", Color(1, 1, 1, 1)])
 	out.append(["PixelRig/Rig:position", Vector2.ZERO])
 	return out
@@ -699,7 +709,47 @@ func _eyes_track(a: Animation, keys: Array) -> void:
 		a.track_insert_key(ti, float(k[0]), k[1])
 
 
+func _lookup_loop_key(src: Array, t: float, length: float):
+	## 周期关键帧上取样（线性），给待机各部位同一节奏、不同滞后用。
+	if src.is_empty():
+		return 0.0
+	var tt: float = fposmod(t, length)
+	if tt <= float(src[0][0]) + 0.00001:
+		return src[0][1]
+	for i in range(1, src.size()):
+		var t1: float = float(src[i][0])
+		if tt <= t1 or i == src.size() - 1:
+			var t0: float = float(src[i - 1][0])
+			var u: float = 0.0 if t1 <= t0 + 0.00001 else clampf((tt - t0) / (t1 - t0), 0.0, 1.0)
+			var a = src[i - 1][1]
+			var b = src[i][1]
+			if typeof(a) == TYPE_VECTOR2:
+				return (a as Vector2).lerp(b as Vector2, u)
+			return lerpf(float(a), float(b), u)
+	return src[0][1]
+
+
+func _lag_loop_keys(src: Array, lag: float, length: float) -> Array:
+	## 把 src 的关键帧整体延后 lag，并绕回循环，保留原峰值（否则只在旧时间点取样会丢掉拍点）。
+	var shifted: Array = []
+	for k in src:
+		var t: float = float(k[0])
+		if t >= length - 0.0001:
+			continue
+		shifted.append([fposmod(t + lag, length), k[1]])
+	shifted.sort_custom(func(a, b): return float(a[0]) < float(b[0]))
+	var v0 = _lookup_loop_key(src, -lag, length)
+	var out: Array = [[0.0, v0]]
+	for k in shifted:
+		var t2: float = float(k[0])
+		if t2 > 0.0001 and t2 < length - 0.0001:
+			out.append(k)
+	out.append([length, v0])
+	return out
+
+
 func _build_animations() -> void:
+
 	anim = AnimationPlayer.new()
 	anim.name = "Anim"
 	add_child(anim)
@@ -722,22 +772,82 @@ func _build_animations() -> void:
 	_eyes_track(reset, [[0.0, e1]])
 	lib.add_animation(ANIM_RESET, reset)
 
-	# idle：2.0s 呼吸（身子微沉、脑袋轻晃、尾巴左右摇、中途眨一下眼）
-	var idle := _make_anim(2.0, {
-		hip_p: [[0.0, hip0], [1.0, hip0 + Vector2(0, 1.0)], [2.0, hip0]],
-		_r("Torso"): [[0.0, 0.0], [1.0, -0.03], [2.0, 0.0]],
-		_r("Head"): [[0.0, 0.0], [1.0, 0.06], [2.0, 0.0]],
-		_r("UpperArmF"): [[0.0, 0.1], [1.0, 0.14], [2.0, 0.1]],
-		_r("UpperArmB"): [[0.0, 1.35], [1.0, 1.45], [2.0, 1.35]],
-		_r("Tail1"): [[0.0, t1r], [0.5, t1r + 0.18], [1.0, t1r], [1.5, t1r - 0.12], [2.0, t1r]],
-		_r("Tail2"): [[0.0, t2r], [0.5, t2r + 0.25], [1.0, t2r - 0.1], [1.5, t2r - 0.25], [2.0, t2r]],
-		_r("Tail3"): [[0.0, t3r], [0.5, t3r + 0.35], [1.0, t3r - 0.15], [1.5, t3r - 0.35], [2.0, t3r]],
+	# idle：105 BPM、四拍循环。拍点上半身下沉并略前倾，弱拍抬起；脚下仍站住。
+	# 头、持枪手臂和枪滞后跟上，带一点下落的分量。尾巴跟着拍子甩。
+	var beat := IDLE_BEAT
+	var idle_len := beat * 4.0
+	var torso0: Vector2 = REST["Torso"][0]
+	var down_a: Vector2 = torso0 + Vector2(0.5, 3.4)
+	var down_s: Vector2 = torso0 + Vector2(0.25, 2.4)
+	var up: Vector2 = torso0 + Vector2(-0.2, -2.2)
+	var torso_pos := [
+		[0.0, down_a], [0.5 * beat, up], [1.0 * beat, down_s], [1.5 * beat, up],
+		[2.0 * beat, down_a], [2.5 * beat, up], [3.0 * beat, down_s], [3.5 * beat, up],
+		[idle_len, down_a],
+	]
+	var torso_rot := [
+		[0.0, 0.09], [0.5 * beat, -0.05], [1.0 * beat, 0.06], [1.5 * beat, -0.04],
+		[2.0 * beat, 0.09], [2.5 * beat, -0.05], [3.0 * beat, 0.06], [3.5 * beat, -0.04],
+		[idle_len, 0.09],
+	]
+	var head_rot := [
+		[0.0, 0.11], [0.5 * beat, -0.05], [1.0 * beat, 0.07], [1.5 * beat, -0.04],
+		[2.0 * beat, 0.11], [2.5 * beat, -0.05], [3.0 * beat, 0.07], [3.5 * beat, -0.04],
+		[idle_len, 0.11],
+	]
+	var arm_f := [
+		[0.0, 0.20], [0.5 * beat, 0.05], [1.0 * beat, 0.16], [1.5 * beat, 0.05],
+		[2.0 * beat, 0.20], [2.5 * beat, 0.05], [3.0 * beat, 0.16], [3.5 * beat, 0.05],
+		[idle_len, 0.20],
+	]
+	var fa_f := [
+		[0.0, -0.18], [0.5 * beat, -0.06], [1.0 * beat, -0.15], [1.5 * beat, -0.06],
+		[2.0 * beat, -0.18], [2.5 * beat, -0.06], [3.0 * beat, -0.15], [3.5 * beat, -0.06],
+		[idle_len, -0.18],
+	]
+	var hand_f := [
+		[0.0, 0.11], [0.5 * beat, -0.06], [1.0 * beat, 0.08], [1.5 * beat, -0.05],
+		[2.0 * beat, 0.11], [2.5 * beat, -0.06], [3.0 * beat, 0.08], [3.5 * beat, -0.05],
+		[idle_len, 0.11],
+	]
+	var arm_b := [
+		[0.0, 1.42], [0.5 * beat, 1.30], [1.0 * beat, 1.39], [1.5 * beat, 1.30],
+		[2.0 * beat, 1.42], [2.5 * beat, 1.30], [3.0 * beat, 1.39], [3.5 * beat, 1.30],
+		[idle_len, 1.42],
+	]
+	var idle := _make_anim(idle_len, {
+		hip_p: [[0.0, hip0], [idle_len, hip0]],
+		("%s:position" % _bone_path("Torso")): torso_pos,
+		_r("Torso"): torso_rot,
+		_r("Head"): _lag_loop_keys(head_rot, 0.07, idle_len),
+		_r("UpperArmF"): _lag_loop_keys(arm_f, IDLE_GUN_LAG, idle_len),
+		_r("ForearmF"): _lag_loop_keys(fa_f, IDLE_GUN_LAG + 0.02, idle_len),
+		_r("HandF"): _lag_loop_keys(hand_f, IDLE_GUN_LAG + 0.03, idle_len),
+		_r("UpperArmB"): _lag_loop_keys(arm_b, 0.08, idle_len),
+		_r("Tail1"): [
+			[0.0, t1r], [0.5 * beat, t1r + 0.16], [1.0 * beat, t1r], [1.5 * beat, t1r - 0.12],
+			[2.0 * beat, t1r], [2.5 * beat, t1r + 0.16], [3.0 * beat, t1r], [3.5 * beat, t1r - 0.12],
+			[idle_len, t1r],
+		],
+		_r("Tail2"): [
+			[0.0, t2r], [0.5 * beat, t2r + 0.28], [1.0 * beat, t2r - 0.08], [1.5 * beat, t2r - 0.26],
+			[2.0 * beat, t2r], [2.5 * beat, t2r + 0.28], [3.0 * beat, t2r - 0.08], [3.5 * beat, t2r - 0.26],
+			[idle_len, t2r],
+		],
+		_r("Tail3"): [
+			[0.0, t3r], [0.5 * beat, t3r + 0.38], [1.0 * beat, t3r - 0.12], [1.5 * beat, t3r - 0.36],
+			[2.0 * beat, t3r], [2.5 * beat, t3r + 0.38], [3.0 * beat, t3r - 0.12], [3.5 * beat, t3r - 0.36],
+			[idle_len, t3r],
+		],
 	}, true)
 	_flash_track(idle, -1.0, -1.0)
 	_cyl_track(idle, [[0.0, cyl0]])
 	_vis_track(idle, eyes, [[0.0, true]])
 	_vis_track(idle, xeyes, [[0.0, false]])
-	_eyes_track(idle, [[0.0, e1], [1.3, e1], [1.36, Vector2(1, 0.12)], [1.44, e1], [2.0, e1]])
+	var blink_t: float = 2.5 * beat
+	_eyes_track(idle, [
+		[0.0, e1], [blink_t, e1], [blink_t + 0.05, Vector2(1, 0.12)], [blink_t + 0.12, e1], [idle_len, e1]
+	])
 	lib.add_animation(ANIM_IDLE, idle)
 
 	# shoot：0.18s 后坐——大枪把小爪往上顶、身子后仰、脑袋一缩、尾巴一甩；枪口焰 0~0.05s
