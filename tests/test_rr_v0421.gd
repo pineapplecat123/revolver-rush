@@ -220,7 +220,13 @@ func test_kill_gold_chance_override_and_dummies() -> void:
 	assert_eq(cs.gold, before, "木桩不掉金")
 
 	cs.dev_spawn_enemy(CombatConstants.SUPER_ZOMBIE_ENEMY_ID, 7)
-	cs.enemies[0].hp = 0
+	var boss: EnemyInstance = null
+	for e in cs.enemies:
+		if int(e.def_id) == CombatConstants.SUPER_ZOMBIE_ENEMY_ID:
+			boss = e
+			break
+	assert_not_null(boss)
+	boss.hp = 0
 	cs.kill_gold_chance_override = 0.0
 	cs.rng.seed = 3
 	cs._remove_dead()

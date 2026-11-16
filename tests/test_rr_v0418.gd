@@ -71,7 +71,10 @@ func test_element_muzzles_emit_on_mount_path() -> void:
 func test_gluttony_heal_immediately_after_sandbox_set_muzzle() -> void:
 	var cs := _fresh(41803)
 	cs.player_hp = 10
-	cs.sandbox_spawn_dummy(2, 3)
+	cs.dev_spawn_enemy(CombatConstants.CIVILIAN_ENEMY_ID, 3)
+	cs.enemies[0].hp = 2
+	cs.enemies[0].max_hp = 2
+	cs.enemies[0].atk = 0
 	assert_true(cs.sandbox_set_muzzle("gluttony", 3, 4.0))
 	assert_gte(cs._gluttony_heal_budget, 1.0)
 	# No prior tick_combat_time — white shot should kill and heal
@@ -90,7 +93,10 @@ func test_gluttony_heal_immediately_after_ammo_mount() -> void:
 	assert_gte(cs._gluttony_heal_budget, 1.0)
 	# Kill with white while gluttony mounted; budget already seeded from mount
 	cs.sandbox_clear_enemies()
-	cs.sandbox_spawn_dummy(2, 3)
+	cs.dev_spawn_enemy(CombatConstants.CIVILIAN_ENEMY_ID, 3)
+	cs.enemies[0].hp = 2
+	cs.enemies[0].max_hp = 2
+	cs.enemies[0].atk = 0
 	var hp0: int = cs.player_hp
 	_force_one(cs, CombatConstants.WHITE_AMMO_ID)
 	_shot_one(cs)

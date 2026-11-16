@@ -74,6 +74,24 @@ func is_alive() -> bool:
 	return hp > 0
 
 
+func revive_to_full() -> void:
+	## 沙盒木桩死后恢复：满血并清掉状态，仍停在原格。
+	hp = max_hp
+	bleed_stacks = 0
+	gas_stacks = 0
+	burn_stacks = 0
+	wet_stacks = 0
+	confuse_remaining = 0.0
+	confuse_total = 0.0
+	clear_slow_layers()
+	burn_peak = 0
+	bleed_peak = 0
+	if is_dummy:
+		mobility = 0
+		atk = 0
+		attack_range = 0
+
+
 func has_tag(tag: String) -> bool:
 	return tag in tags
 

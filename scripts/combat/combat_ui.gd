@@ -194,8 +194,7 @@ const MUZZLE_SLOT_W := 300.0
 var _muzzle_slot: Control = null  ## 固定占位，防枪口状态撑开 MagCol
 var _combat_speed: float = COMBAT_SPEED_DEFAULT
 var _speed_row: HBoxContainer = null
-## v0.4.20 沙盒：大号触控面板（页签）+ 伤害统计 HUD
-const SANDBOX_TAB_NAMES: Array[String] = ["常规", "枪口", "弹药", "敌人", "状态"]
+## v0.4.44 沙盒：顶部三分之一控制台（袋/手加减）+ 伤害统计 HUD
 const SB_TOUCH_H := 60.0  ## 可点控件最小高（逻辑像素，视口 720 宽）
 const SB_STEP_BTN_W := 56.0
 const SB_STEP_VAL_W := 64.0
@@ -203,7 +202,9 @@ const SB_FONT := 24
 const SB_FONT_SMALL := 21
 const SB_GAP := 8
 const SB_STATS_H := 82.0
-var _sandbox_tab: int = 0
+const SB_CONSOLE_FRAC := 0.33  ## 控制台约占屏高三分之一
+var _sandbox_tab: int = 0  ## 兼容旧调用，已无页签
+var _sb_count_nodes: Dictionary = {}  ## ammo_id -> {bag, hand, bag_plus, bag_minus, hand_plus, hand_minus}
 var _ghost_gather_from: Array = []  ## v0.4.20 开火前袋内幽灵屏幕位置
 var _sb_stats_panel: PanelContainer = null
 var _sb_stats_main: Label = null
@@ -389,7 +390,7 @@ func _ready() -> void:
 		btn_dev.text = "沙盒"
 		var title_n := get_node_or_null("DevPanel/DevMargin/DevVBox/DevHeader/DevTitle") as Label
 		if title_n != null:
-			title_n.text = "沙盒工具"
+			title_n.text = "沙盒控制台"
 		state.start_sandbox(0, FireResolver.ID_WRATH)
 		btn_dev.custom_minimum_size = Vector2(maxf(btn_dev.custom_minimum_size.x, 120.0), SB_TOUCH_H)
 		btn_dev.add_theme_font_size_override("font_size", SB_FONT)
@@ -713,7 +714,10 @@ func _fit_modal(panel: Control, w: float, h: float) -> void:
 
 func _fit_modals_portrait() -> void:
 	_fit_modal(reward_panel, 680.0, 760.0)
-	_fit_modal(dev_panel, 690.0, 1000.0)
+	if state != null and state.sandbox_mode:
+		_fit_sandbox_panel()
+	else:
+		_fit_modal(dev_panel, 690.0, 1000.0)
 	_fit_modal(_shop_panel, 690.0, 1000.0)
 	_fit_modal(_sin_panel, 640.0, 440.0)
 
@@ -3533,6 +3537,9 @@ func _toggle_dev() -> void:
 	if _dev_open and state != null and state.sandbox_mode:
 		_fit_sandbox_panel()
 	dev_panel.visible = _dev_open
+	# 打开时用面板上的「收起」开关，避免顶栏「沙盒」按钮叠在标题上
+	if btn_dev != null and state != null and state.sandbox_mode:
+		btn_dev.visible = not _dev_open
 	if _dev_open:
 		_hide_ammo_detail()
 		_hide_muzzle_tip()
@@ -3541,7 +3548,7 @@ func _toggle_dev() -> void:
 
 func _update_dimmer() -> void:
 	# 悬停/长按弹药详情不盖遮罩；开发面板 / 奖励 / 商店 / 罪孽选择用遮罩
-	# v0.4.20：沙盒面板是下半屏抽屉，不盖遮罩，好边看战场/DPS 边调
+	# v0.4.44：沙盒控制台从上方弹出，不盖遮罩，袋区始终看得见
 	var dev_dim: bool = _dev_open and not (state != null and state.sandbox_mode)
 	dimmer.visible = dev_dim or _reward_open or _shop_open or _sin_pick_open
 
@@ -5936,7 +5943,7 @@ func _wire_dev_buttons() -> void:
 
 
 func _rebuild_dev_tool_body() -> void:
-	## rush：三列常规/袋/敌人；沙盒：四列含枪口与状态。
+	## rush：三列常规/袋/敌人；沙盒走顶部弹药控制台。
 	if state != null and state.sandbox_mode:
 		_rebuild_sandbox_tool_body()
 		return
@@ -6020,70 +6027,57 @@ func _rebuild_dev_tool_body() -> void:
 
 
 func _rebuild_sandbox_tool_body() -> void:
-	## v0.4.20 沙盒面板（手机好点）：顶部 5 个大页签，下面单列大按钮/大步进器，可上下滑。
+	## v0.4.44：列出所有已入库子弹，袋/手加减。大按钮，可上下滑。
 	var inner: VBoxContainer = get_node_or_null("%DevInner") as VBoxContainer
 	if inner == null and dev_panel != null:
 		inner = dev_panel.get_node_or_null("DevMargin/DevVBox/DevScroll/DevInner") as VBoxContainer
 	if inner == null:
 		push_error("DevInner missing; skip rebuild_sandbox_tool_body")
 		return
-	_ensure_sandbox_tabs()
+	_prepare_sandbox_console_chrome()
+	var scroll := inner.get_parent() as ScrollContainer
+	var keep_y: int = scroll.scroll_vertical if scroll != null else 0
 	for c in inner.get_children():
 		inner.remove_child(c)
 		c.free()
 	inner.add_theme_constant_override("separation", SB_GAP)
-	match _sandbox_tab:
-		0:
-			_sb_build_general(inner)
-		1:
-			_sb_build_muzzle(inner)
-		2:
-			_sb_build_ammo(inner)
-		3:
-			_sb_build_enemy(inner)
-		_:
-			_sb_build_status(inner)
-	var scroll := inner.get_parent() as ScrollContainer
+	_sb_count_nodes.clear()
+	if state == null:
+		return
+	var ids: Array[int] = state.sandbox_enabled_ammo_ids()
+	if ids.is_empty():
+		_sb_label(inner, "没有已入库的子弹", 0.0, true)
+	for aid in ids:
+		_sb_build_ammo_row(inner, aid)
+	_refresh_sandbox_console_counts()
 	if scroll != null:
-		scroll.scroll_vertical = 0
+		scroll.scroll_vertical = keep_y
 
 
-func _ensure_sandbox_tabs() -> void:
+func _prepare_sandbox_console_chrome() -> void:
 	if dev_panel == null:
 		return
+	# 不透明底板，避免顶栏 HP/菜单字透出来
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.10, 0.11, 0.16, 1.0)
+	style.set_border_width_all(2)
+	style.border_color = Color(0.45, 0.55, 0.75, 0.9)
+	style.set_corner_radius_all(10)
+	style.content_margin_left = 6
+	style.content_margin_right = 6
+	style.content_margin_top = 6
+	style.content_margin_bottom = 6
+	dev_panel.add_theme_stylebox_override("panel", style)
+	dev_panel.z_index = 80
 	var vbox: VBoxContainer = dev_panel.get_node_or_null("DevMargin/DevVBox") as VBoxContainer
 	if vbox == null:
 		return
-	var tabs: HBoxContainer = vbox.get_node_or_null("SandboxTabs") as HBoxContainer
-	if tabs == null:
-		tabs = HBoxContainer.new()
-		tabs.name = "SandboxTabs"
-		tabs.add_theme_constant_override("separation", 6)
-		vbox.add_child(tabs)
-		var scroll: Node = vbox.get_node_or_null("DevScroll")
-		if scroll != null:
-			vbox.move_child(tabs, scroll.get_index())
-		for i in SANDBOX_TAB_NAMES.size():
-			var b := Button.new()
-			b.name = "Tab%d" % i
-			b.text = SANDBOX_TAB_NAMES[i]
-			b.toggle_mode = true
-			b.focus_mode = Control.FOCUS_NONE
-			b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			b.custom_minimum_size = Vector2(0, SB_TOUCH_H)
-			b.add_theme_font_size_override("font_size", SB_FONT)
-			b.pressed.connect(func(idx := i): _sandbox_select_tab(idx))
-			tabs.add_child(b)
-	tabs.visible = true
-	for i in tabs.get_child_count():
-		var tb := tabs.get_child(i) as Button
-		if tb != null:
-			tb.set_pressed_no_signal(i == _sandbox_tab)
-			tb.modulate = Color(1, 1, 1, 1) if i == _sandbox_tab else Color(0.72, 0.74, 0.8, 1)
-	# 头部：标题 + 大「收起」
+	var tabs: Control = vbox.get_node_or_null("SandboxTabs") as Control
+	if tabs != null:
+		tabs.visible = false
 	var title := dev_panel.get_node_or_null("DevMargin/DevVBox/DevHeader/DevTitle") as Label
 	if title != null:
-		title.text = "沙盒工具"
+		title.text = "沙盒控制台"
 		title.add_theme_font_size_override("font_size", SB_FONT)
 	var close := get_node_or_null("%DevClose") as Button
 	if close != null:
@@ -6093,32 +6087,162 @@ func _ensure_sandbox_tabs() -> void:
 	var scroll2 := vbox.get_node_or_null("DevScroll") as ScrollContainer
 	if scroll2 != null:
 		scroll2.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	dev_panel.z_index = 80
+	dev_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 
 
-func _sandbox_select_tab(idx: int) -> void:
-	_sandbox_tab = clampi(idx, 0, SANDBOX_TAB_NAMES.size() - 1)
+func _sandbox_type_color(ammo_id: int) -> Color:
+	var tag := FireResolver.type_tag(ammo_id)
+	if tag != "" and AmmoColors.TAG_DEFAULTS.has(tag):
+		return AmmoColors.TAG_DEFAULTS[tag]["bg"]
+	return Color(0.55, 0.58, 0.64)
+
+
+func _sb_build_ammo_row(parent: Control, ammo_id: int) -> void:
+	var card := PanelContainer.new()
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb := StyleBoxFlat.new()
+	var col: Color = _sandbox_type_color(ammo_id)
+	sb.bg_color = Color(0.10, 0.11, 0.15, 0.96)
+	sb.border_width_left = 8
+	sb.border_width_top = 1
+	sb.border_width_right = 1
+	sb.border_width_bottom = 1
+	sb.border_color = col
+	sb.set_corner_radius_all(8)
+	sb.content_margin_left = 10
+	sb.content_margin_right = 8
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 6
+	card.add_theme_stylebox_override("panel", sb)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 6)
+	card.add_child(vb)
+	var head := HBoxContainer.new()
+	head.add_theme_constant_override("separation", 8)
+	vb.add_child(head)
+	var name_l := Label.new()
+	var tag := FireResolver.type_tag(ammo_id)
+	var tag_txt := ("[%s] " % tag) if tag != "" else ""
+	name_l.text = tag_txt + str(DataRegistry.get_ammo(ammo_id).get("name", ammo_id))
+	name_l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	name_l.clip_text = true
+	name_l.add_theme_font_size_override("font_size", SB_FONT)
+	name_l.add_theme_color_override("font_color", col.lightened(0.15))
+	head.add_child(name_l)
+	var bag_lab := Label.new()
+	bag_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	bag_lab.custom_minimum_size = Vector2(90, 0)
+	bag_lab.add_theme_font_size_override("font_size", SB_FONT_SMALL)
+	head.add_child(bag_lab)
+	var hand_lab := Label.new()
+	hand_lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hand_lab.custom_minimum_size = Vector2(90, 0)
+	hand_lab.add_theme_font_size_override("font_size", SB_FONT_SMALL)
+	head.add_child(hand_lab)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", SB_GAP)
+	row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	vb.add_child(row)
+	var b_bag_plus := _sb_console_btn(row, "袋+", func(id := ammo_id):
+		if state != null:
+			state.sandbox_add_ammo(id, 1, 0.0)
+			_refresh()
+	)
+	var b_bag_minus := _sb_console_btn(row, "袋-", func(id := ammo_id):
+		if state != null:
+			state.sandbox_remove_ammo_from_bag(id, 1)
+			_refresh()
+	)
+	var b_hand_plus := _sb_console_btn(row, "手+", func(id := ammo_id):
+		if state != null:
+			state.sandbox_add_to_hand(id, 1)
+			_refresh()
+	)
+	var b_hand_minus := _sb_console_btn(row, "手-", func(id := ammo_id):
+		if state != null:
+			state.sandbox_remove_from_hand(id, 1)
+			_refresh()
+	)
+	_sb_count_nodes[ammo_id] = {
+		"bag": bag_lab,
+		"hand": hand_lab,
+		"bag_plus": b_bag_plus,
+		"bag_minus": b_bag_minus,
+		"hand_plus": b_hand_plus,
+		"hand_minus": b_hand_minus,
+	}
+	parent.add_child(card)
+
+
+func _sb_console_btn(parent: Control, label: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = label
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(72, SB_TOUCH_H)
+	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b.add_theme_font_size_override("font_size", SB_FONT)
+	b.pressed.connect(cb)
+	parent.add_child(b)
+	return b
+
+
+func _refresh_sandbox_console_counts() -> void:
+	if state == null or _sb_count_nodes.is_empty():
+		return
+	for aid in _sb_count_nodes.keys():
+		var nodes: Dictionary = _sb_count_nodes[aid]
+		var bag_n: int = state.count_ammo_in_bag(int(aid))
+		var hand_n: int = state.count_ammo_in_hand(int(aid))
+		(nodes["bag"] as Label).text = "袋 %d" % bag_n
+		(nodes["hand"] as Label).text = "手 %d" % hand_n
+		(nodes["bag_minus"] as Button).disabled = bag_n <= 0
+		(nodes["hand_minus"] as Button).disabled = hand_n <= 0
+		(nodes["hand_plus"] as Button).disabled = state.hand.size() >= CombatConstants.HAND_SIZE
+
+
+func _ensure_sandbox_tabs() -> void:
+	## 旧页签已删除；若场景里还留着就藏起来。
+	_prepare_sandbox_console_chrome()
+
+
+func _sandbox_select_tab(_idx: int) -> void:
+	## 兼容旧测试/截图脚本：不再有页签，只刷新控制台。
 	_rebuild_dev_tool_body()
 
 
 func _fit_sandbox_panel() -> void:
-	## 沙盒：面板贴在下半屏（转轮/按钮区上方盖住），上面战场 + 伤害统计一直看得到；不盖遮罩。
+	## 从画面上方弹出，约占屏高三分之一，且下沿不盖住弹药袋/手区。
 	if dev_panel == null:
 		return
-	var top_y: float = _sandbox_panel_top()
+	var vp := get_viewport_rect().size if is_inside_tree() else Vector2(720, 1280)
+	var top_y: float = 8.0
+	var want_bottom: float = vp.y * SB_CONSOLE_FRAC
+	var bag_limit: float = vp.y * 0.62
+	if bag_panel != null and bag_panel.is_visible_in_tree() and bag_panel.get_global_rect().position.y > 80.0:
+		bag_limit = minf(bag_limit, bag_panel.get_global_rect().position.y - 8.0)
+	if hand_panel != null and hand_panel.is_visible_in_tree() and hand_panel.get_global_rect().position.y > 80.0:
+		bag_limit = minf(bag_limit, hand_panel.get_global_rect().position.y - 8.0)
+	var mid := get_node_or_null("Margin/RootVBox/MidPanel") as Control
+	if mid != null and mid.get_global_rect().position.y > 80.0:
+		bag_limit = minf(bag_limit, mid.get_global_rect().position.y - 8.0)
+	var bottom_y: float = minf(want_bottom, bag_limit)
+	if bottom_y - top_y < 160.0:
+		bottom_y = top_y + 160.0
 	dev_panel.custom_minimum_size = Vector2(0, 0)
 	dev_panel.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dev_panel.offset_left = 8.0
 	dev_panel.offset_right = -8.0
 	dev_panel.offset_top = top_y
-	dev_panel.offset_bottom = -8.0
+	dev_panel.offset_bottom = -(vp.y - bottom_y)
+	dev_panel.z_index = 80
 
 
 func _sandbox_panel_top() -> float:
-	var vp := get_viewport_rect().size if is_inside_tree() else Vector2(720, 1280)
-	var top_panel := get_node_or_null("Margin/RootVBox/TopPanel") as Control
-	if top_panel != null and top_panel.size.y > vp.y * 0.2:
-		return top_panel.get_global_rect().end.y + 4.0
-	return vp.y * 0.345
+	## 仍给统计 HUD 定位用：控制台打开时取控制台下沿，否则用默认偏上位置。
+	if _dev_open and dev_panel != null and dev_panel.visible:
+		return dev_panel.get_global_rect().end.y + 4.0
+	return 8.0
 
 
 # —— 大号控件 ——
@@ -6134,24 +6258,6 @@ func _sb_btn(parent: Control, label: String, cb: Callable, min_w: float = 0.0) -
 	b.pressed.connect(cb)
 	parent.add_child(b)
 	return b
-
-
-func _sb_grid(parent: Control, cols: int = 2) -> GridContainer:
-	var g := GridContainer.new()
-	g.columns = cols
-	g.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	g.add_theme_constant_override("h_separation", SB_GAP)
-	g.add_theme_constant_override("v_separation", SB_GAP)
-	parent.add_child(g)
-	return g
-
-
-func _sb_section(parent: Control, text: String) -> void:
-	var l := Label.new()
-	l.text = text
-	l.add_theme_font_size_override("font_size", SB_FONT)
-	l.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45))
-	parent.add_child(l)
 
 
 func _sb_label(parent: Control, text: String, min_w: float = 0.0, expand: bool = false) -> Label:
@@ -6173,177 +6279,6 @@ func _sb_row(parent: Control) -> HBoxContainer:
 	r.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	parent.add_child(r)
 	return r
-
-
-func _sb_stepper(parent: Control, minv: float, maxv: float, step: float, value: float, decimals: int = 0) -> HBoxContainer:
-	## 大号「- 数值 +」，替代 SpinBox 的小箭头。读值：stepper.get_meta("val")。
-	var box := HBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
-	box.set_meta("val", clampf(value, minv, maxv))
-	var lab := Label.new()
-	lab.custom_minimum_size = Vector2(SB_STEP_VAL_W, SB_TOUCH_H)
-	lab.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	lab.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	lab.add_theme_font_size_override("font_size", SB_FONT)
-	var show := func():
-		var v: float = float(box.get_meta("val"))
-		lab.text = ("%d" % int(round(v))) if decimals <= 0 else ("%.1f" % v)
-	var bump := func(d: float):
-		box.set_meta("val", clampf(snappedf(float(box.get_meta("val")) + d, step), minv, maxv))
-		show.call()
-	var minus := Button.new()
-	minus.text = "-"
-	minus.focus_mode = Control.FOCUS_NONE
-	minus.custom_minimum_size = Vector2(SB_STEP_BTN_W, SB_TOUCH_H)
-	minus.add_theme_font_size_override("font_size", SB_FONT + 4)
-	minus.pressed.connect(func(): bump.call(-step))
-	var plus := Button.new()
-	plus.text = "+"
-	plus.focus_mode = Control.FOCUS_NONE
-	plus.custom_minimum_size = Vector2(SB_STEP_BTN_W, SB_TOUCH_H)
-	plus.add_theme_font_size_override("font_size", SB_FONT + 4)
-	plus.pressed.connect(func(): bump.call(step))
-	box.add_child(minus)
-	box.add_child(lab)
-	box.add_child(plus)
-	show.call()
-	parent.add_child(box)
-	return box
-
-
-# —— 各页 ——
-
-func _sb_build_general(inner: VBoxContainer) -> void:
-	var g := _sb_grid(inner, 2)
-	_sb_btn(g, "重置沙盒", func():
-		state.sandbox_reset()
-		_rebuild_dev_tool_body()
-		_refresh()
-	)
-	_sb_btn(g, "伤害清零", func(): state.damage_stats_reset(); _refresh())
-	_sb_btn(g, "清场敌人", func(): state.sandbox_clear_enemies(); _refresh())
-	_sb_btn(g, "摆 3 个木桩", func(): state.sandbox_spawn_default_dummies(); _refresh())
-	_sb_btn(g, "空仓补平庸", func(): state.sandbox_refill_empty_chambers(); _refresh())
-	_sb_btn(g, "强制装 6 平庸", func():
-		var ids: Array[int] = []
-		for _i in 6:
-			ids.append(CombatConstants.WHITE_AMMO_ID)
-		state.dev_force_load(ids)
-		_refresh()
-	)
-	_sb_btn(g, "金币 +10", func(): state.dev_add_gold(10); _refresh())
-	_sb_btn(g, "玩家 HP +5", func(): state.dev_set_player_hp(state.player_hp + 5); _refresh())
-	_sb_btn(g, "玩家 HP -5", func(): state.dev_set_player_hp(state.player_hp - 5); _refresh())
-	_sb_btn(g, "刷怪：%s" % ("暂停" if state.spawn_paused else "开启"), func():
-		state.sandbox_set_spawn_paused(not state.spawn_paused)
-		_rebuild_dev_tool_body()
-		_refresh()
-	)
-
-
-func _sb_build_muzzle(inner: VBoxContainer) -> void:
-	_sb_btn(inner, "清空全部枪口", func(): state.sandbox_clear_muzzle(); _refresh())
-	_sb_label(inner, "每行：层数 · 每层秒数 · 点「设」生效")
-	for kind in CombatState.sandbox_muzzle_kinds():
-		var k: String = str(kind)
-		var row := _sb_row(inner)
-		_sb_label(row, CombatState.sandbox_muzzle_label(k), 72.0, true)
-		var st := _sb_stepper(row, 0, 20, 1, 1, 0)
-		var du := _sb_stepper(row, 0.0, 120.0, 0.5, 4.0, 1)
-		_sb_btn(row, "设", func(kk := k, ss := st, dd := du):
-			state.sandbox_set_muzzle(kk, int(ss.get_meta("val")), float(dd.get_meta("val")))
-			_refresh()
-		, 76.0)
-
-
-func _sb_build_ammo(inner: VBoxContainer) -> void:
-	_sb_btn(inner, "清空弹药袋", func(): state.dev_clear_bag(); _refresh())
-	var ttl_row := _sb_row(inner)
-	_sb_label(ttl_row, "临时秒", 0.0, true)
-	var ttl := _sb_stepper(ttl_row, 0.0, 120.0, 1.0, CombatConstants.TEMP_SIN_LIFETIME_SEC, 0)
-	var idx_row := _sb_row(inner)
-	_sb_label(idx_row, "改TTL下标", 0.0, true)
-	var idx := _sb_stepper(idx_row, 0, 99, 1, 0, 0)
-	_sb_btn(idx_row, "写入", func():
-		state.sandbox_set_bag_temp(int(idx.get_meta("val")), float(ttl.get_meta("val")))
-		_refresh()
-	, 96.0)
-	var ammo_items: Array = DataRegistry.all_ammo().duplicate()
-	ammo_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
-	for item in ammo_items:
-		var aid: int = int(item.get("id", 0))
-		if not DataRegistry.is_ammo_runtime_visible(aid):
-			continue
-		var row := _sb_row(inner)
-		row.add_child(make_ammo_chip(aid, 26.0))
-		_sb_label(row, str(item.get("name", aid)), 0.0, true)
-		_sb_btn(row, "+1", func(id := aid): state.sandbox_add_ammo(id, 1, 0.0); _refresh(), 96.0)
-		_sb_btn(row, "临时", func(id := aid, tt := ttl): state.sandbox_add_ammo(id, 1, float(tt.get_meta("val"))); _refresh(), 96.0)
-		_sb_btn(row, "-1", func(id := aid): state.dev_remove_ammo(id, 1); _refresh(), 96.0)
-
-
-func _sb_build_enemy(inner: VBoxContainer) -> void:
-	var g := _sb_grid(inner, 2)
-	_sb_btn(g, "摆 3 个木桩", func(): state.sandbox_spawn_default_dummies(); _refresh())
-	_sb_btn(g, "生成木桩", func(): state.sandbox_spawn_dummy(); _refresh())
-	var hp_row := _sb_row(inner)
-	_sb_label(hp_row, "木桩HP", 0.0, true)
-	var hp := _sb_stepper(hp_row, 100, 9900, 100, CombatConstants.SANDBOX_DUMMY_DEFAULT_HP, 0)
-	_sb_btn(hp_row, "生成", func(): state.sandbox_spawn_dummy(int(hp.get_meta("val"))); _refresh(), 96.0)
-	var g2 := _sb_grid(inner, 2)
-	_sb_btn(g2, "清场敌人", func(): state.sandbox_clear_enemies(); _refresh())
-	_sb_btn(g2, "一键杀敌", func(): state.dev_kill_all_enemies(); _refresh())
-	_sb_btn(g2, "瞬移邻近", func(): state.dev_teleport_front_enemy(1); _refresh())
-	_sb_btn(g2, "瞬移远端", func(): state.dev_teleport_front_enemy(CombatConstants.BOARD_SIZE - 1); _refresh())
-	var enemy_items: Array = DataRegistry.all_enemies().duplicate()
-	enemy_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
-	for item in enemy_items:
-		if not bool(item.get("enabled_in_combat", false)):
-			continue
-		var eid: int = int(item.get("id", 0))
-		if eid == CombatConstants.DUMMY_ENEMY_ID:
-			continue
-		_sb_btn(g2, "添加%s" % str(item.get("name", eid)), func(id := eid): state.sandbox_spawn_enemy(id); _refresh())
-
-
-func _sb_build_status(inner: VBoxContainer) -> void:
-	_sb_section(inner, "前敌状态")
-	for pair in [["燃", "burn", 3], ["油", "gas", 2], ["湿", "wet", 2], ["血", "bleed", 2]]:
-		var key: String = str(pair[1])
-		var row := _sb_row(inner)
-		_sb_label(row, str(pair[0]), 0.0, true)
-		var sp := _sb_stepper(row, 0, 99, 1, int(pair[2]), 0)
-		_sb_btn(row, "设", func(kk := key, ss := sp):
-			var o := {}
-			o[kk] = int(ss.get_meta("val"))
-			state.sandbox_set_enemy_status(o)
-			_refresh()
-		, 96.0)
-	var crow := _sb_row(inner)
-	_sb_label(crow, "乱秒", 0.0, true)
-	var conf := _sb_stepper(crow, 0.0, 30.0, 0.5, 3.0, 1)
-	_sb_btn(crow, "设", func():
-		state.sandbox_set_enemy_status({"confuse": float(conf.get_meta("val"))})
-		_refresh()
-	, 96.0)
-	var srow := _sb_row(inner)
-	_sb_label(srow, "缓层", 0.0, true)
-	var sn := _sb_stepper(srow, 0, 10, 1, 2, 0)
-	var stt := _sb_stepper(srow, 0.5, 30.0, 0.5, CombatConstants.SLOTH_SLOW_LAYER_SEC, 1)
-	_sb_btn(srow, "设", func():
-		state.sandbox_set_enemy_status({"slow_stacks": int(sn.get_meta("val")), "slow_sec": float(stt.get_meta("val"))})
-		_refresh()
-	, 76.0)
-	_sb_section(inner, "玩家计时（秒）")
-	for pair2 in [["自混乱", "confuse"], ["懒惰惩罚", "sloth_penalty"], ["射击锁", "fire_lock"], ["暴食自伤", "gluttony_dot"]]:
-		var pk: String = str(pair2[1])
-		var prow := _sb_row(inner)
-		_sb_label(prow, str(pair2[0]), 0.0, true)
-		var psp := _sb_stepper(prow, 0.0, 60.0, 0.5, 4.0, 1)
-		_sb_btn(prow, "设", func(kk := pk, ss := psp):
-			state.sandbox_set_player_timer(kk, float(ss.get_meta("val")))
-			_refresh()
-		, 96.0)
 
 
 # —— v0.4.20 伤害统计 HUD（战场下方，不进布局容器，不推开任何东西）——
@@ -6407,8 +6342,21 @@ func _place_sandbox_stats_hud() -> void:
 	var y0: float = r.end.y - SB_STATS_H - 6.0
 	if xp != null and xp.size.y > 0.0:
 		y0 = maxf(y0, xp.get_global_rect().end.y + 2.0)
-	_sb_stats_panel.position = Vector2(r.position.x + 8.0, y0)
-	_sb_stats_panel.size = Vector2(r.size.x - 16.0, minf(SB_STATS_H, r.end.y - y0 - 4.0))
+	# 控制台打开时，统计条贴在控制台下沿，避免被挡住，也不盖袋。
+	if _dev_open and dev_panel != null and dev_panel.visible:
+		var cr := dev_panel.get_global_rect()
+		y0 = cr.end.y + 4.0
+		r.position.x = cr.position.x
+		r.size.x = cr.size.x
+	var bag_top := 9999.0
+	if bag_panel != null and bag_panel.is_visible_in_tree():
+		bag_top = minf(bag_top, bag_panel.get_global_rect().position.y)
+	if hand_panel != null and hand_panel.is_visible_in_tree():
+		bag_top = minf(bag_top, hand_panel.get_global_rect().position.y)
+	if y0 + SB_STATS_H > bag_top - 6.0:
+		y0 = bag_top - SB_STATS_H - 6.0
+	_sb_stats_panel.position = Vector2(r.position.x + 8.0, maxf(y0, 4.0))
+	_sb_stats_panel.size = Vector2(r.size.x - 16.0, SB_STATS_H)
 
 
 func sandbox_stats_text() -> Dictionary:
@@ -6576,6 +6524,8 @@ func _play_wave_banner(wave_n: int) -> void:
 
 func _refresh() -> void:
 	_update_sandbox_stats_hud()
+	if state != null and state.sandbox_mode and _dev_open:
+		_refresh_sandbox_console_counts()
 	phase_label.text = "阶段：%s" % state.phase_name()
 	phase_label.add_theme_color_override("font_color", COL_PHASE)
 	hp_label.text = "HP %d / %d" % [state.player_hp, state.player_max_hp]

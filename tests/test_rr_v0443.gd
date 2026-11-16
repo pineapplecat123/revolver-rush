@@ -48,7 +48,7 @@ func _envy_copies(cs: CombatState) -> Array:
 
 
 func test_version_is_0_4_43() -> void:
-	assert_eq(GameVersion.STRING, "0.4.43")
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.43") >= 0)
 	assert_true("0.4.43" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 

@@ -71,8 +71,11 @@ func test_every_chamber_shot_has_fire_anim_and_tracer_including_passthrough() ->
 	var ui = await _ui_sandbox()
 	var cs: CombatState = ui.state
 	cs.sandbox_clear_enemies()
-	# 单只 2 血木桩：前面几发打死，后面几发无目标 → 穿过弹道
-	cs.sandbox_spawn_dummy(2, 3)
+	# 单只 2 血平民（非木桩：打死不恢复）：前面几发打死，后面几发无目标 → 穿过弹道
+	cs.dev_spawn_enemy(CombatConstants.CIVILIAN_ENEMY_ID, 3)
+	cs.enemies[0].hp = 2
+	cs.enemies[0].max_hp = 2
+	cs.enemies[0].atk = 0
 	ui._combat_speed = 2.0
 	cs.dev_force_load([WHITE, WHITE, WHITE, WHITE, WHITE, WHITE] as Array[int])
 	ui.fire_anim_log.clear()
@@ -270,17 +273,20 @@ func test_sandbox_clear_bag_stays_empty() -> void:
 	var cs := CombatState.new(43010)
 	cs.start_sandbox(43010)
 	assert_true(cs.sandbox_mode)
-	assert_gt(cs.bag.size(), 0)
-	cs.dev_clear_bag()
-	assert_eq(cs.bag.size(), 0)
+	assert_eq(cs.bag.size(), 0, "沙盒开局即为空袋")
 	assert_true(cs.sandbox_hold_bag_empty)
-	# Would normally refill:
+	# Would normally refill from starter baseline:
 	assert_false(cs.ensure_bag_refilled_if_empty())
 	assert_eq(cs.bag.size(), 0)
 	# Adding a bullet releases the hold
 	cs.dev_add_ammo(WHITE, 1)
 	assert_false(cs.sandbox_hold_bag_empty)
 	assert_eq(cs.bag.size(), 1)
+	cs.dev_clear_bag()
+	assert_eq(cs.bag.size(), 0)
+	assert_true(cs.sandbox_hold_bag_empty)
+	assert_false(cs.ensure_bag_refilled_if_empty())
+	assert_eq(cs.bag.size(), 0)
 
 
 func test_normal_run_still_refills_empty_bag() -> void:

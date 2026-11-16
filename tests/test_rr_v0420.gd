@@ -270,18 +270,17 @@ func test_sandbox_ui_controls_are_touch_sized_and_hud_shows() -> void:
 	await get_tree().process_frame
 	assert_true(scene.state.sandbox_mode)
 	assert_eq(scene.state.enemies.size(), 3)
-	for tab in 5:
-		scene._sandbox_select_tab(tab)
-		await get_tree().process_frame
-		var n_btn := 0
-		for b in scene.dev_panel.find_children("*", "Button", true, false):
-			if not (b as Button).is_visible_in_tree():
-				continue
-			n_btn += 1
-			assert_true((b as Button).get_combined_minimum_size().y >= 56.0,
-				"tab %d button '%s' too small" % [tab, (b as Button).text])
-		assert_gt(n_btn, 3)
-		assert_eq(scene.dev_panel.find_children("*", "SpinBox", true, false).size(), 0, "no tiny SpinBox arrows")
+	assert_eq(scene.state.bag.size(), 0)
+	assert_true(scene.dev_panel.visible)
+	var n_btn := 0
+	for b in scene.dev_panel.find_children("*", "Button", true, false):
+		if not (b as Button).is_visible_in_tree():
+			continue
+		n_btn += 1
+		assert_true((b as Button).get_combined_minimum_size().y >= 56.0,
+			"button '%s' too small" % (b as Button).text)
+	assert_gt(n_btn, 3)
+	assert_eq(scene.dev_panel.find_children("*", "SpinBox", true, false).size(), 0, "no tiny SpinBox arrows")
 	var hud: Control = scene.get_node_or_null("SandboxStatsHud")
 	assert_not_null(hud)
 	assert_true(hud.visible)

@@ -33,7 +33,8 @@ func test_start_sandbox_pauses_spawn_and_shop() -> void:
 	assert_eq(cs.enemies.size(), CombatConstants.SANDBOX_DEFAULT_DUMMY_CELLS.size())
 	for e in cs.enemies:
 		assert_true(e.is_dummy)
-	assert_true(cs.bag.size() > 0)
+	assert_eq(cs.bag.size(), 0, "沙盒开局弹药袋为空")
+	assert_true(cs.sandbox_hold_bag_empty)
 	# 时间推进不应刷怪 / 出商店
 	cs.tick_combat_time(50.0)
 	assert_eq(cs.enemies.size(), CombatConstants.SANDBOX_DEFAULT_DUMMY_CELLS.size())

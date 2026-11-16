@@ -590,7 +590,6 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH, default_dummies: bool = true) -> void:
 	start_rush(seed_value, sin_ammo_id)
 	sandbox_mode = true
-	sandbox_hold_bag_empty = false
 	spawn_paused = true
 	map_shop_disabled = true
 	enemies.clear()
@@ -598,11 +597,29 @@ func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH
 	shop_touch_pending = false
 	_shop_move_prog = 0.0
 	_spawn_timer = 99999.0
+	_sandbox_empty_ammo_pools()
 	if default_dummies:
 		sandbox_spawn_default_dummies()
 	damage_stats_reset()
-	_log("沙盒模式：刷怪与地图商店已暂停；用沙盒面板自定义枪口/袋/怪。")
+	_log("沙盒模式：弹药袋为空；刷怪与地图商店已暂停；用控制台给袋/手加减弹药。")
 	_emit()
+
+
+func _sandbox_empty_ammo_pools() -> void:
+	## 沙盒开局：袋/手/弃牌/弹仓都空，基线也空，避免空袋被自动补回正式开局袋。
+	bag.clear()
+	bag_temp.clear()
+	bag_envy_copy.clear()
+	hand.clear()
+	hand_temp.clear()
+	hand_envy_copy.clear()
+	hand_uid.clear()
+	discard.clear()
+	discard_temp.clear()
+	if magazine != null:
+		magazine.clear()
+	_combat_bag_baseline.clear()
+	sandbox_hold_bag_empty = true
 
 
 func sandbox_spawn_default_dummies() -> int:
@@ -4881,26 +4898,31 @@ func _remove_dead() -> void:
 	for e in enemies:
 		if e.is_alive():
 			kept.append(e)
-		else:
-			_log("%s 被击败。" % e.name_zh)
-			_try_envy_copy_on_kill()
-			_try_gluttony_heal_on_kill()
-			var xp_cell: int = e.cell
-			var xp_amt: int = xp_for_enemy(e)
-			if xp_amt > 0:
-				xp_orb_spawned.emit(xp_cell, xp_amt)
-				hooks.emit_hook(&"on_xp_gain", {"cs": self, "amount": xp_amt, "cell": xp_cell})
-			var dropped: int = _try_kill_gold_drop(e)
-			hooks.emit_hook(&"on_kill", {
+			continue
+		if sandbox_mode and e.is_dummy:
+			e.revive_to_full()
+			kept.append(e)
+			_log("[沙盒] 木桩已恢复（格 %d，HP %d）。" % [e.cell, e.hp])
+			continue
+		_log("%s 被击败。" % e.name_zh)
+		_try_envy_copy_on_kill()
+		_try_gluttony_heal_on_kill()
+		var xp_cell: int = e.cell
+		var xp_amt: int = xp_for_enemy(e)
+		if xp_amt > 0:
+			xp_orb_spawned.emit(xp_cell, xp_amt)
+			hooks.emit_hook(&"on_xp_gain", {"cs": self, "amount": xp_amt, "cell": xp_cell})
+		var dropped: int = _try_kill_gold_drop(e)
+		hooks.emit_hook(&"on_kill", {
+			"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell,
+			"def_id": e.def_id, "gold": dropped,
+		})
+		if dropped > 0:
+			hooks.emit_hook(&"on_kill_gold", {
 				"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell,
-				"def_id": e.def_id, "gold": dropped,
+				"def_id": e.def_id, "amount": dropped,
 			})
-			if dropped > 0:
-				hooks.emit_hook(&"on_kill_gold", {
-					"cs": self, "enemy_id": e.get_instance_id(), "cell": e.cell,
-					"def_id": e.def_id, "amount": dropped,
-				})
-			gain_xp(xp_for_enemy(e))
+		gain_xp(xp_for_enemy(e))
 	enemies = kept
 
 
@@ -5617,6 +5639,8 @@ func dev_remove_ammo(ammo_id: int, count: int = 1) -> void:
 			bag.remove_at(i)
 			if i < bag_temp.size():
 				bag_temp.remove_at(i)
+			if i < bag_envy_copy.size():
+				bag_envy_copy.remove_at(i)
 			if perm:
 				_baseline_remove_one(ammo_id)
 			left -= 1
@@ -5836,8 +5860,8 @@ func sandbox_clear_muzzle(kind: String = "") -> void:
 
 
 func sandbox_add_ammo(ammo_id: int, count: int = 1, temp_life: float = 0.0) -> void:
-	## 沙盒：任意表内弹药可入袋；temp_life>0 则为临时寿命（秒）。
-	if DataRegistry.get_ammo(ammo_id).is_empty() and ammo_id != CombatConstants.INVALID_AMMO_ID:
+	## 沙盒：已入库弹药可入袋；temp_life>0 则为临时寿命（秒）。
+	if not _sandbox_ammo_known(ammo_id):
 		_log("[沙盒] 未知弹药 id=%d" % ammo_id)
 		return
 	var n: int = maxi(0, count)
@@ -5851,6 +5875,98 @@ func sandbox_add_ammo(ammo_id: int, count: int = 1, temp_life: float = 0.0) -> v
 		bag.size()
 	])
 	_emit()
+
+
+func _sandbox_ammo_known(ammo_id: int) -> bool:
+	if ammo_id == CombatConstants.INVALID_AMMO_ID:
+		return false
+	return not DataRegistry.get_ammo(ammo_id).is_empty()
+
+
+func sandbox_enabled_ammo_ids() -> Array[int]:
+	## 已入库（ammo.json 且启用）的子弹，按开始/中间/结束/无标签，再按 id。
+	var items: Array = DataRegistry.all_ammo().duplicate()
+	items.sort_custom(func(a, b):
+		var id_a: int = int(a.get("id", 0))
+		var id_b: int = int(b.get("id", 0))
+		var ra: int = FireResolver.load_type_rank(id_a)
+		var rb: int = FireResolver.load_type_rank(id_b)
+		if ra != rb:
+			return ra < rb
+		return id_a < id_b
+	)
+	var out: Array[int] = []
+	for item in items:
+		var aid: int = int(item.get("id", 0))
+		if DataRegistry.is_ammo_runtime_visible(aid):
+			out.append(aid)
+	return out
+
+
+func count_ammo_in_bag(ammo_id: int) -> int:
+	var n := 0
+	for x in bag:
+		if int(x) == ammo_id:
+			n += 1
+	return n
+
+
+func count_ammo_in_hand(ammo_id: int) -> int:
+	var n := 0
+	for x in hand:
+		if int(x) == ammo_id:
+			n += 1
+	return n
+
+
+func sandbox_remove_ammo_from_bag(ammo_id: int, count: int = 1) -> int:
+	## 从袋里去掉最多 count 发该 id，返回实际去掉的数量。
+	if count <= 0:
+		return 0
+	var before: int = bag.size()
+	dev_remove_ammo(ammo_id, count)
+	return maxi(0, before - bag.size())
+
+
+func sandbox_add_to_hand(ammo_id: int, count: int = 1) -> int:
+	## 直接往手里加新弹（不从袋里搬）。手满（HAND_SIZE）就停。
+	if not _sandbox_ammo_known(ammo_id):
+		_log("[沙盒] 未知弹药 id=%d" % ammo_id)
+		return 0
+	var added := 0
+	for _i in maxi(0, count):
+		if hand.size() >= CombatConstants.HAND_SIZE:
+			_log("[沙盒] 手已满（%d），无法再加 %s" % [CombatConstants.HAND_SIZE, _ammo_name(ammo_id)])
+			break
+		_hand_append(ammo_id, false)
+		_note_baseline_add(ammo_id, false)
+		added += 1
+	if added > 0:
+		_log("[沙盒] 手 +%d × %s（现 %d / %d）" % [added, _ammo_name(ammo_id), hand.size(), CombatConstants.HAND_SIZE])
+		_emit()
+	return added
+
+
+func sandbox_remove_from_hand(ammo_id: int, count: int = 1) -> int:
+	## 从手里去掉最多 count 发该 id（删掉，不退回袋）。
+	_sync_hand_arrays()
+	var left: int = maxi(0, count)
+	var removed := 0
+	var i := hand.size() - 1
+	while i >= 0 and left > 0:
+		if int(hand[i]) == ammo_id:
+			var tv = hand_temp[i] if i < hand_temp.size() else 0.0
+			var perm := _counts_as_permanent(ammo_id, tv)
+			_hand_remove_at(i)
+			if perm:
+				_baseline_remove_one(ammo_id)
+			left -= 1
+			removed += 1
+		i -= 1
+	if removed > 0:
+		_log("[沙盒] 手 -%d × %s（现 %d）" % [removed, _ammo_name(ammo_id), hand.size()])
+		_emit()
+	return removed
 
 
 func sandbox_set_bag_temp(index: int, temp_life: float) -> bool:

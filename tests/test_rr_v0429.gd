@@ -187,11 +187,14 @@ func test_old_cell_event_on_empty_cell_no_blood() -> void:
 
 
 func test_kill_then_more_shots_no_air_blood() -> void:
-	## 一只 3 血的木桩，连射 4 发：第一发打死后后面的子弹不在它原位喷血。
+	## 一只 3 血的平民（非木桩：打死不恢复），连射 4 发：第一发打死后后面的子弹不在它原位喷血。
 	var ui = await _ui_sandbox()
 	var cs: CombatState = ui.state
 	cs.sandbox_clear_enemies()
-	cs.sandbox_spawn_dummy(3, 3)
+	cs.dev_spawn_enemy(CombatConstants.CIVILIAN_ENEMY_ID, 3)
+	cs.enemies[0].hp = 3
+	cs.enemies[0].max_hp = 3
+	cs.enemies[0].atk = 0
 	cs.sandbox_spawn_dummy(99999, 6)
 	ui._refresh()
 	await wait_process_frames(2)
