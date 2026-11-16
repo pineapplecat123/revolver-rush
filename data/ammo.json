@@ -106,13 +106,13 @@
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "射击后：加速本轮射击速度50％，可以叠加",
+      "special": "射击后：本轮后续开火节奏+50％，加法叠加，两颗为2倍速；不改变子弹飞行速度",
       "tags": [
         "开始"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "本轮射速+50％，可叠加",
+      "blurb": "本轮开火节奏+50％，可叠加",
       "bullet_color": "#94FFF1",
       "muzzle_color": "#94FFF1",
       "muzzle_status": {
@@ -130,13 +130,13 @@
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "开火后，生成2颗随机弹仓内子弹的临时复制体到背包里（持续1次开火）",
+      "special": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（包括自己，不含罪孽弹）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗，没有可复制的则复制自己",
       "tags": [
         "开始"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "生成2颗弹仓内子弹的临时复制",
+      "blurb": "随机复制弹仓内2颗不同子弹（含自己）",
       "bullet_color": "#52C76B",
       "muzzle_color": "#5855E0",
       "on_fire": {
@@ -152,6 +152,24 @@
         "effect": "开火后已生成临时复制体",
         "outline": false
       }
+    },
+    {
+      "id": 46,
+      "name": "尾重弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "如果在开火顺序第1-3格发射，本子弹伤害×0.5；第4-6格则×2。格位按本轮连射开火顺序计算，空仓也占一格。该倍率和起势、蓄力加成直接相乘。",
+      "tags": [
+        "中间",
+        "清算"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "前3格×0.5，后3格×2",
+      "bullet_color": "#F2CC38",
+      "muzzle_color": "#F2CC38"
     }
   ]
 }

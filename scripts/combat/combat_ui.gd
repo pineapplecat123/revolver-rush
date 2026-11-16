@@ -927,11 +927,12 @@ func _make_muzzle_chip(entry) -> PanelContainer:
 	return chip
 
 
-func _paced(sec: float) -> float:
+func _paced(sec: float, apply_volley_cadence: bool = false) -> float:
 	## 全局战斗速度：秒数 / 倍率；2× → 等待减半，0.5× → 等待加倍。
+	## 加速弹只加快开火节奏（apply_volley_cadence=true 的等待/停留/转轮），不改子弹飞行速度。
 	var m: float = maxf(_combat_speed, 0.01)
-	if _volley_stepping and state != null:
-		m *= state.volley_speed_mult()  # 加速弹：本轮连射加速
+	if apply_volley_cadence and _volley_stepping and state != null:
+		m *= state.volley_speed_mult()
 	return maxf(sec / m, 0.0)
 
 
@@ -1709,7 +1710,7 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 		_set_disk_mod(float(sb))
 		if skip > 0:
 			_wheel_animating = true
-			await _animate_disk_to(_wheel_visual_steps + float(skip), maxf(_paced(CombatState.volley_rotate_sec()) * float(skip), 0.02))
+			await _animate_disk_to(_wheel_visual_steps + float(skip), maxf(_paced(CombatState.volley_rotate_sec(), _volley_stepping) * float(skip), 0.02))
 		# 保险：红圈下必须就是本发仓（FIRE_PORT_OFFSET=0 → 盘面步数=仓号）
 		if ring_slot_from_disk() != slot:
 			_set_disk_mod(float(posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)))
@@ -1732,7 +1733,7 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 		# 纯虚拟：不动转轮
 		return
 	# 等首发真正出膛（幽灵聚拢有延迟）+ 短暂停留让玩家看清是这一仓
-	var hold_s: float = batch_delay + _paced(VOLLEY_FIRE_HOLD_SEC)
+	var hold_s: float = batch_delay + _paced(VOLLEY_FIRE_HOLD_SEC, _volley_stepping)
 	if hold_s > 0.0:
 		await _pwait(hold_s)
 	_display_hold.erase(slot)
@@ -1746,7 +1747,7 @@ func _present_shot_group(group: Array, hit_events: Array) -> void:
 	var rot_sec: float = CombatState.volley_rotate_sec() if volley_like else FIRE_ROT_SEC
 	_last_fire_rot_sec = rot_sec
 	_wheel_animating = true
-	await _animate_disk_to(_wheel_visual_steps + float(remain), _paced(rot_sec))
+	await _animate_disk_to(_wheel_visual_steps + float(remain), _paced(rot_sec, _volley_stepping))
 	_refresh_mag_contents()
 
 
@@ -1769,7 +1770,7 @@ func _run_volley_autofire(immediate_first: bool = false) -> void:
 	while state != null and state.is_volley_pending():
 		if not skip_wait:
 			var wait_s: float = maxf(state.volley_wait_before_next_sec(), 0.02)
-			await _pwait(_paced(wait_s))
+			await _pwait(_paced(wait_s, true))
 		skip_wait = false
 		if state == null or not state.is_volley_pending():
 			break
@@ -1895,11 +1896,11 @@ func _present_blank_beat() -> void:
 		blank_audit.pop_front()
 	if not state.take_volley_blank_beat():
 		return
-	await _pwait(_paced(VOLLEY_FIRE_HOLD_SEC))
+	await _pwait(_paced(VOLLEY_FIRE_HOLD_SEC, _volley_stepping))
 	var rot_sec: float = CombatState.volley_rotate_sec()
 	_last_fire_rot_sec = rot_sec
 	_wheel_animating = true
-	await _animate_disk_to(_wheel_visual_steps + 1.0, _paced(rot_sec))
+	await _animate_disk_to(_wheel_visual_steps + 1.0, _paced(rot_sec, _volley_stepping))
 	_refresh_mag_contents()
 
 
@@ -5869,7 +5870,7 @@ func _build_sin_pick_panel() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.45))
 	vbox.add_child(title)
 	var hint := Label.new()
-	hint.text = "开局弹药袋：平庸 ×%d，起势/蓄力/递增/终审各 ×%d" % [CombatConstants.STARTER_WHITE_COUNT, CombatConstants.STARTER_CLEARING_EACH]
+	hint.text = "开局弹药袋：平庸 ×%d，起势/蓄力/递增/终审/尾重各 ×%d" % [CombatConstants.STARTER_WHITE_COUNT, CombatConstants.STARTER_CLEARING_EACH]
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)

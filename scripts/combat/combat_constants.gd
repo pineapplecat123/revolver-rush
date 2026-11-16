@@ -12,6 +12,7 @@ const DIZENG_AMMO_ID := 42  ## 递增弹
 const ZHONGSHEN_AMMO_ID := 43  ## 终审弹
 const JIASU_AMMO_ID := 44  ## 加速弹
 const CHETUI_AMMO_ID := 45  ## 撤退弹
+const WEIZHONG_AMMO_ID := 46  ## 尾重弹
 const CIVILIAN_ENEMY_ID := 1
 const ZOMBIE_ENEMY_ID := 4
 const SUPER_ZOMBIE_ENEMY_ID := 5
@@ -25,14 +26,14 @@ const SANDBOX_DPS_WINDOW_SEC := 5.0
 const STARTER_WHITE_COUNT := 6
 const STARTER_SIN_COUNT := 0
 const STARTER_CLEARING_EACH := 2
-const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + 4 * STARTER_CLEARING_EACH
+const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + 5 * STARTER_CLEARING_EACH
 ## 「手」区容量；倒出最多抽这么多。
 const HAND_SIZE := 6
 const STARTER_PLAIN_ONLY_COUNT := STARTER_BAG_TOTAL
 
 
 static func starter_clearing_ids() -> Array[int]:
-	return [QISHI_AMMO_ID, XULI_AMMO_ID, DIZENG_AMMO_ID, ZHONGSHEN_AMMO_ID]
+	return [QISHI_AMMO_ID, XULI_AMMO_ID, DIZENG_AMMO_ID, ZHONGSHEN_AMMO_ID, WEIZHONG_AMMO_ID]
 
 
 static func starter_ammo_ids() -> Array[int]:

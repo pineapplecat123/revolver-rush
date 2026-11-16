@@ -3,8 +3,7 @@
 
 Matches editor rows to ammo.json by name (e.g. 起势弹). Only updates ammo
 rows that already exist — it never invents a new ammo id, and never deletes
-one. Rows that exist only in the editor (尾重弹 while it is on hold) are
-skipped.
+one. Rows that exist only in the editor (no matching ammo.json name) are skipped.
 
 Copied when present:
   name, effect -> special, school, rarity (mapped to common/rare/...),

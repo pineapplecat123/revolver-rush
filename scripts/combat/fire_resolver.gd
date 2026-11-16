@@ -27,6 +27,7 @@ const ID_QISHI := CombatConstants.QISHI_AMMO_ID
 const ID_XULI := CombatConstants.XULI_AMMO_ID
 const ID_DIZENG := CombatConstants.DIZENG_AMMO_ID
 const ID_ZHONGSHEN := CombatConstants.ZHONGSHEN_AMMO_ID
+const ID_WEIZHONG := CombatConstants.WEIZHONG_AMMO_ID
 const XULI_MULT := 1.5
 const QISHI_BONUS := 0.1
 
@@ -76,7 +77,7 @@ static func base_damage_for(ammo_id: int, _order: Array[int], _index: int) -> in
 			return 2
 		ID_QISHI, ID_XULI, ID_ZHONGSHEN:
 			return 0
-		ID_DIZENG:
+		ID_DIZENG, ID_WEIZHONG:
 			return 3
 		_:
 			var def: Dictionary = DataRegistry.get_ammo(ammo_id)
@@ -121,8 +122,8 @@ static func load_type_rank(ammo_id: int) -> int:
 
 static func compute_volley_damages(order: Array[int]) -> Array[float]:
 	## 按连射顺序算每格「计算伤害」（空仓为 0）。起势加法叠层，蓄力连乘挂起，
-	## 递增按 1 起槽位（空仓也占格），终审为此前计算伤害之和的一半。
-	## 最终伤害 = 基础或公式 × (1 + 0.1×此前起势数) × 待消耗蓄力倍率。
+	## 递增按 1 起槽位（空仓也占格），尾重按同一套槽位×0.5/×2，终审为此前计算伤害之和的一半。
+	## 最终伤害 = 基础或公式 × (1 + 0.1×此前起势数) × 待消耗蓄力倍率；尾重倍率与起势/蓄力直接相乘。
 	## 「开始」类型子弹互不影响：起势加成与蓄力倍率都不作用在开始弹上；
 	## 蓄力倍率穿过开始弹与空仓，由下一发非开始弹消耗。
 	var qishi := 0
@@ -157,6 +158,8 @@ static func _formula_base(ammo_id: int, slot: int, prior_computed: float) -> flo
 			return 0.0
 		ID_DIZENG:
 			return 3.0 + float(slot) * 0.5
+		ID_WEIZHONG:
+			return 3.0 * (0.5 if slot <= 3 else 2.0)
 		ID_ZHONGSHEN:
 			return prior_computed * 0.5
 		_:

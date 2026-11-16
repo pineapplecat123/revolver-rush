@@ -969,7 +969,7 @@ func _sync_temp_arrays() -> void:
 
 
 func _fill_starter_bag(_extra_sin: int = 0) -> void:
-	## 开局 24 平庸 + 四种清算弹各 2 发。extra_sin 参数保留给旧调用。
+	## 开局 6 平庸 + 清算弹（起势/蓄力/递增/终审/尾重）各 2 发。extra_sin 参数保留给旧调用。
 	bag.clear()
 	bag_temp.clear()
 	bag_envy_copy.clear()
@@ -3180,8 +3180,30 @@ func volley_wait_scaled_sec() -> float:
 	return CombatState.volley_wait_before_next_sec() / volley_speed_mult()
 
 
+func _is_temp_copy_excluded(ammo_id: int) -> bool:
+	## 撤退弹不复制罪孽弹：编辑器标签或开局七罪 id 都算。
+	return DataRegistry.is_sin_ammo(ammo_id) or _is_opening_sin_id(ammo_id)
+
+
+func _temp_copy_candidate_ids(fired_ammo_id: int) -> Array[int]:
+	## 撤退弹可选子弹：弹仓里此刻仍装着的非空、非罪孽子弹，再加上刚打出的自己。
+	## 本轮已经打出去的前序子弹此时已出仓，不再列入。每个仓位一记，互不相同。
+	var pool: Array[int] = []
+	if magazine != null:
+		for sid in magazine.slots:
+			var aid: int = int(sid)
+			if aid == Magazine.EMPTY or aid < 0 or _is_temp_copy_excluded(aid):
+				continue
+			pool.append(aid)
+	if fired_ammo_id > 0 and not _is_temp_copy_excluded(fired_ammo_id):
+		pool.append(fired_ammo_id)
+	if pool.is_empty() and fired_ammo_id > 0:
+		pool.append(fired_ammo_id)
+	return pool
+
+
 func _apply_on_fire_effect(ammo_id: int) -> void:
-	## 数据驱动的「开火后」效果。temp_copies：从弹仓内随机抽已装弹（有放回）做一次性临时复制进背包。
+	## 数据驱动的「开火后」效果。temp_copies：从可选仓无放回抽最多 count 颗，做一次性临时复制进背包。
 	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
 	var raw = def.get("on_fire", null)
 	if raw == null or typeof(raw) != TYPE_DICTIONARY:
@@ -3189,20 +3211,22 @@ func _apply_on_fire_effect(ammo_id: int) -> void:
 	var spec: Dictionary = raw
 	if str(spec.get("kind", "")) != "temp_copies" or magazine == null:
 		return
-	var pool: Array[int] = []
-	for sid in magazine.slots:
-		var aid: int = int(sid)
-		if aid == Magazine.EMPTY or aid < 0 or DataRegistry.is_sin_ammo(aid):
-			continue
-		pool.append(aid)
+	var pool: Array[int] = _temp_copy_candidate_ids(ammo_id)
 	if pool.is_empty():
 		return
 	var made: Array[String] = []
+	var remain: Array[int] = pool.duplicate()
 	for _k in int(spec.get("count", 1)):
-		var pick: int = pool[rng.randi_range(0, pool.size() - 1)]
+		if remain.is_empty():
+			break
+		var idx: int = rng.randi_range(0, remain.size() - 1)
+		var pick: int = remain[idx]
+		remain.remove_at(idx)
 		_bag_append(pick, CombatConstants.FIRE_ONCE_TEMP, true)
 		made.append(_ammo_name(pick))
-	_log("  → %s：生成临时复制体 %s 进背包（持续1次开火）。" % [_ammo_name(ammo_id), "、".join(made)])
+	if made.is_empty():
+		return
+	_log("  → %s：生成临时复制体 %s 进背包（打出即毁）。" % [_ammo_name(ammo_id), "、".join(made)])
 	hooks.emit_hook(&"on_temp_copies", {"cs": self, "ammo_id": ammo_id, "copies": made.size()})
 	_emit()
 

@@ -102,21 +102,27 @@ func test_chetui_makes_two_fire_once_copies_in_bag() -> void:
 	cs.magazine.set_slot(2, QISHI)
 	cs.fire_tap(false)
 	assert_eq(cs.bag.size(), 2, "生成 2 颗")
+	var seen: Array[int] = []
 	for i in cs.bag.size():
-		assert_true(int(cs.bag[i]) in [WHITE, QISHI], "只复制弹仓内子弹")
+		var aid: int = int(cs.bag[i])
+		assert_true(aid in [CHETUI, WHITE, QISHI], "只复制弹仓内子弹（含自己）")
+		assert_true(aid not in seen, "两颗不能挑同一仓")
+		seen.append(aid)
 		assert_true(bool(cs.bag_envy_copy[i]), "一次性临时标记")
 		assert_eq(float(cs.bag_temp[i]), CombatConstants.FIRE_ONCE_TEMP)
 
 
-func test_chetui_with_empty_chamber_makes_nothing() -> void:
+func test_chetui_alone_copies_itself_once() -> void:
 	var cs := _ready_fight(44204)
 	cs.bag.clear()
 	cs.bag_temp.clear()
 	cs.bag_envy_copy.clear()
 	cs.magazine.set_slot(0, CHETUI)
 	cs.fire_tap(false)
-	for i in cs.bag.size():
-		assert_false(bool(cs.bag_envy_copy[i]), "不应有临时复制体")
+	assert_eq(cs.bag.size(), 1, "只有自己时可复制 1 颗")
+	assert_eq(int(cs.bag[0]), CHETUI)
+	assert_true(bool(cs.bag_envy_copy[0]), "一次性临时标记")
+	assert_eq(float(cs.bag_temp[0]), CombatConstants.FIRE_ONCE_TEMP)
 
 
 

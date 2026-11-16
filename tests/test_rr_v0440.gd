@@ -20,10 +20,10 @@ func test_changelog_still_has_0_4_40() -> void:
 func test_starter_bag_is_six_white_plus_clearing() -> void:
 	assert_eq(CombatConstants.STARTER_WHITE_COUNT, 6)
 	assert_eq(CombatConstants.STARTER_CLEARING_EACH, 2)
-	assert_eq(CombatConstants.STARTER_BAG_TOTAL, 14)
+	assert_eq(CombatConstants.STARTER_BAG_TOTAL, CombatConstants.STARTER_WHITE_COUNT + CombatConstants.STARTER_CLEARING_EACH * CombatConstants.starter_clearing_ids().size())
 	var cs := CombatState.new()
 	cs.start_rush(44001, FireResolver.ID_WRATH)
-	assert_eq(cs.bag.size(), 14)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	assert_eq(cs.total_ammo_count(WHITE), 6)
 	assert_eq(cs.total_ammo_count(QISHI), 2)
 	assert_eq(cs.total_ammo_count(XULI), 2)
