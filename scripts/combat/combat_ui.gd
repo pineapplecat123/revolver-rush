@@ -167,6 +167,7 @@ var _hand_scatter_multi: String = ""
 var _hand_scatter_positions: Array = []  # Vector2 top-left，与当前手序对齐
 var _hand_pos_by_uid: Dictionary = {}
 var _hand_scatter_dirty: bool = true
+var _hand_from_pour: bool = false  # 倒出落地后保持落点，不要整手重排
 var _dump_pouring: bool = false
 var _hand_layout_area: Vector2 = Vector2.ZERO
 var _hand_ball_px: float = 48.0
@@ -1512,6 +1513,7 @@ func _on_manual_load() -> void:
 		await _play_dump_pour()
 		return
 	_hand_scatter_dirty = true
+	_hand_from_pour = false
 	state.dump_to_hand()
 	_refresh()
 
@@ -4865,17 +4867,27 @@ func _bag_inventory_fingerprint(inv: Dictionary) -> String:
 
 
 func _refresh_hand_list() -> void:
-	## 刷新「手」区：子弹随机散落，不整齐排列。
+	## 刷新「手」区：子弹随机散落，不整齐排列。倒出落地的位置保持不变。
 	if hand_slots == null or state == null:
 		return
 	if hand_header_label != null:
 		hand_header_label.text = "手 · %d/%d" % [state.hand.size(), CombatConstants.HAND_SIZE]
+	state._sync_hand_arrays()
+	var prev_sig := _hand_scatter_sig
+	_ensure_hand_scatter_positions(state.hand.size())
+	var same: bool = prev_sig == _hand_scatter_sig and prev_sig != ""
+	if same and _hand_slot_panels.size() == state.hand.size():
+		var all_ok := true
+		for p in _hand_slot_panels:
+			if p == null or not is_instance_valid(p):
+				all_ok = false
+				break
+		if all_ok:
+			_layout_hand_scatter()
+			return
 	for c in hand_slots.get_children():
 		c.queue_free()
 	_hand_slot_panels.clear()
-	state._sync_hand_arrays()
-	_ensure_hand_scatter_positions(state.hand.size())
-	# 等一帧布局尺寸就绪后再摆位置；先建节点
 	for i in state.hand.size():
 		var panel := _make_hand_ball_panel(i, int(state.hand[i]))
 		hand_slots.add_child(panel)
@@ -4886,6 +4898,8 @@ func _refresh_hand_list() -> void:
 		hand_slots.gui_input.connect(_on_hand_area_gui_input)
 	if not hand_slots.resized.is_connected(_layout_hand_scatter):
 		hand_slots.resized.connect(_layout_hand_scatter)
+	# 已有落点时立刻摆上，避免等一帧闪到别的位置
+	_layout_hand_scatter()
 	call_deferred("_layout_hand_scatter")
 
 
@@ -5029,7 +5043,7 @@ func _layout_hand_scatter() -> void:
 	# 倒出（dirty）或这一手全是新子弹才整手重撒。
 	# 拖走一发 / 仓弹回到手：旧坐标不动。手区变小到装不下时才重排，避免画出界。
 	var overflow := false
-	if known > 0 and not _hand_scatter_dirty:
+	if known > 0 and not _hand_scatter_dirty and not _hand_from_pour:
 		for uid_k in uids:
 			if not _hand_pos_by_uid.has(uid_k):
 				continue
@@ -5038,7 +5052,7 @@ func _layout_hand_scatter() -> void:
 			if pp.x < -1.0 or pp.y < -1.0 or pp.x + box.x > area.x + 1.0 or pp.y + box.y > area.y + 1.0:
 				overflow = true
 				break
-	var full := _hand_scatter_dirty or known == 0 or overflow
+	var full := (_hand_scatter_dirty or known == 0 or overflow) and not _hand_from_pour
 	if full:
 		var seed_src := ""
 		for uid in uids:
@@ -7207,6 +7221,7 @@ func _play_dump_pour() -> void:
 	if not state.hand.is_empty():
 		state.return_hand_to_bag()
 		_hand_scatter_dirty = true
+		_hand_from_pour = false
 		_refresh()
 		await get_tree().create_timer(0.12).timeout
 	if not state.can_dump_to_hand() or state.bag.is_empty():
@@ -7288,12 +7303,12 @@ func _play_dump_pour() -> void:
 	var fallen: Array = []
 	if is_instance_valid(_bag_physics):
 		fallen = _bag_physics.take_fallen_balls()
-	_hand_scatter_dirty = true
 	if fallen.is_empty():
 		# 一发都没掉出就不要随机补抽，保持和画面一致
 		pass
 	else:
 		state.dump_to_hand_items(fallen)
+		_apply_fallen_hand_layout(fallen)
 	_refresh()
 	if is_instance_valid(_bag_physics):
 		_bag_physics.mouth_open = false
@@ -7306,6 +7321,32 @@ func _play_dump_pour() -> void:
 		_bag_physics.z_index = 0
 	_dump_pouring = false
 	_refresh()
+
+
+func _apply_fallen_hand_layout(fallen: Array) -> void:
+	## 把倒出落地的球心写成手区坐标，后续刷新不再重排。
+	if hand_slots == null or state == null:
+		return
+	state._sync_hand_arrays()
+	var h_use := 0.0
+	for rec in fallen:
+		h_use = maxf(h_use, float(rec.get("h", 0.0)))
+	if h_use < 8.0:
+		h_use = HAND_BALL_SIZE
+	# 让手区圆的视觉半径和落地时一致，避免换成控件时跳一下大小
+	_hand_ball_px = maxf(8.0, h_use / 0.92 - 2.0)
+	var psz: Vector2 = _hand_bullet_wh(_hand_ball_px)
+	var inv := hand_slots.get_global_transform().affine_inverse()
+	_hand_pos_by_uid.clear()
+	var n: int = mini(fallen.size(), state.hand.size())
+	for i in n:
+		var rec: Dictionary = fallen[i]
+		var world: Vector2 = rec.get("world_pos", Vector2.ZERO)
+		var local: Vector2 = inv * world
+		var uid: int = int(state.hand_uid[i]) if i < state.hand_uid.size() else i
+		_hand_pos_by_uid[uid] = local - psz * 0.5
+	_hand_scatter_dirty = false
+	_hand_from_pour = true
 
 
 func _pour_layer() -> Control:

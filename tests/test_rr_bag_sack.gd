@@ -181,3 +181,42 @@ func test_pour_tilts_negative_and_has_bob() -> void:
 	box.reset_pour_pose()
 	assert_eq(box.sack_tilt, 0.0)
 	assert_eq(box.sack_shift, Vector2.ZERO)
+
+
+func test_hand_keeps_pour_land_positions() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(3)
+	ui._fit_combat_viewport(Vector2(720, 1280))
+	ui.size = Vector2(720, 1280)
+	await wait_process_frames(2)
+	var st = ui.state
+	st.start_rush(4050)
+	st.dev_clear_bag()
+	var ids: Array = [40, 41, 42, 43, 44, 45]
+	for aid in ids:
+		st.sandbox_add_ammo(int(aid), 1, 0.0)
+	var slots: Control = ui.hand_slots
+	assert_not_null(slots)
+	var r: Rect2 = slots.get_global_rect()
+	assert_gt(r.size.x, 8.0)
+	var h := 48.0
+	var fallen: Array = []
+	for i in 6:
+		var world := Vector2(r.position.x + 36.0 + float(i) * 34.0, r.position.y + 46.0 + float(i % 2) * 30.0)
+		fallen.append({"id": ids[i], "temp": false, "envy": false, "h": h, "world_pos": world})
+	assert_eq(st.dump_to_hand_items(fallen), 6)
+	ui._apply_fallen_hand_layout(fallen)
+	ui._refresh()
+	ui._layout_hand_scatter()
+	await wait_process_frames(2)
+	# 再刷一次也不该改落点
+	ui._refresh()
+	ui._layout_hand_scatter()
+	assert_eq(ui._hand_slot_panels.size(), 6)
+	for i in 6:
+		var panel: Control = ui._hand_slot_panels[i]
+		assert_true(panel is HandBulletView)
+		var c: Vector2 = panel.global_position + panel.size * 0.5
+		var want: Vector2 = fallen[i]["world_pos"]
+		assert_almost_eq(c.x, want.x, 2.0, "hand view stays at the landed point")
+		assert_almost_eq(c.y, want.y, 2.0, "hand view stays at the landed point")
