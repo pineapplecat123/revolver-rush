@@ -831,7 +831,7 @@ func _draw_bag_bullet(pos: Vector2, h: float, ang: float, fill: Color) -> void:
 	if pts.size() < 3:
 		return
 	_ensure_bullet_unit()
-	# 按预计算三角形填充，避免带抽壳槽的凹多边形在某些角度三角化失败。
+	# 按预计算三角形填充，避免带抽壳槽的多边形在某些角度三角化失败。
 	if _bullet_tris.size() >= 3:
 		var tri := PackedVector2Array()
 		tri.resize(3)
