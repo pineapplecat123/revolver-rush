@@ -18,9 +18,10 @@ const ANIM_RESET := &"RESET"
 const IDLE_BPM := 105.0
 const IDLE_BEAT := 60.0 / IDLE_BPM
 const IDLE_GUN_LAG := 0.10
-## v0.4.51：头和持枪手臂跟身子同一套下点节奏，但晚一拍再跟上（二次运动）。
-const IDLE_HEAD_LAG := IDLE_BEAT
-const IDLE_ARM_LAG := IDLE_BEAT + 0.08
+## v0.4.52：头和持枪手臂稍晚跟上同一节奏；相对身子的位移要限制住，始终贴在身上。
+const IDLE_HEAD_LAG := 0.05
+const IDLE_ARM_LAG := 0.08
+const IDLE_FOLLOW_MAX := 1.2
 ## v0.4.49：上半身上下点头。四拍一圈，左右极端各快速下点一次；前后慢慢平移。
 const IDLE_SWAY_X := 3.2
 const IDLE_DIP_Y := 3.8
@@ -790,8 +791,11 @@ static func idle_torso_offset(t: float, length: float) -> Vector2:
 
 
 static func idle_follow_local(t: float, length: float, lag: float) -> Vector2:
-	## 世界路径跟身子同一套，只是晚 lag 秒；本地要减去当前身子位移。
-	return idle_torso_offset(t - lag, length) - idle_torso_offset(t, length)
+	## 同一节奏稍晚跟上；把相对身子的位移限制在 IDLE_FOLLOW_MAX 内，避免头或手臂离开连接处。
+	var d: Vector2 = idle_torso_offset(t - lag, length) - idle_torso_offset(t, length)
+	if d.length() > IDLE_FOLLOW_MAX:
+		return d.limit_length(IDLE_FOLLOW_MAX)
+	return d
 
 
 func _build_animations() -> void:
@@ -819,7 +823,7 @@ func _build_animations() -> void:
 	lib.add_animation(ANIM_RESET, reset)
 
 	# idle：105 BPM、四拍一圈。上半身慢慢前后移，移到两端时快速下点再抬起，脚下站住。
-	# 不是前后摇晃。头和持枪手臂按同一节奏，比身子晚一拍再下点。尾巴跟着拍子甩。
+	# 不是前后摇晃。头和持枪手臂按同一节奏稍晚跟上，且始终贴在身上。尾巴跟着拍子甩。
 	var beat := IDLE_BEAT
 	var idle_len := beat * 4.0
 	var torso0: Vector2 = REST["Torso"][0]
