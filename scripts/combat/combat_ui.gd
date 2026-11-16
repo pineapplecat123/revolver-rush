@@ -1285,6 +1285,8 @@ func _start_fire_ring_shimmer() -> void:
 	_fire_ring_shimmer = null
 	if _fire_ring_glow == null or not is_instance_valid(_fire_ring_glow):
 		return
+	if not is_inside_tree():
+		return
 	_fire_ring_glow.modulate = Color(1, 1, 1, 0.40)
 	_fire_ring_glow.scale = Vector2.ONE
 	# Gentle in-out pulse (alpha + tiny scale). Sequential steps loop cleanly.
@@ -1365,6 +1367,9 @@ func _enemy_glide_cells_per_sec() -> float:
 
 
 func _exit_tree() -> void:
+	if _fire_ring_shimmer != null and _fire_ring_shimmer.is_valid():
+		_fire_ring_shimmer.kill()
+	_fire_ring_shimmer = null
 	if _shop_open and is_inside_tree() and get_tree().paused:
 		get_tree().paused = false
 	if state != null:
