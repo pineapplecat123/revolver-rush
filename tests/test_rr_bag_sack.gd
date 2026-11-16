@@ -36,3 +36,44 @@ func test_dump_to_hand_still_moves_up_to_six() -> void:
 	assert_eq(cs.dump_to_hand(), 6)
 	assert_eq(cs.hand.size(), 6)
 	assert_eq(cs.bag.size(), 4)
+
+
+
+func test_hand_uses_bullet_shape_chambers_stay_round() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(2)
+	var st = ui.state
+	st.sandbox_add_ammo(40, 4)
+	st.sandbox_add_to_hand(40, 2)
+	st.magazine.set_slot(0, 40)
+	ui._refresh()
+	await wait_process_frames(2)
+	assert_false(ui._hand_slot_panels.is_empty())
+	var hand: Control = ui._hand_slot_panels[0]
+	assert_true(hand is HandBulletView)
+	assert_gt(hand.size.y, hand.size.x + 8.0)
+	var panel: Panel = ui._chamber_panels[0]
+	var stl := panel.get_theme_stylebox("panel") as StyleBoxFlat
+	assert_gt(stl.corner_radius_top_left, 20)
+
+
+func test_pour_tilts_negative_and_has_bob() -> void:
+	var box: BagPhysicsBox = BagPhysicsBox.new()
+	box.size = Vector2(320, 280)
+	add_child_autofree(box)
+	assert_eq(box.sack_tilt, 0.0)
+	assert_eq(box.sack_bob, 0.0)
+	box.sack_tilt = -PI * 0.62
+	box.sack_bob = -16.0
+	assert_lt(box.sack_tilt, 0.0)
+	assert_lt(box.sack_bob, 0.0)
+	box.sack_tilt = 0.0
+	box.sack_bob = 0.0
+	# 逻辑倒出仍是最多 6 发（动画在无头模式会跳过）
+	var cs := CombatState.new()
+	cs.start_rush(4050)
+	cs.dev_clear_bag()
+	for i in 10:
+		cs.sandbox_add_ammo(1, 1, 0.0)
+	assert_eq(cs.dump_to_hand(), 6)
+	assert_eq(cs.hand.size(), 6)

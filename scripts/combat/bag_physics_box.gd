@@ -77,6 +77,14 @@ var sack_tilt: float:
 		_sack_tilt = v
 		_dirty = true
 		queue_redraw()
+var _sack_bob: float = 0.0
+var sack_bob: float:
+	get:
+		return _sack_bob
+	set(v):
+		_sack_bob = v
+		_dirty = true
+		queue_redraw()
 var mouth_open: bool = false
 var _pour_marks: Dictionary = {}  # ball index or id-key -> true
 var _order_keys := PackedInt64Array()
@@ -663,7 +671,7 @@ func _draw() -> void:
 func _draw_box() -> void:
 	var sz := size
 	var pv: Vector2 = _sack_pivot()
-	draw_set_transform(pv, _sack_tilt, Vector2.ONE)
+	draw_set_transform(pv + Vector2(0.0, _sack_bob), _sack_tilt, Vector2.ONE)
 	_draw_sack(-pv, sz)
 	# balls
 	var tsec: float = Time.get_ticks_msec() * 0.001
@@ -1001,7 +1009,8 @@ func _sack_pivot() -> Vector2:
 
 func _sack_xform() -> Transform2D:
 	var pv := _sack_pivot()
-	return Transform2D(_sack_tilt, pv) * Transform2D(0.0, -pv)
+	# 倾角绕支点；sack_bob 是屏幕上下位移（倒出时快晃两下）
+	return Transform2D(_sack_tilt, pv + Vector2(0.0, _sack_bob)) * Transform2D(0.0, -pv)
 
 
 func sack_mouth_local() -> Vector2:
@@ -1218,6 +1227,51 @@ func _draw_bag_bullet_on(ci: CanvasItem, pos: Vector2, h: float, ang: float, fil
 				tri[2] = pts[c]
 				ci.draw_colored_polygon(tri, fill)
 			i += 3
+	var outline := PackedVector2Array(pts)
+	outline.append(pts[0])
+	ci.draw_polyline(outline, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
+
+
+static var _stamp_unit: PackedVector2Array = PackedVector2Array()
+static var _stamp_tris: PackedInt32Array = PackedInt32Array()
+
+
+static func stamp_bag_bullet(ci: CanvasItem, pos: Vector2, h: float, ang: float, fill: Color) -> void:
+	## 在任意 CanvasItem 上画一发袋内同一套外形（字由调用方自己画，且应正向）。
+	if ci == null or h <= 1.0:
+		return
+	if _stamp_unit.is_empty():
+		_stamp_unit = build_bag_bullet_unit()
+		_stamp_tris = Geometry2D.triangulate_polygon(_stamp_unit)
+		if _stamp_tris.is_empty() and _stamp_unit.size() >= 2:
+			var dedup := PackedVector2Array()
+			for i in _stamp_unit.size():
+				var q: Vector2 = _stamp_unit[i]
+				if dedup.is_empty() or q.distance_squared_to(dedup[dedup.size() - 1]) > 0.00000001:
+					dedup.append(q)
+			if dedup.size() >= 2 and dedup[0].distance_squared_to(dedup[dedup.size() - 1]) <= 0.00000001:
+				dedup.remove_at(dedup.size() - 1)
+			_stamp_unit = dedup
+			_stamp_tris = Geometry2D.triangulate_polygon(_stamp_unit)
+	var pts: PackedVector2Array = _xform_unit_poly(_stamp_unit, pos, h, ang)
+	if pts.size() < 3:
+		return
+	if _stamp_tris.size() >= 3:
+		var tri := PackedVector2Array()
+		tri.resize(3)
+		var i2 := 0
+		while i2 + 2 < _stamp_tris.size():
+			var a: int = int(_stamp_tris[i2])
+			var b: int = int(_stamp_tris[i2 + 1])
+			var c: int = int(_stamp_tris[i2 + 2])
+			if a >= 0 and b >= 0 and c >= 0 and a < pts.size() and b < pts.size() and c < pts.size():
+				tri[0] = pts[a]
+				tri[1] = pts[b]
+				tri[2] = pts[c]
+				ci.draw_colored_polygon(tri, fill)
+			i2 += 3
+	else:
+		ci.draw_colored_polygon(pts, fill)
 	var outline := PackedVector2Array(pts)
 	outline.append(pts[0])
 	ci.draw_polyline(outline, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
