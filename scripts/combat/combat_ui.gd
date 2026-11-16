@@ -154,7 +154,7 @@ var _ammo_detail_title: Label = null
 var _bag_inv_fingerprint: String = ""
 var _bag_physics: BagPhysicsBox = null
 ## feat/gameplay-redo：手区 + 拖拽装弹/调序
-var _hand_slot_panels: Array = []  # Panel
+var _hand_slot_panels: Array = []  # HandBulletView
 var _drag_kind: String = ""  # "hand" | "chamber"
 var _drag_index: int = -1
 var _drag_ghost: Control = null
@@ -167,6 +167,8 @@ var _hand_scatter_multi: String = ""
 var _hand_scatter_positions: Array = []  # Vector2 top-left，与当前手序对齐
 var _hand_pos_by_uid: Dictionary = {}
 var _hand_scatter_dirty: bool = true
+var _hand_from_pour: bool = false  # 倒出落地后保持落点，不要整手重排
+var _dump_pouring: bool = false
 var _hand_layout_area: Vector2 = Vector2.ZERO
 var _hand_ball_px: float = 48.0
 var _fit_settle_queued: bool = false
@@ -428,19 +430,8 @@ func _style_overlay_panels() -> void:
 		style.content_margin_top = 4
 		style.content_margin_bottom = 4
 		panel.add_theme_stylebox_override("panel", style)
-	# 右侧常驻袋：暖色描边更醒目
-	var bag_style := StyleBoxFlat.new()
-	bag_style.bg_color = Color(0.14, 0.12, 0.1, 0.94)
-	bag_style.set_border_width_all(2)
-	bag_style.border_color = Color(0.92, 0.72, 0.35, 0.95)
-	bag_style.set_corner_radius_all(10)
-	bag_style.content_margin_left = 2
-	bag_style.content_margin_right = 2
-	bag_style.content_margin_top = 2
-	bag_style.content_margin_bottom = 2
-	bag_panel.add_theme_stylebox_override("panel", bag_style)
-	if bag_header_label != null:
-		bag_header_label.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
+	# 袋区不要矩形框、底板或标题栏，只留皮袋画在场景底上。
+	_clear_bag_area_chrome()
 	# 竖屏三等分：战斗区 / 转轮+弹药袋 / 操作区 各一块底板
 	var thirds := {
 		"Margin/RootVBox/TopPanel": Color(0.1, 0.11, 0.15, 1.0),
@@ -461,6 +452,34 @@ func _style_overlay_panels() -> void:
 		sb.content_margin_top = 6
 		sb.content_margin_bottom = 6
 		sec.add_theme_stylebox_override("panel", sb)
+
+
+
+func _clear_bag_area_chrome() -> void:
+	if bag_panel == null:
+		return
+	bag_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())
+	bag_panel.clip_contents = false
+	var bag_scroll := get_node_or_null("Margin/RootVBox/MidPanel/MidSection/RightCol/BagPanel/BagMargin/BagVBox/BagScroll") as Control
+	if bag_scroll != null:
+		bag_scroll.clip_contents = false
+	if bag_list != null:
+		bag_list.clip_contents = false
+	var bag_margin: Control = bag_panel.get_node_or_null("BagMargin") as Control
+	if bag_margin != null:
+		bag_margin.clip_contents = false
+	var bag_vbox: Control = bag_panel.get_node_or_null("BagMargin/BagVBox") as Control
+	if bag_vbox != null:
+		bag_vbox.clip_contents = false
+	if bag_header_label != null:
+		bag_header_label.visible = false
+	var header: Control = get_node_or_null("%BagHeader") as Control
+	if header != null:
+		header.visible = false
+	if bag_list != null:
+		var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
+		if stats != null:
+			stats.visible = false
 
 
 func _style_corner_buttons() -> void:
@@ -529,16 +548,7 @@ func _ensure_top_labels_uncropped() -> void:
 			floor_h = 30.0
 		var min_h := maxf(lab.get_minimum_size().y, floor_h)
 		lab.custom_minimum_size = Vector2(lab.custom_minimum_size.x, min_h)
-	if bag_panel != null:
-		bag_panel.clip_contents = false
-		var style := bag_panel.get_theme_stylebox("panel")
-		if style is StyleBoxFlat:
-			var flat := (style as StyleBoxFlat).duplicate() as StyleBoxFlat
-			flat.content_margin_top = maxf(flat.content_margin_top, 12.0)
-			flat.content_margin_left = maxf(flat.content_margin_left, 8.0)
-			flat.content_margin_right = maxf(flat.content_margin_right, 8.0)
-			flat.content_margin_bottom = maxf(flat.content_margin_bottom, 6.0)
-			bag_panel.add_theme_stylebox_override("panel", flat)
+	_clear_bag_area_chrome()
 
 
 
@@ -570,10 +580,10 @@ func _ensure_combat_layout() -> void:
 		right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		right_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	if bag_panel != null:
-		bag_panel.custom_minimum_size = Vector2(280, 260)
+		bag_panel.custom_minimum_size = Vector2(350, 370)
 		bag_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bag_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
-		bag_panel.size_flags_stretch_ratio = 1.70
+		bag_panel.size_flags_stretch_ratio = 1.90
 	if hand_panel != null:
 		hand_panel.custom_minimum_size = Vector2(280, 150)
 		hand_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -1478,7 +1488,7 @@ func _input(event: InputEvent) -> void:
 
 
 func _busy() -> bool:
-	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying
+	return _firing or _rolling or _loading or _wheel_animating or _sin_pick_open or _wave_bannering or _reward_delaying or _dump_pouring
 
 
 func is_shooting() -> bool:
@@ -1499,7 +1509,11 @@ func _on_manual_load() -> void:
 		_refresh()
 		return
 	# 倒出是新的一手：其余路径（拖走一发、仓弹回到手）不得整手重撒。
+	if _should_play_dump_pour():
+		await _play_dump_pour()
+		return
 	_hand_scatter_dirty = true
+	_hand_from_pour = false
 	state.dump_to_hand()
 	_refresh()
 
@@ -4853,17 +4867,27 @@ func _bag_inventory_fingerprint(inv: Dictionary) -> String:
 
 
 func _refresh_hand_list() -> void:
-	## 刷新「手」区：子弹随机散落，不整齐排列。
+	## 刷新「手」区：子弹随机散落，不整齐排列。倒出落地的位置保持不变。
 	if hand_slots == null or state == null:
 		return
 	if hand_header_label != null:
 		hand_header_label.text = "手 · %d/%d" % [state.hand.size(), CombatConstants.HAND_SIZE]
+	state._sync_hand_arrays()
+	var prev_sig := _hand_scatter_sig
+	_ensure_hand_scatter_positions(state.hand.size())
+	var same: bool = prev_sig == _hand_scatter_sig and prev_sig != ""
+	if same and _hand_slot_panels.size() == state.hand.size():
+		var all_ok := true
+		for p in _hand_slot_panels:
+			if p == null or not is_instance_valid(p):
+				all_ok = false
+				break
+		if all_ok:
+			_layout_hand_scatter()
+			return
 	for c in hand_slots.get_children():
 		c.queue_free()
 	_hand_slot_panels.clear()
-	state._sync_hand_arrays()
-	_ensure_hand_scatter_positions(state.hand.size())
-	# 等一帧布局尺寸就绪后再摆位置；先建节点
 	for i in state.hand.size():
 		var panel := _make_hand_ball_panel(i, int(state.hand[i]))
 		hand_slots.add_child(panel)
@@ -4874,35 +4898,26 @@ func _refresh_hand_list() -> void:
 		hand_slots.gui_input.connect(_on_hand_area_gui_input)
 	if not hand_slots.resized.is_connected(_layout_hand_scatter):
 		hand_slots.resized.connect(_layout_hand_scatter)
+	# 已有落点时立刻摆上，避免等一帧闪到别的位置
+	_layout_hand_scatter()
 	call_deferred("_layout_hand_scatter")
 
 
-func _make_hand_ball_panel(hand_index: int, aid: int) -> Panel:
-	var panel := Panel.new()
+func _hand_bullet_wh(h: float) -> Vector2:
+	var hh := maxf(h, 8.0)
+	return Vector2(hh + 2.0, hh + 2.0)
+
+
+func _make_hand_ball_panel(hand_index: int, aid: int) -> Control:
+	## 手里用和袋里同一套外形、单色、字始终正向；弹仓仍是圆。
+	var panel := HandBulletView.new()
 	panel.name = "HandBall%d" % hand_index
-	panel.custom_minimum_size = Vector2(HAND_BALL_SIZE, HAND_BALL_SIZE)
-	panel.size = Vector2(HAND_BALL_SIZE, HAND_BALL_SIZE)
-	panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	var h: float = _hand_ball_px if _hand_ball_px > 8.0 else HAND_BALL_SIZE
+	var sz: Vector2 = _hand_bullet_wh(h)
+	panel.custom_minimum_size = sz
+	panel.size = sz
+	panel.setup(aid, _ammo_colors(aid), _ammo_bag_glyph(aid))
 	panel.gui_input.connect(_on_hand_slot_gui_input.bind(hand_index))
-	var style := StyleBoxFlat.new()
-	style.set_corner_radius_all(999)
-	style.set_border_width_all(2)
-	var colors := _ammo_colors(aid)
-	style.bg_color = colors["bg"]
-	style.border_color = Color(0.2, 0.2, 0.25)
-	panel.add_theme_stylebox_override("panel", style)
-	var info := Label.new()
-	info.name = "Info"
-	info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	info.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	info.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	info.add_theme_font_size_override("font_size", 12)
-	var def: Dictionary = DataRegistry.get_ammo(aid)
-	var short: String = str(def.get("name", aid)).replace("子弹", "").replace("弹药", "")
-	info.text = short
-	info.add_theme_color_override("font_color", colors["fg"])
-	panel.add_child(info)
 	return panel
 
 
@@ -4917,23 +4932,26 @@ func _ensure_hand_scatter_positions(n: int) -> void:
 	_hand_scatter_multi = _hand_scatter_sig
 
 
-func _hand_grid_capacity(avail: Vector2, cell: float) -> int:
-	if cell <= 0.5:
+func _hand_grid_capacity(avail: Vector2, h: float) -> int:
+	var wh := _hand_bullet_wh(h)
+	if wh.x <= 0.5 or wh.y <= 0.5:
 		return 9999
-	return int(floor(avail.x / cell)) * int(floor(avail.y / cell))
+	return int(floor(avail.x / wh.x)) * int(floor(avail.y / wh.y))
 
 
 func _largest_hand_ball(avail: Vector2, n: int) -> float:
+	var hi := minf(HAND_BALL_SIZE, avail.y)
+	hi = minf(hi, maxf(8.0, (avail.x - 2.0) / maxf(1.0, 0.1)))
 	if n <= 1:
-		return minf(HAND_BALL_SIZE, minf(avail.x, avail.y))
-	var hi := minf(HAND_BALL_SIZE, minf(avail.x, avail.y))
+		return hi
 	if _hand_grid_capacity(avail, hi) >= n:
 		return hi
 	var lo := 8.0
 	if _hand_grid_capacity(avail, lo) < n:
-		var cols: int = maxi(1, int(ceil(sqrt(float(n) * avail.x / maxf(avail.y, 1.0)))))
+		var cols: int = maxi(1, int(ceil(sqrt(float(n) * avail.x / maxf(avail.y * 1.0, 1.0)))))
 		var rows: int = maxi(1, int(ceil(float(n) / float(cols))))
-		return maxf(4.0, minf(avail.x / float(cols), avail.y / float(rows)))
+		var max_w: float = avail.x / float(cols)
+		return maxf(4.0, minf((max_w - 2.0) / maxf(1.0, 0.1), avail.y / float(rows)))
 	var best := lo
 	for _i in 18:
 		var mid := (lo + hi) * 0.5
@@ -4946,7 +4964,7 @@ func _largest_hand_ball(avail: Vector2, n: int) -> float:
 
 
 func _compute_hand_scatter(n: int, area: Vector2, seed: int) -> Dictionary:
-	## Shuffled cells plus jitter: random, inside the area, circles never overlap.
+	## Shuffled cells plus jitter: random, inside the area, slim shapes never overlap.
 	var pad := 3.0
 	var avail := Vector2(maxf(area.x - pad * 2.0, 4.0), maxf(area.y - pad * 2.0, 4.0))
 	if n <= 0:
@@ -4955,25 +4973,32 @@ func _compute_hand_scatter(n: int, area: Vector2, seed: int) -> Dictionary:
 	var ball := fitted
 	var guard := 0
 	while guard < 14 and ball > maxf(16.0, fitted * 0.72):
-		var cols0 := int(floor(avail.x / maxf(ball, 1.0)))
-		var rows0 := int(floor(avail.y / maxf(ball, 1.0)))
+		var wh0: Vector2 = _hand_bullet_wh(ball)
+		var cols0 := int(floor(avail.x / maxf(wh0.x, 1.0)))
+		var rows0 := int(floor(avail.y / maxf(wh0.y, 1.0)))
 		var spare := cols0 * rows0 - n
-		var slack_x := avail.x / float(maxi(cols0, 1)) - ball
-		var slack_y := avail.y / float(maxi(rows0, 1)) - ball
+		var slack_x := avail.x / float(maxi(cols0, 1)) - wh0.x
+		var slack_y := avail.y / float(maxi(rows0, 1)) - wh0.y
 		if spare >= 1 or (slack_x >= 6.0 and slack_y >= 4.0):
 			break
 		ball = maxf(16.0, ball - 2.0)
 		guard += 1
 	if _hand_grid_capacity(avail, ball) < n:
 		ball = fitted
-	var cols := maxi(1, int(floor(avail.x / maxf(ball, 1.0))))
-	var rows := maxi(1, int(floor(avail.y / maxf(ball, 1.0))))
+	var wh: Vector2 = _hand_bullet_wh(ball)
+	var cols := maxi(1, int(floor(avail.x / maxf(wh.x, 1.0))))
+	var rows := maxi(1, int(floor(avail.y / maxf(wh.y, 1.0))))
 	if cols * rows < n:
 		cols = n
 		rows = 1
 	var cell_w := avail.x / float(cols)
 	var cell_h := avail.y / float(rows)
-	ball = minf(ball, minf(cell_w, cell_h))
+	if cell_h < ball:
+		ball = cell_h
+		wh = _hand_bullet_wh(ball)
+	if wh.x > cell_w:
+		ball = maxf(8.0, (cell_w - 2.0) / maxf(1.0, 0.1))
+		wh = _hand_bullet_wh(ball)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(seed) & 0x7fffffff
 	var slots: Array[Vector2i] = []
@@ -4988,12 +5013,12 @@ func _compute_hand_scatter(n: int, area: Vector2, seed: int) -> Dictionary:
 	var pts: Array = []
 	for i in n:
 		var s: Vector2i = slots[i]
-		var slack_x2 := maxf(cell_w - ball, 0.0)
-		var slack_y2 := maxf(cell_h - ball, 0.0)
+		var slack_x2 := maxf(cell_w - wh.x, 0.0)
+		var slack_y2 := maxf(cell_h - wh.y, 0.0)
 		var x := pad + float(s.x) * cell_w + rng.randf() * slack_x2
 		var y := pad + float(s.y) * cell_h + rng.randf() * slack_y2
-		x = clampf(x, pad, pad + avail.x - ball)
-		y = clampf(y, pad, pad + avail.y - ball)
+		x = clampf(x, pad, pad + avail.x - wh.x)
+		y = clampf(y, pad, pad + avail.y - wh.y)
 		pts.append(Vector2(x, y))
 	return {"ball": ball, "points": pts}
 
@@ -5018,15 +5043,16 @@ func _layout_hand_scatter() -> void:
 	# 倒出（dirty）或这一手全是新子弹才整手重撒。
 	# 拖走一发 / 仓弹回到手：旧坐标不动。手区变小到装不下时才重排，避免画出界。
 	var overflow := false
-	if known > 0 and not _hand_scatter_dirty:
+	if known > 0 and not _hand_scatter_dirty and not _hand_from_pour:
 		for uid_k in uids:
 			if not _hand_pos_by_uid.has(uid_k):
 				continue
 			var pp: Vector2 = _hand_pos_by_uid[uid_k]
-			if pp.x < -1.0 or pp.y < -1.0 or pp.x + _hand_ball_px > area.x + 1.0 or pp.y + _hand_ball_px > area.y + 1.0:
+			var box: Vector2 = _hand_bullet_wh(_hand_ball_px)
+			if pp.x < -1.0 or pp.y < -1.0 or pp.x + box.x > area.x + 1.0 or pp.y + box.y > area.y + 1.0:
 				overflow = true
 				break
-	var full := _hand_scatter_dirty or known == 0 or overflow
+	var full := (_hand_scatter_dirty or known == 0 or overflow) and not _hand_from_pour
 	if full:
 		var seed_src := ""
 		for uid in uids:
@@ -5061,35 +5087,46 @@ func _layout_hand_scatter() -> void:
 		_hand_scatter_positions.append(pos)
 		if panel == null or not is_instance_valid(panel):
 			continue
-		panel.custom_minimum_size = Vector2(ball, ball)
-		panel.size = Vector2(ball, ball)
+		var psz: Vector2 = _hand_bullet_wh(ball)
+		panel.custom_minimum_size = psz
+		panel.size = psz
 		panel.position = pos
-		var info := panel.get_node_or_null("Info") as Label
-		if info != null:
-			info.add_theme_font_size_override("font_size", clampi(int(ball * 0.28), 9, 14))
+		if panel is HandBulletView:
+			panel.queue_redraw()
 
 
-func _hand_spot_overlaps(p: Vector2, taken: Array, ball: float) -> bool:
-	var min_d := ball - 0.75
+func _hand_spot_overlaps(p: Vector2, taken: Array, h: float) -> bool:
+	var wh := _hand_bullet_wh(h)
+	var gap := 0.75
+	var ra := Rect2(p, wh).grow(-gap * 0.5)
 	for q in taken:
-		if p.distance_to(q as Vector2) < min_d:
+		if ra.intersects(Rect2(q as Vector2, wh).grow(-gap * 0.5)):
 			return true
 	return false
 
 
-func _find_free_hand_spot(area: Vector2, ball: float, taken: Array, salt: int) -> Vector2:
+func _find_free_hand_spot(area: Vector2, h: float, taken: Array, salt: int) -> Vector2:
 	## 在现有子弹不动的前提下，找一个落在手区内且不重叠的左上角。
 	var pad := 3.0
 	var avail := Vector2(maxf(area.x - pad * 2.0, 4.0), maxf(area.y - pad * 2.0, 4.0))
-	var ball_use := minf(maxf(ball, 4.0), minf(avail.x, avail.y))
-	var cols := maxi(1, int(floor(avail.x / maxf(ball_use, 1.0))))
-	var rows := maxi(1, int(floor(avail.y / maxf(ball_use, 1.0))))
+	var h_use := minf(maxf(h, 4.0), avail.y)
+	var wh := _hand_bullet_wh(h_use)
+	if wh.x > avail.x:
+		h_use = maxf(8.0, (avail.x - 2.0) / maxf(1.0, 0.1))
+		wh = _hand_bullet_wh(h_use)
+	var cols := maxi(1, int(floor(avail.x / maxf(wh.x, 1.0))))
+	var rows := maxi(1, int(floor(avail.y / maxf(wh.y, 1.0))))
 	if cols * rows < taken.size() + 1:
 		cols = maxi(cols, int(ceil(sqrt(float(taken.size() + 1)))))
 		rows = maxi(1, int(ceil(float(taken.size() + 1) / float(cols))))
 	var cell_w := avail.x / float(cols)
 	var cell_h := avail.y / float(rows)
-	ball_use = minf(ball_use, minf(cell_w, cell_h))
+	if cell_h < h_use:
+		h_use = cell_h
+		wh = _hand_bullet_wh(h_use)
+	if wh.x > cell_w:
+		h_use = maxf(8.0, (cell_w - 2.0) / maxf(1.0, 0.1))
+		wh = _hand_bullet_wh(h_use)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = int(salt) & 0x7fffffff
 	var slots: Array[Vector2i] = []
@@ -5104,14 +5141,14 @@ func _find_free_hand_spot(area: Vector2, ball: float, taken: Array, salt: int) -
 	var best := Vector2(pad, pad)
 	var best_d := -1.0
 	for s in slots:
-		var slack_x := maxf(cell_w - ball_use, 0.0)
-		var slack_y := maxf(cell_h - ball_use, 0.0)
+		var slack_x := maxf(cell_w - wh.x, 0.0)
+		var slack_y := maxf(cell_h - wh.y, 0.0)
 		var x := pad + float(s.x) * cell_w + rng.randf() * slack_x
 		var y := pad + float(s.y) * cell_h + rng.randf() * slack_y
-		x = clampf(x, pad, maxf(pad, pad + avail.x - ball_use))
-		y = clampf(y, pad, maxf(pad, pad + avail.y - ball_use))
+		x = clampf(x, pad, maxf(pad, pad + avail.x - wh.x))
+		y = clampf(y, pad, maxf(pad, pad + avail.y - wh.y))
 		var p := Vector2(x, y)
-		if not _hand_spot_overlaps(p, taken, ball_use):
+		if not _hand_spot_overlaps(p, taken, h_use):
 			return p
 		var md := 99999.0
 		for q in taken:
@@ -5274,28 +5311,42 @@ func _drag_begin(kind: String, index: int, global_pos: Vector2) -> void:
 	_set_snap_highlight(-1)
 	if _drag_ghost != null and is_instance_valid(_drag_ghost):
 		_drag_ghost.queue_free()
-	_drag_ghost = Panel.new()
-	_drag_ghost.name = "DragGhost"
-	_drag_ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_drag_ghost.z_index = 200
-	_drag_ghost.custom_minimum_size = Vector2(44, 44)
-	_drag_ghost.size = Vector2(44, 44)
-	var style := StyleBoxFlat.new()
-	style.set_corner_radius_all(999)
-	style.set_border_width_all(2)
-	style.border_color = Color(1, 1, 1, 0.9)
 	var aid := Magazine.EMPTY
 	if kind == "hand" and index < state.hand.size():
 		aid = int(state.hand[index])
 	elif kind == "chamber":
 		aid = state.magazine.slots[index]
-	if aid != Magazine.EMPTY:
-		var colors := _ammo_colors(aid)
-		style.bg_color = colors["bg"]
+	if kind == "hand" and aid != Magazine.EMPTY:
+		# 从手里拖出：外形跟手里一样，弹仓拖影仍是圆。
+		var ghost := HandBulletView.new()
+		var h: float = _hand_ball_px if _hand_ball_px > 8.0 else 44.0
+		var sz: Vector2 = _hand_bullet_wh(h)
+		ghost.name = "DragGhost"
+		ghost.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ghost.z_index = 200
+		ghost.custom_minimum_size = sz
+		ghost.size = sz
+		ghost.setup(aid, _ammo_colors(aid), _ammo_bag_glyph(aid))
+		ghost.modulate = Color(1, 1, 1, 0.85)
+		_drag_ghost = ghost
 	else:
-		style.bg_color = Color(0.5, 0.5, 0.5)
-	_drag_ghost.add_theme_stylebox_override("panel", style)
-	_drag_ghost.modulate = Color(1, 1, 1, 0.85)
+		var ghost_p := Panel.new()
+		ghost_p.name = "DragGhost"
+		ghost_p.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		ghost_p.z_index = 200
+		ghost_p.custom_minimum_size = Vector2(44, 44)
+		ghost_p.size = Vector2(44, 44)
+		var style := StyleBoxFlat.new()
+		style.set_corner_radius_all(999)
+		style.set_border_width_all(2)
+		style.border_color = Color(1, 1, 1, 0.9)
+		if aid != Magazine.EMPTY:
+			style.bg_color = _ammo_colors(aid)["bg"]
+		else:
+			style.bg_color = Color(0.5, 0.5, 0.5)
+		ghost_p.add_theme_stylebox_override("panel", style)
+		ghost_p.modulate = Color(1, 1, 1, 0.85)
+		_drag_ghost = ghost_p
 	add_child(_drag_ghost)
 	_drag_move(global_pos)
 
@@ -5442,18 +5493,13 @@ func _refresh_bag_list() -> void:
 	var disc_n: int = state.discard.size()
 	var total_n: int = bag_n + mag_n + disc_n
 	if bag_header_label != null:
-		bag_header_label.text = "弹药袋 · 袋%d" % bag_n
+		bag_header_label.visible = false
+	_clear_bag_area_chrome()
 	# 结构只建一次：统计 + 物理盒 + 提示
 	if _bag_physics == null or not is_instance_valid(_bag_physics):
 		_bag_refreshing = true
 		for c in bag_list.get_children():
 			c.queue_free()
-		var title := Label.new()
-		title.name = "BagStatsLabel"
-		title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		title.add_theme_font_size_override("font_size", 12)
-		title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		bag_list.add_child(title)
 		_bag_physics = BagPhysicsBox.new()
 		_bag_physics.name = "BagPhysicsBox"
 		_bag_physics.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -5468,9 +5514,7 @@ func _refresh_bag_list() -> void:
 		_bag_refreshing = false
 	var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
 	if stats != null:
-		stats.text = "共%d · 袋%d · 膛%d · 弃%d · 金%d" % [
-			total_n, bag_n, mag_n, disc_n, state.gold
-		]
+		stats.visible = false
 	if fp == _bag_inv_fingerprint and _bag_physics != null and _bag_physics.ball_count() == bag_n:
 		return
 	_bag_inv_fingerprint = fp
@@ -7164,3 +7208,218 @@ func _paint_mag_chambers() -> void:
 			panel.modulate = Color(1, 1, 1, 0.48)
 		else:
 			panel.modulate = Color(1, 1, 1, 1)
+
+
+func _should_play_dump_pour() -> bool:
+	if DisplayServer.get_name() == "headless":
+		return false
+	return _bag_physics != null and is_instance_valid(_bag_physics) and is_inside_tree()
+
+
+func _play_dump_pour() -> void:
+	_dump_pouring = true
+	if not state.hand.is_empty():
+		state.return_hand_to_bag()
+		_hand_scatter_dirty = true
+		_hand_from_pour = false
+		_refresh()
+		await get_tree().create_timer(0.12).timeout
+	if not state.can_dump_to_hand() or state.bag.is_empty():
+		if state.bag.is_empty():
+			state.ensure_bag_refilled_if_empty()
+			_refresh()
+		if state.bag.is_empty():
+			_dump_pouring = false
+			_refresh()
+			return
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		_dump_pouring = false
+		state.dump_to_hand()
+		_refresh()
+		return
+	var n: int = mini(CombatConstants.HAND_SIZE, state.bag.size())
+	_clear_bag_area_chrome()
+	_bag_physics.clip_contents = false
+	_bag_physics.z_index = 40
+	_bag_physics.pour_cap = n
+	_bag_physics.mark_pour_balls(n)
+	var slots: Control = hand_slots if hand_slots != null else get_node_or_null("%HandSlots")
+	var hand_r: Rect2 = slots.get_global_rect() if slots != null else (
+		hand_panel.get_global_rect() if hand_panel != null else Rect2()
+	)
+	if hand_r.size.x > 4.0:
+		_bag_physics.set_hand_catcher_from_global(hand_r)
+		var mouth_target: Vector2 = Vector2(hand_r.get_center().x, hand_r.position.y - 22.0)
+		var sh: Vector2 = _bag_physics.aim_mouth_above_global(mouth_target)
+		var tw := create_tween()
+		tw.tween_property(_bag_physics, "sack_tilt", -PI, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		tw.parallel().tween_property(_bag_physics, "sack_shift", sh, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		await tw.finished
+	else:
+		var tw0 := create_tween()
+		tw0.tween_property(_bag_physics, "sack_tilt", -PI, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		await tw0.finished
+	if not is_instance_valid(_bag_physics):
+		_dump_pouring = false
+		return
+	_bag_physics.mouth_open = true
+	_bag_physics.impulse_pour_balls()
+	# 口朝下时上下快晃两下，让圆弹从袋口掉出。
+	_bag_physics.sack_bob = 0.0
+	var shake := create_tween()
+	shake.tween_property(_bag_physics, "sack_bob", -16.0, 0.07).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	shake.tween_property(_bag_physics, "sack_bob", 14.0, 0.07).set_trans(Tween.TRANS_SINE)
+	shake.tween_property(_bag_physics, "sack_bob", -16.0, 0.07).set_trans(Tween.TRANS_SINE)
+	shake.tween_property(_bag_physics, "sack_bob", 14.0, 0.07).set_trans(Tween.TRANS_SINE)
+	shake.tween_property(_bag_physics, "sack_bob", 0.0, 0.06).set_trans(Tween.TRANS_SINE)
+	var t0: int = Time.get_ticks_msec()
+	var shook2 := false
+	while Time.get_ticks_msec() - t0 < 4000 and is_instance_valid(_bag_physics):
+		if _bag_physics.fallen_count() >= n:
+			break
+		if not shook2 and Time.get_ticks_msec() - t0 > 1200 and _bag_physics.fallen_count() < n:
+			shook2 = true
+			_bag_physics.impulse_pour_balls()
+			var sh2 := create_tween()
+			sh2.tween_property(_bag_physics, "sack_bob", -14.0, 0.06).set_trans(Tween.TRANS_SINE)
+			sh2.tween_property(_bag_physics, "sack_bob", 12.0, 0.06).set_trans(Tween.TRANS_SINE)
+			sh2.tween_property(_bag_physics, "sack_bob", 0.0, 0.06).set_trans(Tween.TRANS_SINE)
+		await get_tree().process_frame
+	if is_instance_valid(_bag_physics):
+		_bag_physics.mouth_open = false
+	if shake.is_running():
+		await shake.finished
+	# 再等已出袋的弹落进手区
+	var t1: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t1 < 800 and is_instance_valid(_bag_physics):
+		var need := false
+		for b in _bag_physics._balls:
+			if bool(b.get("exited", false)) and not bool(b.get("landed", false)):
+				need = true
+				break
+		if not need:
+			break
+		await get_tree().process_frame
+	var fallen: Array = []
+	if is_instance_valid(_bag_physics):
+		fallen = _bag_physics.take_fallen_balls()
+	if fallen.is_empty():
+		# 一发都没掉出就不要随机补抽，保持和画面一致
+		pass
+	else:
+		state.dump_to_hand_items(fallen)
+		_apply_fallen_hand_layout(fallen)
+	_refresh()
+	if is_instance_valid(_bag_physics):
+		_bag_physics.mouth_open = false
+		_bag_physics.hand_catch_active = false
+		_bag_physics.sack_bob = 0.0
+		var tw2 := create_tween()
+		tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		tw2.parallel().tween_property(_bag_physics, "sack_shift", Vector2.ZERO, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+		await tw2.finished
+		_bag_physics.z_index = 0
+	_dump_pouring = false
+	_refresh()
+
+
+func _apply_fallen_hand_layout(fallen: Array) -> void:
+	## 把倒出落地的球心写成手区坐标，后续刷新不再重排。
+	if hand_slots == null or state == null:
+		return
+	state._sync_hand_arrays()
+	var h_use := 0.0
+	for rec in fallen:
+		h_use = maxf(h_use, float(rec.get("h", 0.0)))
+	if h_use < 8.0:
+		h_use = HAND_BALL_SIZE
+	# 让手区圆的视觉半径和落地时一致，避免换成控件时跳一下大小
+	_hand_ball_px = maxf(8.0, h_use / 0.92 - 2.0)
+	var psz: Vector2 = _hand_bullet_wh(_hand_ball_px)
+	var inv := hand_slots.get_global_transform().affine_inverse()
+	_hand_pos_by_uid.clear()
+	var n: int = mini(fallen.size(), state.hand.size())
+	for i in n:
+		var rec: Dictionary = fallen[i]
+		var world: Vector2 = rec.get("world_pos", Vector2.ZERO)
+		var local: Vector2 = inv * world
+		var uid: int = int(state.hand_uid[i]) if i < state.hand_uid.size() else i
+		_hand_pos_by_uid[uid] = local - psz * 0.5
+	_hand_scatter_dirty = false
+	_hand_from_pour = true
+
+
+func _pour_layer() -> Control:
+	var layer: Control = get_node_or_null("PourLayer") as Control
+	if layer == null:
+		layer = Control.new()
+		layer.name = "PourLayer"
+		layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+		add_child(layer)
+		layer.z_index = 80
+	return layer
+
+
+func _spawn_pour_flyer(rec: Dictionary) -> void:
+	var layer := _pour_layer()
+	var start: Vector2 = rec.get("world_pos", _bag_physics.sack_mouth_global() if _bag_physics else global_position)
+	var dest: Vector2 = _pour_hand_target(layer.get_child_count())
+	var flyer := Control.new()
+	flyer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	flyer.set_meta("rec", rec)
+	flyer.size = Vector2(48, 48)
+	layer.add_child(flyer)
+	flyer.global_position = start - flyer.size * 0.5
+	flyer.draw.connect(func():
+		if not is_instance_valid(flyer):
+			return
+		var r: Dictionary = flyer.get_meta("rec")
+		var h: float = float(r.get("h", 48.0))
+		var aid: int = int(r.get("id", 1))
+		var st: Dictionary = _ammo_colors(aid)
+		var mid: Vector2 = flyer.size * 0.5
+		# 飞向手里时外形与字都正向，落地后和手里一致。
+		BagPhysicsBox.stamp_bag_bullet(flyer, mid, h, 0.0, st.get("bg", Color(0.7, 0.7, 0.7)))
+		var font := get_theme_default_font()
+		var glyph: String = _ammo_bag_glyph(aid)
+		if font != null and glyph != "":
+			var fsize: int = BagPhysicsBox.label_font_size_for_height(h)
+			var ts := font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+			var off := Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
+			var fg: Color = st.get("fg", Color(0, 0, 0))
+			flyer.draw_string(font, mid + off, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+	)
+	var tw := create_tween()
+	var midp: Vector2 = (start + dest) * 0.5 + Vector2(randf_range(-40, 40), randf_range(20, 70))
+	tw.tween_method(func(t: float):
+		if not is_instance_valid(flyer):
+			return
+		var u := 1.0 - t
+		# 二次贝塞尔
+		var pos: Vector2 = start * u * u + midp * 2.0 * u * t + dest * t * t
+		flyer.global_position = pos - flyer.size * 0.5
+		flyer.queue_redraw()
+	, 0.0, 1.0, 0.36).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+	tw.tween_callback(func():
+		if is_instance_valid(flyer):
+			flyer.visible = false
+	)
+
+
+func _pour_hand_target(i: int) -> Vector2:
+	var slots: Control = hand_slots if hand_slots != null else get_node_or_null("%HandSlots")
+	if slots == null:
+		return global_position + Vector2(size.x * 0.75, size.y * 0.7)
+	var r: Rect2 = slots.get_global_rect()
+	var n: float = float(maxi(CombatConstants.HAND_SIZE - 1, 1))
+	var x: float = r.position.x + r.size.x * (0.12 + 0.76 * (float(i % CombatConstants.HAND_SIZE) / n))
+	var y: float = r.position.y + r.size.y * 0.5
+	return Vector2(x, y)
+
+
+func _clear_pour_flyers() -> void:
+	var layer := get_node_or_null("PourLayer")
+	if layer != null:
+		for c in layer.get_children():
+			c.queue_free()

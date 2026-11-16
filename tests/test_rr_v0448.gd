@@ -138,7 +138,7 @@ func test_bag_spawns_rotated_bullets_and_keeps_round_physics_and_clicks() -> voi
 
 
 func test_hand_and_chamber_stay_circles() -> void:
-	## 只换袋内外形；手和弹仓仍是圆。
+	## 弹仓仍是圆；手里改为和袋里同一套外形。
 	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
 	await wait_process_frames(2)
 	var st = ui.state
@@ -155,9 +155,9 @@ func test_hand_and_chamber_stay_circles() -> void:
 	var stl := panel.get_theme_stylebox("panel") as StyleBoxFlat
 	assert_not_null(stl)
 	assert_gt(stl.corner_radius_top_left, 20)
-	# 手里的球仍是圆面板
+	# 手里改为和袋里同一套外形，比圆更瘦高；弹仓仍是圆。
 	assert_false(ui._hand_slot_panels.is_empty())
-	var hand: Panel = ui._hand_slot_panels[0]
-	var hst := hand.get_theme_stylebox("panel") as StyleBoxFlat
-	assert_not_null(hst)
-	assert_gt(hst.corner_radius_top_left, 20)
+	var hand: Control = ui._hand_slot_panels[0]
+	assert_true(hand is HandBulletView)
+	assert_lt(absf(hand.size.y - hand.size.x), 10.0)
+	assert_false(hand.glyph.is_empty())

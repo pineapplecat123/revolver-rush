@@ -68,13 +68,46 @@ var _style_cache: Dictionary = {}  # aid -> {bg, fg, tier, glyph}
 var _text_off_cache: Dictionary = {}  # "glyph|fsize" -> Vector2(半宽, 基线偏移)
 var _dirty: bool = true
 var _animated_balls: int = 0  # 有动态特效（稀有度/罪孽）的球数；>0 则每帧重绘
+## 布袋：外形+袋口束带；子弹在袋内轮廓里。sack_tilt 为绕袋身下部的倾角（倒出时口朝下）。
+var _sack_tilt: float = 0.0
+var sack_tilt: float:
+	get:
+		return _sack_tilt
+	set(v):
+		_sack_tilt = v
+		_wake_all()
+		_dirty = true
+		queue_redraw()
+var _sack_bob: float = 0.0
+var sack_bob: float:
+	get:
+		return _sack_bob
+	set(v):
+		_sack_bob = v
+		_wake_all()
+		_dirty = true
+		queue_redraw()
+var _sack_shift: Vector2 = Vector2.ZERO
+var sack_shift: Vector2:
+	get:
+		return _sack_shift
+	set(v):
+		_sack_shift = v
+		_wake_all()
+		_dirty = true
+		queue_redraw()
+var mouth_open: bool = false
+var hand_catch_active: bool = false
+var hand_catch_rect: Rect2 = Rect2()  # 盒内坐标，可落到控件下方的手区
+var pour_cap: int = 6
+var _pour_marks: Dictionary = {}  # ball index or id-key -> true
 var _order_keys := PackedInt64Array()
 
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	clip_contents = true
-	custom_minimum_size = Vector2(200, 200)
+	clip_contents = false
+	custom_minimum_size = Vector2(350, 370)
 
 
 func ball_local_positions(ammo_id: int) -> Array:
@@ -180,23 +213,21 @@ func _update_radii_for_count() -> void:
 		sz = custom_minimum_size
 	var h: float = DEFAULT_HEIGHT
 	if n > 0 and sz.x >= 8.0 and sz.y >= 8.0:
-		var inner_w: float = maxf(sz.x - WALL_PAD * 2.0, 8.0)
-		var inner_h: float = maxf(sz.y - WALL_PAD * 2.0, 8.0)
+		var aabb := _sack_interior_aabb()
+		var inner_w: float = maxf(aabb.size.x, 8.0)
+		var inner_h: float = maxf(aabb.size.y, 8.0)
 		h = _fit_bullet_height(n, inner_w, inner_h)
-	var cr: float = h * BULLET_RIM_W * 0.5
-	var r: float = h * 0.5
+	var r: float = circle_radius_for_height(h)
 	var changed := false
 	for b in _balls:
 		if absf(float(b.get("h", 0.0)) - h) > 0.05:
 			changed = true
 		b["h"] = h
-		b["cr"] = cr
+		b["cr"] = r
 		b["r"] = r
+		b["ext"] = Vector2(r, r)
 	if changed:
-		for b2 in _balls:
-			b2["asleep"] = false
-			b2["freeze"] = 0
-		_clamp_balls_inside()
+		_wake_all()
 		_dirty = true
 
 
@@ -211,14 +242,28 @@ func _fit_bullet_height(n: int, inner_w: float, inner_h: float) -> float:
 	return maxf(MIN_HEIGHT, h)
 
 
-func _pack_capacity(inner_w: float, inner_h: float, h: float) -> int:
-	## 自由旋转时按外形外接圆排，保证横躺的弹也能装进盒内。
-	var cell: float = _bullet_circ_radius(h) * 2.0 + 2.0
+func _pack_capacity(_inner_w: float, _inner_h: float, h: float) -> int:
+	## 在圆形袋肚里按外接圆做六角格，只计落在椭圆内的格子。
+	var cell: float = _bullet_circ_radius(h) * 1.62 + 2.0
 	if cell < 4.0:
 		return 0
-	var cols: int = maxi(1, int(floor(inner_w / cell)))
-	var rows: int = maxi(1, int(floor(inner_h / (cell * 0.8660254))))  # 六边形更紧
-	return cols * rows
+	var sz := size if size.x >= 8.0 else custom_minimum_size
+	var c := Vector2(SACK_BELLY_C.x * sz.x, SACK_BELLY_C.y * sz.y)
+	var rx: float = SACK_BELLY_RX * sz.x - cell * 0.48
+	var ry: float = SACK_BELLY_RY * sz.y - cell * 0.48
+	if rx <= cell * 0.4 or ry <= cell * 0.4:
+		return 0
+	var cols: int = int(ceil((2.0 * rx) / cell)) + 2
+	var rows: int = int(ceil((2.0 * ry) / (cell * 0.8660254))) + 2
+	var n := 0
+	for r in rows:
+		for col in cols:
+			var x: float = c.x - rx + float(col) * cell + float(r % 2) * cell * 0.5
+			var y: float = c.y - ry + float(r) * cell * 0.8660254
+			var q := Vector2((x - c.x) / rx, (y - c.y) / ry)
+			if q.length_squared() <= 1.0:
+				n += 1
+	return n
 
 
 static func _bullet_aabb_half(h: float, tilt: float) -> Vector2:
@@ -237,12 +282,7 @@ static func _bullet_aabb_half(h: float, tilt: float) -> Vector2:
 
 
 static func _bullet_circ_radius(h: float) -> float:
-	## 外形中心到凸包最远点，自由旋转时的包围半径。
-	var hull: PackedVector2Array = build_bag_bullet_hull_unit()
-	var m := 0.0
-	for q in hull:
-		m = maxf(m, (q as Vector2).length())
-	return m * h
+	return circle_radius_for_height(h)
 
 
 func _refresh_world_hull(b: Dictionary) -> PackedVector2Array:
@@ -355,28 +395,26 @@ static func _point_in_poly(p: Vector2, pts: PackedVector2Array) -> bool:
 	return inside
 
 
+static func circle_radius_for_height(h: float) -> float:
+	return maxf(h * 0.48, 4.0)
+
+
 static func label_font_size_for_height(h: float) -> int:
-	var body_w: float = BULLET_BODY_W * h
-	return int(clampf(round(body_w * 0.88), 11.0, 22.0))
+	return int(clampf(round(h * 0.38), 11.0, 22.0))
 
 
 func _clamp_balls_inside() -> void:
-	var sz := size
-	if sz.x < 8.0 or sz.y < 8.0:
-		sz = custom_minimum_size
-	if sz.x < 8.0 or sz.y < 8.0:
+	if size.x < 8.0 and custom_minimum_size.x < 8.0:
 		return
-	var left := WALL_PAD
-	var right := sz.x - WALL_PAD
-	var top := WALL_PAD
-	var bottom := sz.y - WALL_PAD
 	for b in _balls:
+		if bool(b.get("exited", false)):
+			continue
 		var ext: Vector2 = _ball_ext(b)
 		var pos: Vector2 = b["pos"]
-		var nx: float = clampf(pos.x, left + ext.x, maxf(left + ext.x, right - ext.x))
-		var ny: float = clampf(pos.y, top + ext.y, maxf(top + ext.y, bottom - ext.y))
-		if absf(nx - pos.x) > 0.001 or absf(ny - pos.y) > 0.001:
-			b["pos"] = Vector2(nx, ny)
+		var c: float = maxf(ext.x, ext.y)
+		var np: Vector2 = _contain_point_in_sack(pos, c)
+		if np.distance_squared_to(pos) > 0.0001:
+			b["pos"] = np
 			_refresh_world_hull(b)
 
 
@@ -385,11 +423,14 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 	if sz.x < 8.0 or sz.y < 8.0:
 		sz = custom_minimum_size
 	var h: float = DEFAULT_HEIGHT
-	var cr: float = h * BULLET_RIM_W * 0.5
-	var r: float = h * 0.5
-	var x: float = sz.x * 0.5 + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
-	x = clampf(x, WALL_PAD + cr, maxf(WALL_PAD + cr, sz.x - WALL_PAD - cr))
-	var y: float = WALL_PAD + r + randf_range(0.0, 10.0)
+	var r: float = circle_radius_for_height(h)
+	var cr: float = r
+	var aabb := _sack_interior_aabb()
+	var mid: Vector2 = aabb.get_center()
+	var x: float = mid.x + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
+	var y: float = mid.y + randf_range(-SPAWN_JITTER, SPAWN_JITTER)
+	x = clampf(x, aabb.position.x + cr, maxf(aabb.position.x + cr, aabb.end.x - cr))
+	y = clampf(y, aabb.position.y + r, maxf(aabb.position.y + r, aabb.end.y - r))
 	_balls.append({
 		"id": ammo_id,
 		"temp": temporary or envy_copy,
@@ -477,7 +518,10 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = f
 
 func _physics_process(delta: float) -> void:
 	var _pt0: int = Time.get_ticks_usec()
-	_physics_step(delta)
+	var steps: int = 3 if (mouth_open or absf(_sack_tilt) > 0.2) else 1
+	var dt: float = delta / float(steps)
+	for _s in steps:
+		_physics_step(dt)
 	prof_phys_usec += Time.get_ticks_usec() - _pt0
 
 
@@ -487,10 +531,8 @@ func _physics_step(delta: float) -> void:
 	var sz := size
 	if sz.x < 4.0 or sz.y < 4.0:
 		return
-	var left := WALL_PAD
-	var right := sz.x - WALL_PAD
-	var top := WALL_PAD
-	var bottom := sz.y - WALL_PAD
+	# 重力始终朝屏幕下方；袋墙随袋子转动，子弹靠墙停下。
+	var gvec := Vector2(0.0, GRAVITY)
 	# integrate
 	# 墓碑锚点：幽灵尽量围着漂
 	var tomb_anchors: Array[Vector2] = []
@@ -499,7 +541,7 @@ func _physics_step(delta: float) -> void:
 			tomb_anchors.append(tb["pos"])
 	var any_awake := false
 	for b in _balls:
-		if bool(b["asleep"]):
+		if bool(b["asleep"]) and not mouth_open:
 			# 幽灵不睡死在底：轻推回漂浮
 			if int(b.get("id", -1)) == FireResolver.ID_GHOST:
 				b["asleep"] = false
@@ -511,7 +553,7 @@ func _physics_step(delta: float) -> void:
 		var aid: int = int(b.get("id", -1))
 		if aid == FireResolver.ID_GHOST:
 			# 低重力 + 轻正弦漂浮
-			vel.y += GRAVITY * 0.12 * delta
+			vel += gvec * 0.12 * delta
 			vel.y += sin(Time.get_ticks_msec() * 0.004 + float(b["pos"].x) * 0.05) * 18.0 * delta
 			if not tomb_anchors.is_empty():
 				var nearest: Vector2 = tomb_anchors[0] as Vector2
@@ -532,7 +574,7 @@ func _physics_step(delta: float) -> void:
 					vel += tangent * 26.0 * delta
 			vel *= 0.985
 		else:
-			vel.y += GRAVITY * delta
+			vel += gvec * delta
 			vel *= AIR_DRAG
 		var pos: Vector2 = b["pos"]
 		pos += vel * delta
@@ -543,30 +585,39 @@ func _physics_step(delta: float) -> void:
 		b["ang"] = ang
 		b["omega"] = omega
 		b["pos"] = pos
-		# 转角变了，清掉缓存的凸包
 		b.erase("hull")
 		b.erase("ext")
-		var ext: Vector2 = _ball_ext(b)
-		# walls：用外形凸包的包围盒，避免圆盘把细长子弹提前挡住
-		if pos.x - ext.x < left:
-			pos.x = left + ext.x
-			vel.x = -vel.x * RESTITUTION
-			vel.y *= WALL_FRICTION
-		elif pos.x + ext.x > right:
-			pos.x = right - ext.x
-			vel.x = -vel.x * RESTITUTION
-			vel.y *= WALL_FRICTION
-		if pos.y - ext.y < top:
-			pos.y = top + ext.y
-			vel.y = absf(vel.y) * RESTITUTION
-		elif pos.y + ext.y > bottom:
-			pos.y = bottom - ext.y
-			vel.y = -vel.y * RESTITUTION
-			vel.x *= WALL_FRICTION
+		var rad: float = float(b.get("r", circle_radius_for_height(float(b.get("h", DEFAULT_HEIGHT)))))
+		if bool(b.get("exited", false)):
+			if hand_catch_active:
+				var hh: Dictionary = _hand_wall_resolve(pos, rad, vel)
+				pos = hh["pos"]
+				vel = hh["vel"]
+				if bool(hh.get("landed", false)):
+					b["landed"] = true
+			b["pos"] = pos
+			b["vel"] = vel
+			continue
+		var can_exit: bool = mouth_open and int(_fallen_count()) < pour_cap
+		if can_exit and vel.length() < 80.0:
+			vel.y += 70.0
+			vel.x += randf_range(-25.0, 25.0)
+		var hit: Dictionary = _sack_wall_resolve(pos, rad, vel, can_exit)
+		pos = hit["pos"]
+		vel = hit["vel"]
+		if bool(hit.get("exited", false)):
+			b["exited"] = true
+			b["asleep"] = false
+			b["pouring"] = true
 		b["pos"] = pos
 		b["vel"] = vel
-		_refresh_world_hull(b)
-	# ball-ball：外形凸包 SAT；按 x 扫掠，超过两倍半高就停；两颗都睡着的跳过。
+		if bool(b.get("exited", false)) and hand_catch_active:
+			var hh2: Dictionary = _hand_wall_resolve(pos, rad, vel)
+			b["pos"] = hh2["pos"]
+			b["vel"] = hh2["vel"]
+			if bool(hh2.get("landed", false)):
+				b["landed"] = true
+	# 圆和圆互撞；按 x 扫掠。
 	# 重力每帧会给 awake 的弹 ~GRAVITY*delta 的向下速度，入睡阈值必须把这计入，否则堆里的弹永远睡不着。
 	var settle: float = GRAVITY * delta + SLEEP_SPEED
 	var n: int = _balls.size()
@@ -578,14 +629,14 @@ func _physics_step(delta: float) -> void:
 	_order_keys.resize(n)
 	for k in n:
 		var bk: Dictionary = _balls[k]
-		_world_hull(bk)
-		max_r = maxf(max_r, float(bk.get("h", DEFAULT_HEIGHT)) * 0.56)
+		max_r = maxf(max_r, float(bk.get("r", circle_radius_for_height(DEFAULT_HEIGHT))))
 		_order_keys[k] = (int(floor(float(bk["pos"].x) * 16.0)) + 1048576) * 4096 + k
 	_order_keys.sort()
 	for oi in n:
 		var i: int = int(_order_keys[oi] % 4096)
 		var a: Dictionary = _balls[i]
 		var ax: float = float(a["pos"].x)
+		var ar: float = float(a.get("r", 8.0))
 		for oj in range(oi + 1, n):
 			var j: int = int(_order_keys[oj] % 4096)
 			var c: Dictionary = _balls[j]
@@ -593,34 +644,28 @@ func _physics_step(delta: float) -> void:
 				break
 			if bool(a["asleep"]) and bool(c["asleep"]):
 				continue
-			# 轴对齐包围盒先剔除，避免细长弹在同一 x 窗口里对整列做 SAT
-			var ea: Vector2 = a["ext"] if a.get("ext") is Vector2 else _ball_ext(a)
-			var ec: Vector2 = c["ext"] if c.get("ext") is Vector2 else _ball_ext(c)
-			if absf(float(c["pos"].x) - ax) > ea.x + ec.x + 0.5:
+			# 一发已出袋、一发还在袋里时不要互撞，免得把袋内的弹带出去
+			if bool(a.get("exited", false)) != bool(c.get("exited", false)):
 				continue
-			if absf(float(c["pos"].y) - float(a["pos"].y)) > ea.y + ec.y + 0.5:
+			var cr: float = float(c.get("r", 8.0))
+			var offv: Vector2 = c["pos"] - a["pos"]
+			var dist: float = offv.length()
+			var min_d: float = ar + cr
+			if dist >= min_d or dist <= 0.00001:
 				continue
-			var ha: PackedVector2Array = _world_hull(a)
-			var hc: PackedVector2Array = _world_hull(c)
-			var mtv: Vector2 = _sat_mtv(ha, hc)
-			if mtv == Vector2.ZERO:
-				continue
-			var push: Vector2 = mtv * 0.5
-			a["pos"] = a["pos"] + push
-			c["pos"] = c["pos"] - push
-			_refresh_world_hull(a)
-			_refresh_world_hull(c)
+			var nrm: Vector2 = offv / dist
+			var overlap: float = min_d - dist
+			a["pos"] = a["pos"] - nrm * overlap * 0.5
+			c["pos"] = c["pos"] + nrm * overlap * 0.5
 			var va: Vector2 = a["vel"]
 			var vc: Vector2 = c["vel"]
-			# 被往上推的一方视为有支撑，清掉向下的重力速度，堆才能入睡。
-			if push.y < -0.001 and va.y > 0.0:
+			if nrm.y < -0.001 and va.y > 0.0:
 				va.y = 0.0
-			if push.y > 0.001 and vc.y > 0.0:
+			if nrm.y > 0.001 and vc.y > 0.0:
 				vc.y = 0.0
 			if va.length() >= settle or vc.length() >= settle:
-				var nrm: Vector2 = mtv.normalized()
 				var rel: float = (vc - va).dot(nrm)
-				if rel > 0.0:
+				if rel < 0.0:
 					var impulse: float = (1.0 + RESTITUTION) * rel * 0.5
 					va = va + nrm * impulse
 					vc = vc - nrm * impulse
@@ -635,9 +680,23 @@ func _physics_step(delta: float) -> void:
 				c["freeze"] = 0
 			a["vel"] = va
 			c["vel"] = vc
-	# 互撞可能把弹挤出墙外；睡着的弹下一帧不再做墙约束，所以这里再夹一次。
-	_clamp_balls_inside()
-	# 不靠底的弹在堆里速度也很低时同样入睡，避免 150 发时整袋每帧 SAT
+		# 互撞可能把弹挤出墙；再做一次贴墙（仍是碰撞，不是硬拉回去）。
+	for bw in _balls:
+		if bool(bw.get("exited", false)):
+			continue
+		var pr: float = float(bw.get("r", 8.0))
+		var can2: bool = mouth_open and int(_fallen_count()) < pour_cap
+		var hit2: Dictionary = _sack_wall_resolve(bw["pos"], pr, bw["vel"], can2)
+		bw["pos"] = hit2["pos"]
+		bw["vel"] = hit2["vel"]
+		if bool(hit2.get("exited", false)):
+			bw["exited"] = true
+			bw["asleep"] = false
+	# 开口倒出时不许入睡，免得卡在袋口把后面的挡住。
+	if mouth_open:
+		_wake_all()
+		return
+	# 不靠底的弹在堆里速度也很低时同样入睡，避免 150 发时整袋每帧互撞
 	for b2 in _balls:
 		if bool(b2["asleep"]):
 			continue
@@ -661,16 +720,12 @@ func _draw() -> void:
 
 func _draw_box() -> void:
 	var sz := size
-	# box interior
-	draw_rect(Rect2(Vector2.ZERO, sz), _bg_color, true)
-	# wooden rim
-	var t := WALL_PAD
-	draw_rect(Rect2(0, sz.y - t, sz.x, t), _floor_color, true)
-	draw_rect(Rect2(0, 0, t, sz.y), _wall_color, true)
-	draw_rect(Rect2(sz.x - t, 0, t, sz.y), _wall_color, true)
-	draw_rect(Rect2(0, 0, sz.x, t * 0.6), _wall_color, true)
-	draw_rect(Rect2(Vector2.ZERO, sz), _rim_color, false, 2.0)
-	# balls
+	var pv: Vector2 = _sack_pivot()
+	var origin: Vector2 = pv + _sack_shift + Vector2(0.0, _sack_bob)
+	draw_set_transform(origin, _sack_tilt, Vector2.ONE)
+	_draw_sack(-pv, sz)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# 子弹在盒坐标里（墙转、弹不跟着硬转），已出袋的仍画，好让它们掉进手区。
 	var tsec: float = Time.get_ticks_msec() * 0.001
 	var font := get_theme_default_font()
 	for b in _balls:
@@ -714,7 +769,7 @@ func _draw_box() -> void:
 				off = Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
 				_text_off_cache[tkey] = off
 			var text_pos: Vector2 = off as Vector2
-			draw_set_transform(pos, 0.0, Vector2.ONE)
+			draw_set_transform(Vector2(b["pos"]), 0.0, Vector2.ONE)
 			if tier == RarityFx.TIER_EPIC:
 				draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 4, RarityFx.epic_text_outline(tsec, seedv))
 			elif tier == RarityFx.TIER_SIN:
@@ -746,7 +801,7 @@ func _draw_box() -> void:
 	if _balls.is_empty():
 		var font2 := get_theme_default_font()
 		if font2 != null:
-			var empty := "（空盒）"
+			var empty := "（空袋）"
 			var es := font2.get_string_size(empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 14)
 			var ea := font2.get_ascent(14)
 			draw_string(
@@ -754,27 +809,23 @@ func _draw_box() -> void:
 				Vector2(sz.x * 0.5 - es.x * 0.5, sz.y * 0.5 - es.y * 0.5 + ea),
 				empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.65, 0.6, 0.5)
 			)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 func _ball_at_pointer(local_pos: Vector2 = Vector2.INF) -> Variant:
 	var p := local_pos
 	if p.x == INF:
 		p = get_local_mouse_position()
-	# 点选跟可见外形走（单位多边形，含抽壳槽往里收的部分）
-	_ensure_bullet_unit()
 	var best = null
 	var best_d := INF
 	for b in _balls:
-		var pos: Vector2 = b["pos"]
-		var h: float = maxf(float(b.get("h", DEFAULT_HEIGHT)), 0.001)
-		var ang: float = float(b.get("ang", 0.0))
-		var dp: Vector2 = p - pos
-		var cs := cos(-ang)
-		var sn := sin(-ang)
-		var local := Vector2(dp.x * cs - dp.y * sn, dp.x * sn + dp.y * cs) / h
-		if not _point_in_poly(local, _bullet_unit):
+		if bool(b.get("exited", false)):
 			continue
-		var d: float = dp.length()
+		var pos: Vector2 = b["pos"]
+		var rad: float = float(b.get("r", circle_radius_for_height(float(b.get("h", DEFAULT_HEIGHT)))))
+		var d: float = p.distance_to(pos)
+		if d > rad:
+			continue
 		if d < best_d:
 			best_d = d
 			best = b
@@ -818,7 +869,7 @@ func _gui_input(event: InputEvent) -> void:
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_RESIZED:
 		_update_radii_for_count()
-		_clamp_balls_inside()
+		_wake_all()
 		_dirty = true
 	elif what == NOTIFICATION_MOUSE_EXIT:
 		if _hover_ammo >= 0:
@@ -826,31 +877,10 @@ func _notification(what: int) -> void:
 			_hover_ammo = -1
 
 
-func _draw_bag_bullet(pos: Vector2, h: float, ang: float, fill: Color) -> void:
-	var pts := _bag_bullet_points(pos, h, ang)
-	if pts.size() < 3:
-		return
-	_ensure_bullet_unit()
-	# 按预计算三角形填充，避免带抽壳槽的多边形在某些角度三角化失败。
-	if _bullet_tris.size() >= 3:
-		var tri := PackedVector2Array()
-		tri.resize(3)
-		var i := 0
-		while i + 2 < _bullet_tris.size():
-			var a: int = int(_bullet_tris[i])
-			var b: int = int(_bullet_tris[i + 1])
-			var c: int = int(_bullet_tris[i + 2])
-			if a >= 0 and b >= 0 and c >= 0 and a < pts.size() and b < pts.size() and c < pts.size():
-				tri[0] = pts[a]
-				tri[1] = pts[b]
-				tri[2] = pts[c]
-				draw_colored_polygon(tri, fill)
-			i += 3
-	else:
-		draw_colored_polygon(_xform_unit_poly(_bullet_hull, pos, h, ang), fill)
-	var outline := PackedVector2Array(pts)
-	outline.append(pts[0])
-	draw_polyline(outline, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
+func _draw_bag_bullet(pos: Vector2, h: float, _ang: float, fill: Color) -> void:
+	var rad: float = circle_radius_for_height(h)
+	draw_circle(pos, rad, fill)
+	draw_arc(pos, rad, 0.0, TAU, 28, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
 
 
 func _bag_bullet_points(pos: Vector2, h: float, ang: float) -> PackedVector2Array:
@@ -992,3 +1022,366 @@ static func _convex_hull(src: PackedVector2Array) -> PackedVector2Array:
 	for q2 in upper:
 		out.append(q2)
 	return out
+
+func _sack_pivot() -> Vector2:
+	var sz := size if size.x >= 8.0 else custom_minimum_size
+	return Vector2(sz.x * 0.5, sz.y * 0.62)
+
+
+func _sack_xform() -> Transform2D:
+	var pv := _sack_pivot()
+	# 倾角绕支点；sack_bob 是屏幕上下位移（倒出时快晃两下）
+	return Transform2D(_sack_tilt, pv + _sack_shift + Vector2(0.0, _sack_bob)) * Transform2D(0.0, -pv)
+
+
+func sack_mouth_local() -> Vector2:
+	## 袋口中心（盒内坐标，未乘倾角）。
+	var sz := size if size.x >= 8.0 else custom_minimum_size
+	return Vector2(sz.x * 0.5, sz.y * 0.10)
+
+
+func sack_mouth_global() -> Vector2:
+	return get_global_transform() * (_sack_xform() * sack_mouth_local())
+
+
+const SACK_BELLY_C := Vector2(0.50, 0.58)
+const SACK_BELLY_RX := 0.47
+const SACK_BELLY_RY := 0.40
+const SACK_NECK_GAP := 0.42
+
+
+static func _ellipse_pts(c: Vector2, rx: float, ry: float, n: int, a0: float = 0.0, a1: float = TAU) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	if n < 3:
+		return pts
+	pts.resize(n)
+	for i in n:
+		var a: float = a0 + (a1 - a0) * float(i) / float(n)
+		pts[i] = Vector2(c.x + rx * cos(a), c.y + ry * sin(a))
+	return pts
+
+
+static func sack_interior_unit() -> PackedVector2Array:
+	## 袋身内轮廓：圆底加收口，顶部两边开口。单位盒 0-1，Y 向下。
+	var pts := PackedVector2Array()
+	var left_lip := Vector2(0.34, 0.10)
+	var right_lip := Vector2(0.66, 0.10)
+	var left_join := Vector2(0.34, 0.204)
+	var right_join := Vector2(0.66, 0.204)
+	pts.append(left_lip)
+	pts.append(left_join)
+	var c := SACK_BELLY_C
+	var a_left: float = atan2((left_join.y - c.y) / SACK_BELLY_RY, (left_join.x - c.x) / SACK_BELLY_RX)
+	var a_right: float = atan2((right_join.y - c.y) / SACK_BELLY_RY, (right_join.x - c.x) / SACK_BELLY_RX)
+	# 从左侧接头绕底走到右侧接头。
+	var span: float = a_right - TAU - a_left
+	var n := 20
+	for i in range(1, n):
+		var a: float = a_left + span * float(i) / float(n)
+		pts.append(Vector2(c.x + SACK_BELLY_RX * cos(a), c.y + SACK_BELLY_RY * sin(a)))
+	pts.append(right_join)
+	pts.append(right_lip)
+	return pts
+
+
+func _sack_interior_local() -> PackedVector2Array:
+	var sz := size if size.x >= 8.0 else custom_minimum_size
+	var pts := PackedVector2Array()
+	for q in sack_interior_unit():
+		pts.append(Vector2(q.x * sz.x, q.y * sz.y))
+	return pts
+
+
+func _sack_interior_aabb() -> Rect2:
+	var pts := _sack_interior_local()
+	if pts.is_empty():
+		return Rect2(Vector2.ZERO, size)
+	var mn := pts[0]
+	var mx := pts[0]
+	for p2 in pts:
+		mn = Vector2(minf(mn.x, p2.x), minf(mn.y, p2.y))
+		mx = Vector2(maxf(mx.x, p2.x), maxf(mx.y, p2.y))
+	return Rect2(mn, mx - mn)
+
+
+func _contain_point_in_sack(pos: Vector2, rad: float) -> Vector2:
+	var hit := _sack_wall_resolve(pos, rad, Vector2.ZERO, false)
+	return hit["pos"]
+
+
+func _sack_walls_world() -> PackedVector2Array:
+	var xf := _sack_xform()
+	var pts := PackedVector2Array()
+	for q in _sack_interior_local():
+		pts.append(xf * q)
+	return pts
+
+
+func _sack_poly_closed_world() -> PackedVector2Array:
+	return _sack_walls_world()
+
+
+func _wake_all() -> void:
+	for b in _balls:
+		b["asleep"] = false
+		b["freeze"] = 0
+
+
+func _fallen_count() -> int:
+	var n := 0
+	for b in _balls:
+		if bool(b.get("exited", false)):
+			n += 1
+	return n
+
+
+func sack_remaining_count() -> int:
+	return _balls.size() - _fallen_count()
+
+
+func fallen_count() -> int:
+	return _fallen_count()
+
+
+func _closest_on_segment(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
+	var e: Vector2 = b - a
+	var elen2: float = e.length_squared()
+	if elen2 < 0.0000001:
+		return a
+	var u: float = clampf((p - a).dot(e) / elen2, 0.0, 1.0)
+	return a + e * u
+
+
+func _sack_wall_resolve(pos: Vector2, rad: float, vel: Vector2, can_exit: bool) -> Dictionary:
+	var pts := _sack_walls_world()
+	var n: int = pts.size()
+	if n < 3:
+		return {"pos": pos, "vel": vel, "exited": false}
+	var c := Vector2.ZERO
+	for q in pts:
+		c += q
+	c /= float(n)
+	var closed := PackedVector2Array(pts)
+	var inside: bool = Geometry2D.is_point_in_polygon(pos, closed)
+	# 开口在第一点和最后一点之间
+	if can_exit and not inside:
+		var mouth_mid: Vector2 = (pts[0] + pts[n - 1]) * 0.5
+		# 出袋：已在轮廓外，并且比袋心更靠近袋口
+		if pos.distance_squared_to(mouth_mid) < pos.distance_squared_to(c) * 1.15:
+			return {"pos": pos, "vel": vel, "exited": true}
+	var seg_n: int = n if not can_exit else n - 1
+	for i in seg_n:
+		var a: Vector2 = pts[i]
+		var b: Vector2 = pts[(i + 1) % n]
+		var closest: Vector2 = _closest_on_segment(pos, a, b)
+		var delta: Vector2 = pos - closest
+		var dist: float = delta.length()
+		if dist >= rad and (inside or can_exit):
+			continue
+		var outward: Vector2
+		if dist > 0.00001:
+			outward = delta / dist
+		else:
+			var e: Vector2 = b - a
+			outward = Vector2(e.y, -e.x).normalized()
+		if outward.dot(closest - c) < 0.0:
+			outward = -outward
+		var inward: Vector2 = -outward
+		if inside:
+			# 在袋内碰上墙：往里推到刚好贴墙
+			if dist < rad:
+				pos += inward * (rad - dist)
+				var vn: float = vel.dot(outward)
+				if vn > 0.0:
+					vel -= outward * vn * (1.0 + RESTITUTION)
+					var tan := Vector2(-outward.y, outward.x)
+					vel -= tan * vel.dot(tan) * (1.0 - WALL_FRICTION)
+		elif not can_exit:
+			# 口已关闭却跑到袋外：沿最近墙推回
+			pos = closest + inward * (rad + 0.5)
+			var vn2: float = vel.dot(outward)
+			if vn2 > 0.0:
+				vel -= outward * vn2 * (1.0 + RESTITUTION)
+			inside = true
+	return {"pos": pos, "vel": vel, "exited": false}
+
+
+func _hand_wall_resolve(pos: Vector2, rad: float, vel: Vector2) -> Dictionary:
+	var r: Rect2 = hand_catch_rect
+	if r.size.x < 8.0 or r.size.y < 8.0:
+		return {"pos": pos, "vel": vel, "landed": false}
+	var left: float = r.position.x + rad
+	var right: float = r.end.x - rad
+	var floor_y: float = r.end.y - rad
+	var top: float = r.position.y
+	var landed := false
+	if pos.x < left and pos.y > top - rad:
+		pos.x = left
+		if vel.x < 0.0:
+			vel.x *= -RESTITUTION
+	elif pos.x > right and pos.y > top - rad:
+		pos.x = right
+		if vel.x > 0.0:
+			vel.x *= -RESTITUTION
+	if pos.y > floor_y and pos.x >= r.position.x - rad and pos.x <= r.end.x + rad:
+		pos.y = floor_y
+		if vel.y > 0.0:
+			vel.y *= -RESTITUTION * 0.4
+			vel.x *= WALL_FRICTION
+		if absf(vel.y) < 40.0:
+			landed = true
+	return {"pos": pos, "vel": vel, "landed": landed}
+
+
+func mark_pour_balls(count: int) -> int:
+	pour_cap = maxi(count, 0)
+	_wake_all()
+	for b in _balls:
+		b["exited"] = false
+		b["landed"] = false
+		b["pouring"] = false
+	return mini(count, _balls.size())
+
+
+func impulse_pour_balls() -> void:
+	_wake_all()
+	for b in _balls:
+		if bool(b.get("exited", false)):
+			continue
+		var vel: Vector2 = b["vel"]
+		vel.y += 90.0
+		vel.x += randf_range(-40.0, 40.0)
+		b["vel"] = vel
+
+
+func take_exited_pour_balls() -> Array:
+	var out: Array = []
+	var i := _balls.size() - 1
+	while i >= 0:
+		var b: Dictionary = _balls[i]
+		if bool(b.get("exited", false)):
+			var rec: Dictionary = b.duplicate()
+			rec["world_pos"] = get_global_transform() * Vector2(b["pos"])
+			out.append(rec)
+			_balls.remove_at(i)
+			_dirty = true
+		i -= 1
+	if not out.is_empty():
+		_update_radii_for_count()
+	return out
+
+
+func take_remaining_pour_balls() -> Array:
+	# 不再把还没掉出来的弹硬取走；只收已经离开袋口的。
+	return take_exited_pour_balls()
+
+
+func take_fallen_balls() -> Array:
+	return take_exited_pour_balls()
+
+
+func aim_mouth_above_global(target: Vector2) -> Vector2:
+	## 袋口朝下并移到目标点正上方。返回所用的位移（倾角为 -PI 时）。
+	var pv := _sack_pivot()
+	var xf := Transform2D(-PI, pv) * Transform2D(0.0, -pv)
+	var mouth_local: Vector2 = xf * sack_mouth_local()
+	var mouth_now: Vector2 = get_global_transform() * mouth_local
+	var inv := get_global_transform().affine_inverse()
+	return inv * target - inv * mouth_now
+
+
+func set_hand_catcher_from_global(rect: Rect2) -> void:
+	var inv := get_global_transform().affine_inverse()
+	var p0: Vector2 = inv * rect.position
+	var p1: Vector2 = inv * rect.end
+	var mn := Vector2(minf(p0.x, p1.x), minf(p0.y, p1.y))
+	var mx := Vector2(maxf(p0.x, p1.x), maxf(p0.y, p1.y))
+	hand_catch_rect = Rect2(mn, mx - mn)
+	hand_catch_active = true
+
+
+func reset_pour_pose() -> void:
+	mouth_open = false
+	hand_catch_active = false
+	hand_catch_rect = Rect2()
+	sack_tilt = 0.0
+	sack_bob = 0.0
+	sack_shift = Vector2.ZERO
+
+
+func _draw_sack(off: Vector2, sz: Vector2) -> void:
+	## off 是 -pivot，因为外层已按 pivot 旋转。扁平卡通皮袋：圆底、束带、口上翻边。
+	var leather := Color(0.83, 0.65, 0.43, 1.0)
+	var leather_d := Color(0.66, 0.46, 0.28, 0.55)
+	var leather_l := Color(0.91, 0.76, 0.56, 0.40)
+	var line := Color(0.45, 0.30, 0.16, 1.0)
+	var tie := Color(0.27, 0.15, 0.09, 1.0)
+	var mx := sz.x
+	var my := sz.y
+	var c: Vector2 = off + Vector2(SACK_BELLY_C.x * mx, SACK_BELLY_C.y * my)
+	var rx: float = (SACK_BELLY_RX + 0.025) * mx
+	var ry: float = (SACK_BELLY_RY + 0.025) * my
+	var belly: PackedVector2Array = _ellipse_pts(c, rx, ry, 28)
+	if belly.size() >= 3:
+		draw_colored_polygon(belly, leather)
+		var shade: PackedVector2Array = _ellipse_pts(c + Vector2(0.0, ry * 0.28), rx * 0.72, ry * 0.50, 18)
+		draw_colored_polygon(shade, leather_d)
+		var hi: PackedVector2Array = _ellipse_pts(c + Vector2(-rx * 0.18, -ry * 0.22), rx * 0.36, ry * 0.26, 14)
+		draw_colored_polygon(hi, leather_l)
+		var ol := PackedVector2Array(belly)
+		ol.append(belly[0])
+		draw_polyline(ol, line, 2.2, true)
+	# 短口连到束带
+	var neck := PackedVector2Array([
+		off + Vector2(0.40 * mx, 0.22 * my),
+		off + Vector2(0.36 * mx, 0.155 * my),
+		off + Vector2(0.64 * mx, 0.155 * my),
+		off + Vector2(0.60 * mx, 0.22 * my),
+	])
+	draw_colored_polygon(neck, leather)
+	# 口上翻边：三个相叠的圆角，扁平卡通
+	var flaps := [
+		[Vector2(0.38, 0.09), 0.10, 0.085],
+		[Vector2(0.50, 0.07), 0.15, 0.095],
+		[Vector2(0.62, 0.09), 0.10, 0.085],
+	]
+	for fl in flaps:
+		var fc: Vector2 = off + Vector2(float(fl[0].x) * mx, float(fl[0].y) * my)
+		var fp: PackedVector2Array = _ellipse_pts(fc, float(fl[1]) * mx, float(fl[2]) * my, 16)
+		draw_colored_polygon(fp, leather)
+		var fo := PackedVector2Array(fp)
+		fo.append(fp[0])
+		draw_polyline(fo, line, 1.6, true)
+	# 深色束带
+	var band_c: Vector2 = off + Vector2(0.50 * mx, 0.165 * my)
+	var band: PackedVector2Array = _ellipse_pts(band_c, 0.13 * mx, 0.028 * my, 16)
+	draw_colored_polygon(band, tie)
+	# 带子向右落下
+	draw_polyline(PackedVector2Array([
+		off + Vector2(0.60 * mx, 0.165 * my),
+		off + Vector2(0.72 * mx, 0.13 * my),
+		off + Vector2(0.80 * mx, 0.22 * my),
+	]), tie, maxf(3.0, mx * 0.016), true)
+	draw_polyline(PackedVector2Array([
+		off + Vector2(0.61 * mx, 0.175 * my),
+		off + Vector2(0.74 * mx, 0.16 * my),
+		off + Vector2(0.82 * mx, 0.28 * my),
+	]), tie, maxf(2.4, mx * 0.013), true)
+
+
+
+func _draw_bag_bullet_on(ci: CanvasItem, pos: Vector2, h: float, _ang: float, fill: Color) -> void:
+	if ci == null:
+		return
+	var rad: float = circle_radius_for_height(h)
+	ci.draw_circle(pos, rad, fill)
+	ci.draw_arc(pos, rad, 0.0, TAU, 28, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
+
+
+static func stamp_bag_bullet(ci: CanvasItem, pos: Vector2, h: float, _ang: float, fill: Color) -> void:
+	## 在任意 CanvasItem 上画一发圆形袋内弹（字由调用方自己画，且应正向）。
+	if ci == null or h <= 1.0:
+		return
+	var rad: float = circle_radius_for_height(h)
+	ci.draw_circle(pos, rad, fill)
+	ci.draw_arc(pos, rad, 0.0, TAU, 28, BULLET_OUTLINE, BULLET_OUTLINE_W, true)

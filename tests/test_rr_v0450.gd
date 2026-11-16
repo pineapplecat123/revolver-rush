@@ -11,7 +11,7 @@ func test_version_is_at_least_0_4_50() -> void:
 func test_bag_bullets_rotate_freely_and_label_stays_upright() -> void:
 	var src: String = (load("res://scripts/combat/bag_physics_box.gd") as GDScript).source_code
 	assert_false("BULLET_MAX_TILT" in src)
-	assert_true("draw_set_transform(pos, 0.0, Vector2.ONE)" in src, "label is drawn unrotated")
+	assert_true("draw_set_transform(Vector2(b[\"pos\"]), 0.0, Vector2.ONE)" in src, "label is drawn unrotated")
 	assert_false("draw_set_transform(pos, ang, Vector2.ONE)" in src)
 	var box: BagPhysicsBox = BagPhysicsBox.new()
 	box.size = Vector2(360, 300)
@@ -39,7 +39,7 @@ func test_bag_bullets_rotate_freely_and_label_stays_upright() -> void:
 	var pos: Vector2 = b0["pos"]
 	var h: float = float(b0["h"])
 	assert_not_null(solo._ball_at_pointer(pos))
-	assert_null(solo._ball_at_pointer(pos + Vector2(0.0, h * 0.45)), "hits follow the rotated outline")
+	assert_null(solo._ball_at_pointer(pos + Vector2(0.0, h * 0.75)), "hits follow the circle")
 	for _i in 8:
 		solo._physics_process(1.0 / 60.0)
 	assert_gt(absf(float(b0["ang"])), 0.8, "free rotation is not clamped to a small tilt")
