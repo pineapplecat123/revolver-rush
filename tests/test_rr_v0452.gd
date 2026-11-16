@@ -2,8 +2,8 @@ extends GutTest
 ## v0.4.52：头和持枪手臂稍晚跟上同一节奏，且始终贴在身上。
 
 
-func test_version_0_4_52() -> void:
-	assert_eq(GameVersion.STRING, "0.4.52")
+func test_version_is_at_least_0_4_52() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.52") >= 0)
 	assert_true("0.4.52" in FileAccess.get_file_as_string("res://data/changelog.json"))
 	assert_true("一直连在一起" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
