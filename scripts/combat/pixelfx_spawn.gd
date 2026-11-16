@@ -18,6 +18,11 @@ const HUE_JITTER := 0.035
 const BRIGHT_JITTER := 0.10
 
 static var _rng: RandomNumberGenerator
+static var _prewarmed: bool = false
+
+
+static func is_prewarmed() -> bool:
+	return _prewarmed
 
 
 static func rng() -> RandomNumberGenerator:
@@ -27,13 +32,23 @@ static func rng() -> RandomNumberGenerator:
 	return _rng
 
 
-static func prewarm() -> void:
+static func prewarm_seed(seed_v: int) -> void:
 	if not ResourceLoader.exists("res://addons/pixelfx/nodes/pixel_fx_2d.gd"):
 		return
+	var opts := {"seed": float(seed_v)}
+	PixelFx2D.prebake(MUZZLE_ID, opts)
+	PixelFx2D.prebake(HIT_SCRIPT, opts)
+
+
+static func prewarm() -> void:
+	if _prewarmed:
+		return
+	if not ResourceLoader.exists("res://addons/pixelfx/nodes/pixel_fx_2d.gd"):
+		_prewarmed = true
+		return
 	for s in VARIANT_SEEDS:
-		var opts := {"seed": float(s)}
-		PixelFx2D.prebake(MUZZLE_ID, opts)
-		PixelFx2D.prebake(HIT_SCRIPT, opts)
+		prewarm_seed(s)
+	_prewarmed = true
 
 
 static func play_muzzle(host: Node, world_pos: Vector2) -> Node:

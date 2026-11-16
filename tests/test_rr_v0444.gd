@@ -13,7 +13,7 @@ func before_each() -> void:
 
 
 func test_version_is_0_4_44() -> void:
-	assert_eq(GameVersion.STRING, "0.4.44")
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.44") >= 0)
 	assert_true("0.4.44" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 

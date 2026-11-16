@@ -2,8 +2,11 @@ extends Control
 ## 主菜单（竖屏）：rush!（唯一模式）/ 更新日志 / 清理缓存 / 退出；底部版本号。
 
 const CHANGELOG_PATH := "res://data/changelog.json"
+const COMBAT_SCENE := "res://scenes/combat.tscn"
 
 var _changelog_open := false
+var _combat_preload_started: bool = false
+var _warmup_done: bool = false
 
 
 ## v0.4.32/33 图鉴惯性滑动（方格上也能拖；轻点开详情）
@@ -30,6 +33,8 @@ func _ready() -> void:
 	_style_codex_panel()
 	_populate_codex()
 	_set_codex_open(false)
+	# v0.4.45：菜单先画出来，再在后台预热特效/着色器并预载战斗场景，避免点 rush! 卡死。
+	call_deferred("_begin_background_warmup")
 
 
 func _style_menu() -> void:
@@ -446,16 +451,74 @@ func _on_codex_detail_dimmer_gui_input(event: InputEvent) -> void:
 		_set_codex_detail_open(false)
 
 
+func is_warmup_done() -> bool:
+	return _warmup_done
+
+
+func _begin_background_warmup() -> void:
+	# 等两帧让主菜单先出现，再分摊预热，免得加载屏/首帧被拖住。
+	await get_tree().process_frame
+	await get_tree().process_frame
+	if not _combat_preload_started:
+		var err := ResourceLoader.load_threaded_request(COMBAT_SCENE)
+		_combat_preload_started = (err == OK)
+	await _warm_character_pixel_shader()
+	var PixelFxSpawn: GDScript = load("res://scripts/combat/pixelfx_spawn.gd")
+	if PixelFxSpawn != null and not PixelFxSpawn.is_prewarmed():
+		for s in PixelFxSpawn.VARIANT_SEEDS:
+			PixelFxSpawn.prewarm_seed(int(s))
+			await get_tree().process_frame
+		# 若循环中被别的路径整包预热过，也记一下
+		if not PixelFxSpawn.is_prewarmed():
+			PixelFxSpawn.prewarm()
+	_warmup_done = true
+
+
+func _warm_character_pixel_shader() -> void:
+	var host := Node2D.new()
+	host.name = "ShaderWarmup"
+	host.visible = false
+	add_child(host)
+	var CharacterPixel: GDScript = load("res://scripts/combat/character_pixel.gd")
+	if CharacterPixel != null:
+		CharacterPixel.attach(host, Node2D.new())
+	await get_tree().process_frame
+	host.queue_free()
+
+
+func _take_combat_scene() -> PackedScene:
+	if _combat_preload_started:
+		var st := ResourceLoader.load_threaded_get_status(COMBAT_SCENE)
+		while st == ResourceLoader.THREAD_LOAD_IN_PROGRESS:
+			await get_tree().process_frame
+			st = ResourceLoader.load_threaded_get_status(COMBAT_SCENE)
+		if st == ResourceLoader.THREAD_LOAD_LOADED:
+			return ResourceLoader.load_threaded_get(COMBAT_SCENE) as PackedScene
+	return load(COMBAT_SCENE) as PackedScene
+
+
+func _enter_combat() -> void:
+	var PixelFxSpawn: GDScript = load("res://scripts/combat/pixelfx_spawn.gd")
+	if PixelFxSpawn != null and not PixelFxSpawn.is_prewarmed():
+		PixelFxSpawn.prewarm()
+		_warmup_done = true
+	var packed: PackedScene = await _take_combat_scene()
+	if packed != null:
+		get_tree().change_scene_to_packed(packed)
+	else:
+		get_tree().change_scene_to_file(COMBAT_SCENE)
+
+
 func _on_start_pressed() -> void:
 	## rush!：直接进战斗（先选罪孽）。
 	CombatState.boot_sandbox = false
-	get_tree().change_scene_to_file("res://scenes/combat.tscn")
+	await _enter_combat()
 
 
 func _on_sandbox_pressed() -> void:
 	## 沙盒：进战斗后跳过罪孽三选，开沙盒面板。
 	CombatState.boot_sandbox = true
-	get_tree().change_scene_to_file("res://scenes/combat.tscn")
+	await _enter_combat()
 
 
 func _on_changelog_pressed() -> void:

@@ -86,6 +86,9 @@ jobs:
           mv index.js "index.${HASH}.js"
           mv index.wasm "index.${HASH}.wasm"
           mv index.pck "index.${HASH}.pck"
+          for w in audio.worklet.js audio.position.worklet.js; do
+            if [ -f "index.$w" ]; then cp "index.$w" "index.${HASH}.$w"; fi
+          done
           sed -i "s/index\.wasm/index.${HASH}.wasm/g; s/index\.pck/index.${HASH}.pck/g" "index.${HASH}.js"
           sed -i "s/index\.js/index.${HASH}.js/g; s/\"executable\":\"index\"/\"executable\":\"index.${HASH}\"/g; s/index\.pck/index.${HASH}.pck/g; s/index\.wasm/index.${HASH}.wasm/g" index.html
           python3 "$GITHUB_WORKSPACE/main-src/tools/inject_web_clear_cache.py" index.html
@@ -106,6 +109,9 @@ jobs:
           mv index.js "index.${HASH}.js"
           mv index.wasm "index.${HASH}.wasm"
           mv index.pck "index.${HASH}.pck"
+          for w in audio.worklet.js audio.position.worklet.js; do
+            if [ -f "index.$w" ]; then cp "index.$w" "index.${HASH}.$w"; fi
+          done
           sed -i "s/index\.wasm/index.${HASH}.wasm/g; s/index\.pck/index.${HASH}.pck/g" "index.${HASH}.js"
           sed -i "s/index\.js/index.${HASH}.js/g; s/\"executable\":\"index\"/\"executable\":\"index.${HASH}\"/g; s/index\.pck/index.${HASH}.pck/g; s/index\.wasm/index.${HASH}.wasm/g" index.html
           # Subfolder base so Godot asset paths resolve under /revolver-rush/redo/

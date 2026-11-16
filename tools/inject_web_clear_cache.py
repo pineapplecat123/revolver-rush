@@ -100,6 +100,32 @@ def inject(html_path: Path) -> bool:
     return MARKER in html_path.read_text(encoding="utf-8")
 
 
+
+def publish_hashed_audio_worklets(html_path: Path) -> None:
+    """After the export is renamed to index.<hash>.js, Godot locates audio
+    worklets as index.<hash>.audio.worklet.js. Copy the unhashed files so
+    those requests are not 404 (can stall audio init on some mobile browsers).
+    """
+    import shutil
+
+    folder = html_path.resolve().parent
+    hashes: list[str] = []
+    for child in folder.iterdir():
+        m = re.fullmatch(r"index\.([0-9a-fA-F]+)\.js", child.name)
+        if m:
+            hashes.append(m.group(1))
+    if not hashes:
+        return
+    for h in hashes:
+        for suffix in ("audio.worklet.js", "audio.position.worklet.js"):
+            src = folder / f"index.{suffix}"
+            dst = folder / f"index.{h}.{suffix}"
+            if not src.is_file():
+                continue
+            shutil.copy2(src, dst)
+            print(f"OK: copied audio worklet to {dst.name}")
+
+
 def publish_companion(html_path: Path) -> None:
     """Pages hook: the redo export calls this script from feat/gameplay-redo, so the
     bullet editor (companion/bullet-editor, ignored by Godot) is copied next to the
@@ -127,6 +153,7 @@ def main() -> int:
     ok = inject(args.html)
     print(f"{'OK' if ok else 'FAIL'}: injected clear-cache into {args.html}")
     publish_companion(args.html)
+    publish_hashed_audio_worklets(args.html)
     return 0 if ok else 2
 
 
