@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-18T17:21:27+08:00",
+  "updated_at": "2026-11-18T17:21:36+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -35,16 +35,16 @@
     },
     {
       "id": "b20261113-140323-hdjn",
-      "name": "递增弹",
+      "name": "伤害递增弹",
       "type": "中间",
       "damage": "3",
       "rarity": "",
       "school": "清算",
       "effect": "在弹夹槽位越靠后伤害越高，计算公式为伤害=2+（槽位×0.75），再四舍五入。例如第6格就是2+(6×0.75)=6.5，四舍五入为7。槽位按本轮连射开火顺序计算，空仓也占一格。",
       "notes": "",
-      "in_game": true,
+      "in_game": false,
       "created_at": "2026-11-13T14:03:32+08:00",
-      "updated_at": "2026-11-18T14:13:46+08:00",
+      "updated_at": "2026-11-18T17:21:36+08:00",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38"
     },
