@@ -41,15 +41,15 @@ func test_ammo_defs_and_tag_colors() -> void:
 
 
 func test_qishi_additive_stacking() -> void:
-	# 起势, 起势, 平庸, 平庸 → 平庸各 ×1.20
+	# 起势, 起势, 平庸, 平庸 → 平庸各 ×2.0
 	var d: Array[float] = FireResolver.compute_volley_damages([QISHI, QISHI, WHITE, WHITE])
 	assert_almost_eq(d[0], 0.0, 0.0001)
 	assert_almost_eq(d[1], 0.0, 0.0001)
-	assert_almost_eq(d[2], 3.0 * 1.2, 0.0001)
-	assert_almost_eq(d[3], 3.0 * 1.2, 0.0001)
-	# 单颗起势：+10%
+	assert_almost_eq(d[2], 3.0 * 2.0, 0.0001)
+	assert_almost_eq(d[3], 3.0 * 2.0, 0.0001)
+	# 单颗起势：+50%
 	var one: Array[float] = FireResolver.compute_volley_damages([QISHI, WHITE])
-	assert_almost_eq(one[1], 3.3, 0.0001)
+	assert_almost_eq(one[1], 4.5, 0.0001)
 
 
 func test_xuli_chain_2_25() -> void:
@@ -61,41 +61,41 @@ func test_xuli_chain_2_25() -> void:
 	# 空仓不消耗蓄力
 	var with_empty: Array[float] = FireResolver.compute_volley_damages([XULI, EMPTY, EMPTY, WHITE])
 	assert_almost_eq(with_empty[3], 4.5, 0.0001)
-	# v0.4.38：开始弹互不影响，蓄力穿过起势落到平庸（×1.5×1.1）
+	# v0.4.38：开始弹互不影响，蓄力穿过起势落到平庸（×1.5×1.5）
 	var pass_through: Array[float] = FireResolver.compute_volley_damages([XULI, QISHI, WHITE])
 	assert_almost_eq(pass_through[1], 0.0, 0.0001)
-	assert_almost_eq(pass_through[2], 3.0 * 1.5 * 1.1, 0.0001, "蓄力穿过起势，平庸吃 ×1.5×1.1")
+	assert_almost_eq(pass_through[2], 3.0 * 1.5 * 1.5, 0.0001, "蓄力穿过起势，平庸吃 ×1.5×1.5")
 
 
 func test_dizeng_slot_counts_empty_chambers() -> void:
-	# 第 1 格：3+0.5=3.5；隔 4 个空仓后第 6 格：3+3=6
+	# 第 1 格：2+0.75=2.75；隔 4 个空仓后第 6 格：2+4.5=6.5
 	var d: Array[float] = FireResolver.compute_volley_damages([
 		DIZENG, EMPTY, EMPTY, EMPTY, EMPTY, DIZENG
 	])
-	assert_almost_eq(d[0], 3.5, 0.0001)
+	assert_almost_eq(d[0], 2.75, 0.0001)
 	assert_almost_eq(d[1], 0.0, 0.0001)
-	assert_almost_eq(d[5], 6.0, 0.0001)
+	assert_almost_eq(d[5], 6.5, 0.0001)
 	# 只打第 6 位
 	var only6: Array[float] = FireResolver.compute_volley_damages([
 		EMPTY, EMPTY, EMPTY, EMPTY, EMPTY, DIZENG
 	])
-	assert_almost_eq(only6[5], 6.0, 0.0001)
+	assert_almost_eq(only6[5], 6.5, 0.0001)
 
 
 func test_zhongshen_half_of_prior_including_buffs_and_overkill() -> void:
 	# 平庸 3 + 平庸 3，终审 = 3
 	var plain: Array[float] = FireResolver.compute_volley_damages([WHITE, WHITE, ZHONGSHEN])
 	assert_almost_eq(plain[2], 3.0, 0.0001)
-	# 起势后两发平庸各 3.3（含加成，与敌人 HP 无关）；终审基础 3.3，再吃起势 ×1.1 = 3.63
+	# 起势后两发平庸各 4.5（含加成，与敌人 HP 无关）；终审基础 4.5，再吃起势 ×1.5 = 6.75
 	var buffed: Array[float] = FireResolver.compute_volley_damages([QISHI, WHITE, WHITE, ZHONGSHEN])
-	assert_almost_eq(buffed[1], 3.3, 0.0001)
-	assert_almost_eq(buffed[2], 3.3, 0.0001)
-	assert_almost_eq(buffed[3], 3.63, 0.0001)
-	# 终审自己也吃起势与蓄力：先前只有一发平庸 3，终审基础 1.5，×1.1×1.5
+	assert_almost_eq(buffed[1], 4.5, 0.0001)
+	assert_almost_eq(buffed[2], 4.5, 0.0001)
+	assert_almost_eq(buffed[3], 6.75, 0.0001)
+	# 终审自己也吃起势与蓄力：先前只有一发平庸 3，终审基础 1.5，×1.5×1.5
 	var on_zhong: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE, ZHONGSHEN])
-	# 平庸：3 * 1.1 * 1.5 = 4.95；终审基础 4.95/2，×1.1（一颗起势）且蓄力已消耗
-	assert_almost_eq(on_zhong[2], 4.95, 0.0001)
-	assert_almost_eq(on_zhong[3], 2.475 * 1.1, 0.0001)
+	# 平庸：3 * 1.5 * 1.5 = 6.75；终审基础 6.75/2，×1.5（一颗起势）且蓄力已消耗
+	assert_almost_eq(on_zhong[2], 6.75, 0.0001)
+	assert_almost_eq(on_zhong[3], 3.375 * 1.5, 0.0001)
 	# 蓄力直接接到终审
 	var xuli_z: Array[float] = FireResolver.compute_volley_damages([WHITE, XULI, ZHONGSHEN])
 	# 终审基础 3/2=1.5，×1.5 蓄力 = 2.25
@@ -107,11 +107,11 @@ func test_buffs_reset_each_volley() -> void:
 	mag.set_slot(0, QISHI)
 	mag.set_slot(1, WHITE)
 	var first: Array[float] = FireResolver.compute_volley_damages(mag.volley_sequence())
-	assert_almost_eq(first[1], 3.3, 0.0001)
+	assert_almost_eq(first[1], 4.5, 0.0001)
 	# 新的一轮（同样排列）不会继承上一轮起势
 	var second: Array[float] = FireResolver.compute_volley_damages(mag.volley_sequence())
-	assert_almost_eq(second[1], 3.3, 0.0001)
-	# 战斗里两轮连射：打完后再装同样两发，第二轮平庸仍是 3.3 而不是 3.6
+	assert_almost_eq(second[1], 4.5, 0.0001)
+	# 战斗里两轮连射：打完后再装同样两发，第二轮平庸仍是 4.5 而不是 6
 	var cs := CombatState.new(43701)
 	cs.start_rush(43701, FireResolver.ID_WRATH)
 	cs.pace_after_fire = false
@@ -134,12 +134,12 @@ func test_buffs_reset_each_volley() -> void:
 	cs.magazine.set_slot(0, QISHI)
 	cs.magazine.set_slot(1, WHITE)
 	assert_true(cs.begin_fire())
-	# 计划应是新一轮：平庸计算伤害 3.3，落地四舍五入为 3
+	# 计划应是新一轮：平庸计算伤害 4.5，落地四舍五入为 5
 	var planned: Array[int] = cs._fire_damages
 	assert_eq(planned[0], 0, "第二轮起势仍是 0")
 	# begin_fire 只排队第一发；再看整轮计划
 	var seq: Array[float] = FireResolver.compute_volley_damages(cs.magazine.volley_sequence())
-	assert_almost_eq(seq[1], 3.3, 0.0001)
+	assert_almost_eq(seq[1], 4.5, 0.0001)
 
 
 func test_zero_damage_does_not_count_as_hit() -> void:

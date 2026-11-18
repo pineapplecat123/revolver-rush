@@ -208,6 +208,7 @@ const SB_STEP_VAL_W := 64.0
 const SB_FONT := 24
 const SB_FONT_SMALL := 21
 const SB_GAP := 8
+const SB_TAP_MAX_PX := 14.0  ## 超过此位移视为滚动，松手不再加减弹药
 const SB_STATS_H := 82.0
 const SB_CONSOLE_FRAC := 0.33  ## 控制台约占屏高三分之一
 var _sandbox_tab: int = 0  ## 兼容旧调用，已无页签
@@ -6309,6 +6310,76 @@ func _sb_build_ammo_row(parent: Control, ammo_id: int) -> void:
 		"hand_minus": b_hand_minus,
 	}
 	parent.add_child(card)
+	_sb_bind_scroll_drag(card)
+
+
+func _sb_find_scroll(node: Node) -> ScrollContainer:
+	var n: Node = node
+	while n != null:
+		if n is ScrollContainer:
+			return n
+		n = n.get_parent()
+	return null
+
+
+func _sb_bind_scroll_drag(ctrl: Control, on_tap: Callable = Callable()) -> void:
+	ctrl.gui_input.connect(func(event: InputEvent):
+		_sb_on_scroll_gui_input(ctrl, event, on_tap)
+	)
+
+
+func _sb_on_scroll_gui_input(ctrl: Control, event: InputEvent, on_tap: Callable) -> void:
+	var scroll := _sb_find_scroll(ctrl)
+	var pos := Vector2.ZERO
+	var is_press := false
+	var is_release := false
+	var is_drag := false
+	var rel_y := 0.0
+	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
+		pos = event.position
+		is_press = event.pressed
+		is_release = not event.pressed
+	elif event is InputEventScreenTouch:
+		pos = event.position
+		is_press = event.pressed
+		is_release = not event.pressed
+	elif event is InputEventMouseMotion and (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0:
+		pos = event.position
+		is_drag = true
+		rel_y = event.relative.y
+	elif event is InputEventScreenDrag:
+		pos = event.position
+		is_drag = true
+		rel_y = event.relative.y
+	else:
+		return
+	if is_press:
+		ctrl.set_meta("_sb_press_pos", pos)
+		ctrl.set_meta("_sb_dragging", false)
+		return
+	if is_drag and ctrl.has_meta("_sb_press_pos"):
+		var origin: Vector2 = ctrl.get_meta("_sb_press_pos")
+		if not bool(ctrl.get_meta("_sb_dragging", false)) and pos.distance_to(origin) >= SB_TAP_MAX_PX:
+			ctrl.set_meta("_sb_dragging", true)
+			if ctrl is BaseButton:
+				(ctrl as BaseButton).set_pressed_no_signal(false)
+		if bool(ctrl.get_meta("_sb_dragging", false)) and scroll != null:
+			scroll.scroll_vertical -= int(round(rel_y))
+			ctrl.accept_event()
+		return
+	if is_release:
+		var dragging: bool = bool(ctrl.get_meta("_sb_dragging", false))
+		ctrl.set_meta("_sb_dragging", false)
+		if ctrl.has_meta("_sb_press_pos"):
+			ctrl.remove_meta("_sb_press_pos")
+		if dragging:
+			if ctrl is BaseButton:
+				(ctrl as BaseButton).set_pressed_no_signal(false)
+			ctrl.accept_event()
+			return
+		if on_tap.is_valid() and not (ctrl is BaseButton and (ctrl as BaseButton).disabled):
+			on_tap.call()
+			ctrl.accept_event()
 
 
 func _sb_console_btn(parent: Control, label: String, cb: Callable) -> Button:
@@ -6318,7 +6389,7 @@ func _sb_console_btn(parent: Control, label: String, cb: Callable) -> Button:
 	b.custom_minimum_size = Vector2(72, SB_TOUCH_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	b.add_theme_font_size_override("font_size", SB_FONT)
-	b.pressed.connect(cb)
+	_sb_bind_scroll_drag(b, cb)
 	parent.add_child(b)
 	return b
 

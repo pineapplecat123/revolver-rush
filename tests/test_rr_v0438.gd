@@ -30,39 +30,39 @@ func test_is_start_type_is_tag_driven() -> void:
 
 
 func test_xuli_passes_through_qishi_to_plain() -> void:
-	# 蓄力→起势→平庸：平庸 ×1.5×1.1
+	# 蓄力→起势→平庸：平庸 ×1.5×1.5
 	var d: Array[float] = FireResolver.compute_volley_damages([XULI, QISHI, WHITE])
 	assert_almost_eq(d[0], 0.0, 0.0001)
 	assert_almost_eq(d[1], 0.0, 0.0001)
-	assert_almost_eq(d[2], 3.0 * 1.5 * 1.1, 0.0001)
+	assert_almost_eq(d[2], 3.0 * 1.5 * 1.5, 0.0001)
 
 
 func test_xuli_chains_through_start_and_empties() -> void:
-	# 两颗蓄力中间夹起势，仍连乘到 ×2.25，再加起势 +10%
+	# 两颗蓄力中间夹起势，仍连乘到 ×2.25，再加起势 +50%
 	var d: Array[float] = FireResolver.compute_volley_damages([XULI, QISHI, XULI, WHITE])
-	assert_almost_eq(d[3], 3.0 * 2.25 * 1.1, 0.0001)
+	assert_almost_eq(d[3], 3.0 * 2.25 * 1.5, 0.0001)
 	# 空仓仍不消耗；起势也不消耗
 	var with_empty: Array[float] = FireResolver.compute_volley_damages([
 		XULI, EMPTY, QISHI, EMPTY, WHITE
 	])
-	assert_almost_eq(with_empty[4], 3.0 * 1.5 * 1.1, 0.0001)
+	assert_almost_eq(with_empty[4], 3.0 * 1.5 * 1.5, 0.0001)
 	# 连续蓄力仍连乘（中间无非开始弹）
 	var chain: Array[float] = FireResolver.compute_volley_damages([XULI, XULI, WHITE])
 	assert_almost_eq(chain[2], 3.0 * 2.25, 0.0001)
 
 
 func test_qishi_bonus_skips_start_applies_to_mid_and_end() -> void:
-	# 起势→蓄力→平庸：蓄力（开始）不吃 +10%，平庸吃两种加成
+	# 起势→蓄力→平庸：蓄力（开始）不吃 +50%，平庸吃两种加成
 	var d: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE])
 	assert_almost_eq(d[1], 0.0, 0.0001)
-	assert_almost_eq(d[2], 3.0 * 1.5 * 1.1, 0.0001)
-	# 递增（中间）仍吃起势与蓄力：第 3 格 3+1.5=4.5，×1.1×1.5
+	assert_almost_eq(d[2], 3.0 * 1.5 * 1.5, 0.0001)
+	# 递增（中间）仍吃起势与蓄力：第 3 格 2+2.25=4.25，×1.5×1.5
 	var mid: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, DIZENG])
-	assert_almost_eq(mid[2], 4.5 * 1.1 * 1.5, 0.0001)
+	assert_almost_eq(mid[2], 4.25 * 1.5 * 1.5, 0.0001)
 	# 终审（结束）仍吃两种加成
 	var end: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE, ZHONGSHEN])
-	assert_almost_eq(end[2], 4.95, 0.0001)
-	assert_almost_eq(end[3], 2.475 * 1.1, 0.0001)
+	assert_almost_eq(end[2], 6.75, 0.0001)
+	assert_almost_eq(end[3], 3.375 * 1.5, 0.0001)
 	# 两颗起势仍对非开始弹加叠
 	var stacked: Array[float] = FireResolver.compute_volley_damages([QISHI, QISHI, WHITE])
-	assert_almost_eq(stacked[2], 3.0 * 1.2, 0.0001)
+	assert_almost_eq(stacked[2], 3.0 * 2.0, 0.0001)

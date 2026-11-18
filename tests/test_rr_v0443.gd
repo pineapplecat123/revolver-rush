@@ -59,11 +59,11 @@ func test_jiasu_two_stacks_are_double_speed() -> void:
 	cs.magazine.set_slot(2, WHITE)
 	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 1.5, 0.0001, "一颗 +50%")
+	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "一颗 +100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "两颗为 2 倍速")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 2.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 2.5, 0.0001, "两颗受最小间隔封顶为 2.5 倍速")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 2.5, 0.0001)
 
 
 func test_chetui_with_one_other_copies_self_and_other() -> void:
@@ -188,14 +188,14 @@ func test_weizhong_slot_bands_count_empties() -> void:
 
 
 func test_weizhong_multiplies_with_qishi_and_xuli() -> void:
-	# 起势在第1格，尾重在第2格：3×0.5×1.1 = 1.65
+	# 起势在第1格，尾重在第2格：3×0.5×1.5 = 2.25
 	var q: Array[float] = FireResolver.compute_volley_damages([QISHI, WEIZHONG])
-	assert_almost_eq(q[1], 1.65, 0.0001)
+	assert_almost_eq(q[1], 2.25, 0.0001)
 	# 蓄力在第3格（前两格为空），尾重在第5格：3×2×1.5 = 9
 	var x: Array[float] = FireResolver.compute_volley_damages([EMPTY, EMPTY, XULI, EMPTY, WEIZHONG])
 	assert_almost_eq(x[4], 9.0, 0.0001)
-	# 两颗起势 + 蓄力 + 第6格尾重：3×2×1.2×1.5 = 10.8
+	# 两颗起势 + 蓄力 + 第6格尾重：3×2×2.0×1.5 = 18
 	var both: Array[float] = FireResolver.compute_volley_damages([
 		QISHI, QISHI, XULI, EMPTY, EMPTY, WEIZHONG
 	])
-	assert_almost_eq(both[5], 10.8, 0.0001)
+	assert_almost_eq(both[5], 18.0, 0.0001)

@@ -61,10 +61,10 @@ func test_muzzle_status_defs_are_data_driven() -> void:
 	var q: Dictionary = DataRegistry.muzzle_status_of(QISHI)
 	assert_eq(str(q.get("label", "")), "起势")
 	assert_eq(str(q.get("duration_type", "")), "rest_of_volley")
-	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+10%")
+	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+50%")
 	q["stacks"] = 2
 	q["remaining"] = 4
-	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+20%")
+	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+100%")
 	assert_eq(DataRegistry.format_muzzle_status_duration(q), "后续 4 发子弹")
 	var x: Dictionary = DataRegistry.muzzle_status_of(XULI)
 	assert_eq(str(x.get("label", "")), "蓄力")
@@ -109,11 +109,11 @@ func test_qishi_icon_counts_remaining_then_clears() -> void:
 	assert_eq(str(buffs[0].get("label", "")), "起势")
 	assert_eq(int(buffs[0].get("remaining", -1)), 3)
 	assert_eq(int(buffs[0].get("total", -1)), 3)
-	assert_eq(DataRegistry.format_muzzle_status_effect(buffs[0]), "伤害+10%")
+	assert_eq(DataRegistry.format_muzzle_status_effect(buffs[0]), "伤害+50%")
 	cs.player_fire_gate_remaining = 0.0
 	var second: Array = cs.take_volley_shot()
 	assert_eq(second.size(), 1)
-	assert_eq(int(second[0].get("planned_damage", -1)), 3)
+	assert_eq(int(second[0].get("planned_damage", -1)), 5)
 	buffs = cs.volley_muzzle_buffs()
 	assert_eq(buffs.size(), 1)
 	assert_eq(int(buffs[0].get("remaining", -1)), 2)
@@ -165,7 +165,7 @@ func test_qishi_stacks_and_xuli_multiplies() -> void:
 	var buffs: Array = cs.volley_muzzle_buffs()
 	assert_eq(buffs.size(), 1)
 	assert_eq(int(buffs[0].get("stacks", 0)), 2)
-	assert_eq(DataRegistry.format_muzzle_status_effect(buffs[0]), "伤害+20%")
+	assert_eq(DataRegistry.format_muzzle_status_effect(buffs[0]), "伤害+100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
 	cs.player_fire_gate_remaining = 0.0

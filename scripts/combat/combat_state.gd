@@ -2271,6 +2271,7 @@ func dump_to_hand_items(items: Array) -> int:
 		var aid: int = int(rec.get("id", -1))
 		if aid < 0:
 			continue
+		# 临时复制体（含撤退弹生成的、带 envy 标记的打出即毁弹）要按 temp 与 envy 同时对上。
 		var want_temp: bool = bool(rec.get("temp", false))
 		var want_envy: bool = bool(rec.get("envy", false))
 		var idx := -1
@@ -2279,8 +2280,7 @@ func dump_to_hand_items(items: Array) -> int:
 				continue
 			var is_e: bool = i < bag_envy_copy.size() and bool(bag_envy_copy[i])
 			var is_t: bool = is_bag_index_temporary(i)
-			var rec_t: bool = want_temp and not want_envy
-			if is_t == rec_t and is_e == want_envy:
+			if is_t == want_temp and is_e == want_envy:
 				idx = i
 				break
 		if idx < 0:
@@ -3173,6 +3173,17 @@ func _capture_applying_buffs(ammo_id: int) -> void:
 		})
 
 
+func _shot_effect_ammo_id(ammo_id: int) -> int:
+	## 重复开始弹在开火时改用上一颗开始弹的效果；没有可复制的则返回 0（无效果）。
+	if ammo_id != CombatConstants.CHONGFU_KAISHI_AMMO_ID:
+		return ammo_id
+	var idx: int = _volley_plan_index - 1
+	if idx < 0 or idx >= _volley_seq_snapshot.size():
+		return 0
+	var copied: int = FireResolver.copied_start_effect_id(_volley_seq_snapshot, idx)
+	return copied if copied > 0 else 0
+
+
 func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	## 先按本发消耗已有状态，再按子弹定义挂上新状态。空仓不走这里。
 	_capture_applying_buffs(ammo_id)
@@ -3191,7 +3202,8 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 				continue
 		kept.append(b)
 	_volley_muzzle_buffs = kept
-	var def: Dictionary = DataRegistry.muzzle_status_of(ammo_id)
+	var source_id: int = _shot_effect_ammo_id(ammo_id)
+	var def: Dictionary = DataRegistry.muzzle_status_of(source_id) if source_id > 0 else {}
 	if def.is_empty():
 		return
 	var kind := str(def.get("id", ammo_id))
@@ -3222,7 +3234,7 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 
 
 func volley_speed_mult() -> float:
-	## 加速弹：本轮连射速度倍率 = 1 + 0.5×层数（加法叠层），封顶保证间隔不低于最小射击间隔。
+	## 加速弹：本轮连射速度倍率 = 1 + 1.0×层数（加法叠层），封顶保证间隔不低于最小射击间隔。
 	var stacks := 0
 	for b in _volley_muzzle_buffs:
 		if str(b.get("effect_kind", "")) == "speed_pct":
@@ -3260,7 +3272,11 @@ func _temp_copy_candidate_ids(fired_ammo_id: int) -> Array[int]:
 
 func _apply_on_fire_effect(ammo_id: int) -> void:
 	## 数据驱动的「开火后」效果。temp_copies：从可选仓无放回抽最多 count 颗，做一次性临时复制进背包。
-	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+	## 重复开始弹用上一颗开始弹的效果定义，但「自己」仍是本发。
+	var source_id: int = _shot_effect_ammo_id(ammo_id)
+	if source_id <= 0:
+		return
+	var def: Dictionary = DataRegistry.get_ammo(source_id)
 	var raw = def.get("on_fire", null)
 	if raw == null or typeof(raw) != TYPE_DICTIONARY:
 		return

@@ -16,8 +16,11 @@ func test_changelog_has_0_4_15_entry() -> void:
 
 
 func test_shop_pool_rarity_table_snapshot() -> void:
-	## 本分支商店池：平庸 + 清算五弹 + 加速弹 + 撤退弹。
-	assert_eq(DataRegistry.all_ammo().size(), 8)
+	## 本分支商店池：平庸 + 清算五弹 + 加速/撤退 + 衔尾蛇/重复开始/白板。
+	assert_eq(DataRegistry.all_ammo().size(), 11)
+	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.XIANWEI_AMMO_ID))
+	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.CHONGFU_KAISHI_AMMO_ID))
+	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.BAIBAN_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WHITE_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WEIZHONG_AMMO_ID))
 	assert_eq(DataRegistry.get_ammo_rarity(CombatConstants.WHITE_AMMO_ID), "common")

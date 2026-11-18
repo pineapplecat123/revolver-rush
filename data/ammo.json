@@ -20,14 +20,14 @@
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "射击后，当前弹夹内后续非「开始」子弹伤害+10％，多个本子弹效果可以叠加。开始类型子弹不受本效果影响。",
+      "special": "射击后，当前弹夹内后续非「开始」子弹伤害+50％，多个本子弹效果加法叠加。开始类型子弹不受本效果影响。",
       "tags": [
         "开始",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "后续非开始弹+10％，可叠加",
+      "blurb": "后续非开始弹+50％，加法叠加",
       "bullet_color": "#52C76B",
       "muzzle_color": "#4AE06A",
       "muzzle_status": {
@@ -35,7 +35,7 @@
         "label": "起势",
         "duration_type": "rest_of_volley",
         "effect_kind": "damage_pct",
-        "effect_per_stack": 0.1
+        "effect_per_stack": 0.5
       }
     },
     {
@@ -68,16 +68,16 @@
       "name": "递增弹",
       "rarity": "common",
       "school": "清算",
-      "base_damage": 3,
+      "base_damage": 2,
       "base_damage_mode": "slot",
-      "special": "在弹夹槽位越靠后伤害越高，计算公式为伤害=基础伤害+（槽位×0.5），例如第6格就是3+(6×0.5)=6。槽位按本轮连射开火顺序计算，空仓也占一格。",
+      "special": "在弹夹槽位越靠后伤害越高，计算公式为伤害=2+（槽位×0.75），再四舍五入。例如第6格就是2+(6×0.75)=6.5，四舍五入为7。槽位按本轮连射开火顺序计算，空仓也占一格。",
       "tags": [
         "中间",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "越靠后越高，3+槽位×0.5",
+      "blurb": "越靠后越高，2+槽位×0.75，四舍五入",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38"
     },
@@ -106,13 +106,13 @@
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "射击后：本轮后续开火节奏+50％，加法叠加，两颗为2倍速；不改变子弹飞行速度",
+      "special": "射击后：本轮后续开火节奏+100％，加法叠加，两颗为3倍速；不改变子弹飞行速度",
       "tags": [
         "开始"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "本轮开火节奏+50％，可叠加",
+      "blurb": "本轮开火节奏+100％，可叠加",
       "bullet_color": "#94FFF1",
       "muzzle_color": "#94FFF1",
       "muzzle_status": {
@@ -120,7 +120,7 @@
         "label": "速",
         "duration_type": "rest_of_volley",
         "effect_kind": "speed_pct",
-        "effect_per_stack": 0.5
+        "effect_per_stack": 1.0
       }
     },
     {
@@ -168,6 +168,57 @@
       "enabled_in_combat": true,
       "in_reward_pool": true,
       "blurb": "前3格×0.5，后3格×2",
+      "bullet_color": "#F2CC38",
+      "muzzle_color": "#F2CC38"
+    },
+    {
+      "id": 47,
+      "name": "衔尾蛇弹",
+      "rarity": "common",
+      "school": "通用",
+      "base_damage": 3,
+      "base_damage_mode": "formula",
+      "special": "弹夹里每有一个结束弹，本子弹伤害+3。",
+      "tags": [
+        "开始"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "弹夹每有一个结束弹+3",
+      "bullet_color": "#4DE036",
+      "muzzle_color": "#52C76B"
+    },
+    {
+      "id": 48,
+      "name": "重复开始弹",
+      "rarity": "common",
+      "school": "通用",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "special": "复制轮盘里上一颗开始弹效果，如果没有则没效果。",
+      "tags": [
+        "开始"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "复制上一颗开始弹效果",
+      "bullet_color": "#52C76B",
+      "muzzle_color": "#52C76B"
+    },
+    {
+      "id": 49,
+      "name": "白板弹",
+      "rarity": "common",
+      "school": "通用",
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "没特殊效果，最基本的子弹。",
+      "tags": [
+        "中间"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "没有特殊效果的基本子弹",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38"
     }

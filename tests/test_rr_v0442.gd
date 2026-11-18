@@ -60,7 +60,7 @@ func test_zero_damage_and_start_skip() -> void:
 	var d: Array[float] = FireResolver.compute_volley_damages([JIASU, CHETUI, QISHI, WHITE])
 	assert_almost_eq(d[0], 0.0, 0.0001)
 	assert_almost_eq(d[1], 0.0, 0.0001)
-	assert_almost_eq(d[3], 3.3, 0.0001, "加速/撤退不改伤害，起势照常")
+	assert_almost_eq(d[3], 4.5, 0.0001, "加速/撤退不改伤害，起势照常")
 	var x: Array[float] = FireResolver.compute_volley_damages([XULI, JIASU, CHETUI, WHITE])
 	assert_almost_eq(x[3], 4.5, 0.0001, "蓄力穿过其它开始弹")
 
@@ -73,11 +73,11 @@ func test_jiasu_additive_speed_stacking() -> void:
 	cs.magazine.set_slot(3, WHITE)
 	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 1.5, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "一颗 +100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "两颗 +100%")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 2.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 2.5, 0.0001, "两颗未封顶为3倍，受最小间隔封顶为2.5")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 2.5, 0.0001)
 
 
 func test_jiasu_speed_capped_and_resets() -> void:
