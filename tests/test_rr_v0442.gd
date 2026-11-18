@@ -76,18 +76,18 @@ func test_jiasu_additive_speed_stacking() -> void:
 	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "一颗 +100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 2.5, 0.0001, "两颗未封顶为3倍，受最小间隔封顶为2.5")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 2.5, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "两颗 +100% 加法为 3 倍速")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 3.0, 0.0001)
 
 
-func test_jiasu_speed_capped_and_resets() -> void:
+func test_jiasu_speed_stacks_and_resets() -> void:
 	var cs := _ready_fight(44202)
 	for i in 4:
 		cs.magazine.set_slot(i, JIASU)
 	cs.magazine.set_slot(4, WHITE)
 	_fire_all(cs, 4)
-	assert_true(cs.volley_speed_mult() <= 2.5 + 0.0001)
-	assert_true(cs.volley_wait_scaled_sec() >= CombatConstants.MIN_FIRE_INTERVAL_SEC - 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 5.0, 0.0001, "四层为 5 倍，不再封在 2.5")
+	assert_lt(cs.volley_wait_scaled_sec(), CombatConstants.MIN_FIRE_INTERVAL_SEC - 0.0001)
 	cs._reset_volley_plan()
 	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001, "新一轮重置")
 

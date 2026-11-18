@@ -73,7 +73,7 @@ func test_qishi_additive_50_percent_per_stack() -> void:
 	assert_almost_eq(chain[2], 3.0 * 2.25, 0.0001, "蓄力连乘未改")
 
 
-func test_jiasu_100_percent_additive_and_cap() -> void:
+func test_jiasu_100_percent_additive() -> void:
 	assert_almost_eq(CombatConstants.JIASU_SPEED_PER_STACK, 1.0, 0.0001)
 	var cs := _ready_fight(45401)
 	cs.magazine.set_slot(0, JIASU)
@@ -83,8 +83,7 @@ func test_jiasu_100_percent_additive_and_cap() -> void:
 	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	var cap: float = CombatConstants.VOLLEY_SHOT_INTERVAL_SEC / CombatConstants.MIN_FIRE_INTERVAL_SEC
-	assert_almost_eq(cs.volley_speed_mult(), minf(3.0, cap), 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001)
 
 
 func test_xianwei_plus_three_per_end_bullet() -> void:
@@ -130,8 +129,7 @@ func test_chongfu_copies_jiasu_and_chetui_on_fire() -> void:
 	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	var cap: float = CombatConstants.VOLLEY_SHOT_INTERVAL_SEC / CombatConstants.MIN_FIRE_INTERVAL_SEC
-	assert_almost_eq(cs.volley_speed_mult(), minf(3.0, cap), 0.0001, "复制加速弹也加一层节奏")
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "复制加速弹也加一层节奏")
 	cs = _ready_fight(45403)
 	cs.bag.clear()
 	cs.bag_temp.clear()

@@ -7,7 +7,7 @@ signal ball_hover_exit(ammo_id: int)
 signal ball_press(ammo_id: int)
 signal ball_long_press_tick(ammo_id: int)  ## 按下持续时由外部计时；本控件发 press/release
 
-const GRAVITY := 1400.0
+const GRAVITY := 2100.0  ## v0.4.56：袋内/倒出下落更快（约 1.5 倍）
 ## v0.4.49：默认视觉高度（720 视口像素）。碰撞与点选跟外形走（凸包 SAT + 多边形点选）。
 const DEFAULT_HEIGHT := 48.0
 const MIN_HEIGHT := 28.0
@@ -518,7 +518,7 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = f
 
 func _physics_process(delta: float) -> void:
 	var _pt0: int = Time.get_ticks_usec()
-	var steps: int = 3 if (mouth_open or absf(_sack_tilt) > 0.2) else 1
+	var steps: int = 4 if (mouth_open or absf(_sack_tilt) > 0.2) else 1
 	var dt: float = delta / float(steps)
 	for _s in steps:
 		_physics_step(dt)
@@ -599,8 +599,9 @@ func _physics_step(delta: float) -> void:
 			b["vel"] = vel
 			continue
 		var can_exit: bool = mouth_open and int(_fallen_count()) < pour_cap
-		if can_exit and vel.length() < 80.0:
-			vel.y += 70.0
+		# 开口时把速度很低的弹再往下推一把，免得在袋口弹回挤住。
+		if can_exit and vel.length() < 120.0:
+			vel.y += 90.0
 			vel.x += randf_range(-25.0, 25.0)
 		var hit: Dictionary = _sack_wall_resolve(pos, rad, vel, can_exit)
 		pos = hit["pos"]
@@ -659,10 +660,12 @@ func _physics_step(delta: float) -> void:
 			c["pos"] = c["pos"] + nrm * overlap * 0.5
 			var va: Vector2 = a["vel"]
 			var vc: Vector2 = c["vel"]
-			if nrm.y < -0.001 and va.y > 0.0:
-				va.y = 0.0
-			if nrm.y > 0.001 and vc.y > 0.0:
-				vc.y = 0.0
+			# 倒出时不要把向下的速度清掉，否则袋口的弹会互相挡住。
+			if not mouth_open:
+				if nrm.y < -0.001 and va.y > 0.0:
+					va.y = 0.0
+				if nrm.y > 0.001 and vc.y > 0.0:
+					vc.y = 0.0
 			if va.length() >= settle or vc.length() >= settle:
 				var rel: float = (vc - va).dot(nrm)
 				if rel < 0.0:
@@ -1193,7 +1196,8 @@ func _sack_wall_resolve(pos: Vector2, rad: float, vel: Vector2, can_exit: bool) 
 				pos += inward * (rad - dist)
 				var vn: float = vel.dot(outward)
 				if vn > 0.0:
-					vel -= outward * vn * (1.0 + RESTITUTION)
+					var bounce: float = 0.12 if can_exit else RESTITUTION
+					vel -= outward * vn * (1.0 + bounce)
 					var tan := Vector2(-outward.y, outward.x)
 					vel -= tan * vel.dot(tan) * (1.0 - WALL_FRICTION)
 		elif not can_exit:

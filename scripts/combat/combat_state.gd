@@ -3234,14 +3234,12 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 
 
 func volley_speed_mult() -> float:
-	## 加速弹：本轮连射速度倍率 = 1 + 1.0×层数（加法叠层），封顶保证间隔不低于最小射击间隔。
+	## 加速弹：本轮连射速度倍率 = 1 + 1.0×层数（加法叠层）。一层 2 倍、两层 3 倍，不再用最小射击间隔封顶。
 	var stacks := 0
 	for b in _volley_muzzle_buffs:
 		if str(b.get("effect_kind", "")) == "speed_pct":
 			stacks += int(b.get("stacks", 1))
-	var m: float = 1.0 + CombatConstants.JIASU_SPEED_PER_STACK * float(stacks)
-	var cap: float = CombatConstants.VOLLEY_SHOT_INTERVAL_SEC / CombatConstants.MIN_FIRE_INTERVAL_SEC
-	return minf(m, cap)
+	return 1.0 + CombatConstants.JIASU_SPEED_PER_STACK * float(stacks)
 
 
 func volley_wait_scaled_sec() -> float:

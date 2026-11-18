@@ -181,11 +181,12 @@ const MAX_FIRE_RATE_HZ := 10.0
 const MIN_FIRE_INTERVAL_SEC := 0.1
 
 ## v0.4.24 一键连射节奏：打一发 → 转轮转一格（动画）→ 下一发 …… 直到已装弹打完。
-## 间隔吃战斗速度；不会快过 MIN_FIRE_INTERVAL_SEC。转一格动画 VOLLEY_ROTATE_SEC 放在间隔之内。
+## 间隔吃战斗速度。转一格动画 VOLLEY_ROTATE_SEC 默认落在未加速的间隔之内。
 ## v0.4.29：空仓也算正常一拍（同样等间隔、停留、转一格），不再快跳；连射打完最后一颗已装弹即结束。
+## v0.4.56：加速弹倍率不再按 MIN_FIRE_INTERVAL_SEC 封顶；连射仍逐发、逐仓，节奏可以快过该间隔。
 const VOLLEY_SHOT_INTERVAL_SEC := 0.25
 const VOLLEY_ROTATE_SEC := 0.18
-## v0.4.54 加速弹：每颗 +100%（加法叠层），总倍率封顶使间隔不低于 MIN_FIRE_INTERVAL_SEC。
+## v0.4.54/0.4.56 加速弹：每颗 +100%（加法叠层），一层 2 倍、两层 3 倍，不设总倍率封顶。
 const JIASU_SPEED_PER_STACK := 1.0
 ## v0.4.24：装满后、开火前都不再随机转轮；从当前击发仓直接开打。
 const LOAD_FULL_RANDOM_SPIN := false

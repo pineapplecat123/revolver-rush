@@ -62,8 +62,8 @@ func test_jiasu_two_stacks_are_double_speed() -> void:
 	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "一颗 +100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 2.5, 0.0001, "两颗受最小间隔封顶为 2.5 倍速")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 2.5, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "两颗为 3 倍速")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 3.0, 0.0001)
 
 
 func test_chetui_with_one_other_copies_self_and_other() -> void:
