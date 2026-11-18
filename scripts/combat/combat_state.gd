@@ -2287,7 +2287,7 @@ func dump_to_hand_items(items: Array) -> int:
 		var aid: int = int(rec.get("id", -1))
 		if aid < 0:
 			continue
-		# 临时复制体（含撤退弹生成的、带 envy 标记的打出即毁弹）要按 temp 与 envy 同时对上。
+		# 临时复制体（含随机复制弹生成的、带 envy 标记的打出即毁弹）要按 temp 与 envy 同时对上。
 		var want_temp: bool = bool(rec.get("temp", false))
 		var want_envy: bool = bool(rec.get("envy", false))
 		var idx := -1
@@ -2897,12 +2897,12 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 	var flags := FireResolver.inherits_from(ammo_id)
 	last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 	_mount_sin_muzzle_from(flags)
-	var pierce := _muzzle_pierce or bool(flags["pierce"])
+	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0)
+	var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(ammo_id, base_dmg)
 	var gas := _muzzle_gas or bool(flags["gas"])
 	var fire := _muzzle_fire or bool(flags["fire"])
 	var water := _muzzle_water or bool(flags["water"])
 	var thunder := _muzzle_thunder or bool(flags["thunder"])
-	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0)
 	last_shot_planned_damage = base_dmg
 	base_dmg = _scale_outgoing_damage(base_dmg)
 	last_shot_ammo_id = ammo_id
@@ -3266,12 +3266,12 @@ func volley_wait_scaled_sec() -> float:
 
 
 func _is_temp_copy_excluded(ammo_id: int) -> bool:
-	## 撤退弹不复制罪孽弹：编辑器标签或开局七罪 id 都算。
+	## 随机复制弹不复制罪孽弹：编辑器标签或开局七罪 id 都算。
 	return DataRegistry.is_sin_ammo(ammo_id) or _is_opening_sin_id(ammo_id)
 
 
 func _temp_copy_candidate_ids(fired_ammo_id: int) -> Array[int]:
-	## 撤退弹可选子弹：弹仓里此刻仍装着的非空、非罪孽子弹，再加上刚打出的自己。
+	## 随机复制弹可选子弹：弹仓里此刻仍装着的非空、非罪孽子弹，再加上刚打出的自己。
 	## 本轮已经打出去的前序子弹此时已出仓，不再列入。每个仓位一记，互不相同。
 	var pool: Array[int] = []
 	if magazine != null:
@@ -3457,7 +3457,7 @@ func fire_next_shot() -> bool:
 	last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 	# 罪孽层：本发先入枪口，本发伤害即享受新层
 	_mount_sin_muzzle_from(flags)
-	var pierce := _muzzle_pierce or bool(flags["pierce"])
+	var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(ammo_id, base_dmg)
 	var gas := _muzzle_gas or bool(flags["gas"])
 	var fire := _muzzle_fire or bool(flags["fire"])
 	var water := _muzzle_water or bool(flags["water"])
@@ -4564,7 +4564,7 @@ func _auto_load_and_fire_once() -> bool:
 		var flags := FireResolver.inherits_from(ammo_id)
 		last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 		_mount_sin_muzzle_from(flags)
-		var pierce := _muzzle_pierce or bool(flags["pierce"])
+		var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(ammo_id, base_dmg)
 		var gas := _muzzle_gas or bool(flags["gas"])
 		var fire := _muzzle_fire or bool(flags["fire"])
 		var water := _muzzle_water or bool(flags["water"])
@@ -5413,7 +5413,7 @@ func tick_temp_sin_lifetimes(delta_sec: float) -> bool:
 		for s in magazine.slots.size():
 			if not magazine.is_slot_temporary(s):
 				continue
-			# 打出即毁（含嫉妒复制、撤退弹生成的临时复制体）不计时，不能按剩余秒清仓。
+			# 打出即毁（含嫉妒复制、随机复制弹生成的临时复制体）不计时，不能按剩余秒清仓。
 			if magazine.is_slot_fire_once(s):
 				continue
 			var life: float = magazine.slot_temp_life(s)

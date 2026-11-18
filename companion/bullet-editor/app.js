@@ -223,24 +223,21 @@
     if (t === '结束') return ' typ-end';
     return '';
   }
-  var TYPE_BULLET_COLOR = { '开始': '#52C76B', '中间': '#F2CC38', '结束': '#DB3D38' };
-  var DEFAULT_BULLET_COLOR = '#EAEAEF';
-  var NAME_MUZZLE_COLOR = { '起势弹': '#4AE06A', '蓄力弹': '#2CC4B4' };
   var COLOR_KEYS = ['muzzle_color', 'bullet_color'];
+  var BC = (typeof window !== 'undefined' && window.BulletColors) ? window.BulletColors : {};
+  function defaultBulletColor(type) {
+    // Deterministic display fallback only. Random colors are assigned on type change.
+    return (BC.displayFallbackColor && BC.displayFallbackColor(type)) || '#EAEAEF';
+  }
+  function defaultMuzzleColor(name, type) {
+    return defaultBulletColor(type);
+  }
   function normalizeHex(v, fallback) {
     var s = String(v == null ? '' : v).trim();
     if (!s) return fallback || '';
     if (s.charAt(0) !== '#') s = '#' + s;
     if (!/^#[0-9A-Fa-f]{6}$/.test(s)) return fallback || '';
     return s.toUpperCase();
-  }
-  function defaultBulletColor(type) {
-    return TYPE_BULLET_COLOR[String(type || '').trim()] || DEFAULT_BULLET_COLOR;
-  }
-  function defaultMuzzleColor(name, type) {
-    var n = String(name || '').trim();
-    if (NAME_MUZZLE_COLOR[n]) return NAME_MUZZLE_COLOR[n];
-    return defaultBulletColor(type);
   }
   function colorChip(hex, label) {
     var c = normalizeHex(hex, '');
@@ -260,33 +257,42 @@
     if (picker) picker.value = v.toLowerCase();
     if (hexEl) hexEl.value = v;
   }
-  var lastBulletDefault = '', lastMuzzleDefault = '';
-  function rememberColorDefaults() {
-    lastBulletDefault = defaultBulletColor($('f_type').value);
-    lastMuzzleDefault = defaultMuzzleColor($('f_name').value, $('f_type').value);
+  var lastTypeValue = '';
+  function currentType() {
+    return String($('f_type') && $('f_type').value || '').trim();
+  }
+  function rememberTypeValue() {
+    lastTypeValue = currentType();
+  }
+  function applyBulletColorForTypeChange(prevType, nextType) {
+    var curB = colorVal('bullet_color');
+    var next = BC.bulletColorAfterTypeChange
+      ? BC.bulletColorAfterTypeChange(prevType, nextType, curB)
+      : curB;
+    if (next) setColor('bullet_color', next);
+    lastTypeValue = String(nextType || '').trim();
   }
   function maybeApplyColorDefaults() {
-    var bDef = defaultBulletColor($('f_type').value);
-    var mDef = defaultMuzzleColor($('f_name').value, $('f_type').value);
-    var curB = colorVal('bullet_color');
-    var curM = colorVal('muzzle_color');
-    if (!curB || curB === lastBulletDefault) setColor('bullet_color', bDef);
-    if (!curM || curM === lastMuzzleDefault) setColor('muzzle_color', mDef);
-    rememberColorDefaults();
+    // Only when the type value actually changes (new pick or switch).
+    // Do not reroll on render, reopen, or leftover input events of the same type.
+    // Manual muzzle stays put; use 同步子弹颜色 for a one-shot copy.
+    var next = currentType();
+    if (next === lastTypeValue) return;
+    applyBulletColorForTypeChange(lastTypeValue, next);
   }
   function bindColorField(key) {
     var picker = $('f_' + key), hexEl = $('f_' + key + '_hex');
     if (!picker || !hexEl) return;
     picker.addEventListener('input', function () {
       setColor(key, picker.value);
-      rememberColorDefaults();
+      rememberTypeValue();
       save(K_DRAFT, formVals());
     });
     hexEl.addEventListener('input', function () {
       var v = normalizeHex(hexEl.value, '');
-      if (v) { picker.value = v.toLowerCase(); hexEl.value = v; rememberColorDefaults(); save(K_DRAFT, formVals()); }
+      if (v) { picker.value = v.toLowerCase(); hexEl.value = v; rememberTypeValue(); save(K_DRAFT, formVals()); }
     });
-    hexEl.addEventListener('blur', function () { setColor(key, hexEl.value); rememberColorDefaults(); });
+    hexEl.addEventListener('blur', function () { setColor(key, hexEl.value); rememberTypeValue(); });
   }
   function uniqueValues(key) {
     var seen = {}, out = [];
@@ -442,7 +448,7 @@
     var name = v && v.name, type = v && v.type;
     setColor('muzzle_color', (v && v.muzzle_color) || defaultMuzzleColor(name, type));
     setColor('bullet_color', (v && v.bullet_color) || defaultBulletColor(type));
-    rememberColorDefaults();
+    rememberTypeValue();
   }
   function findBullet(id) {
     if (!id) return null;
@@ -489,12 +495,22 @@
     updateFormMode();
     render();
   }
-  (function restoreDraft() { var d = load(K_DRAFT, null); if (d) fillForm(d); else rememberColorDefaults(); })();
+  (function restoreDraft() { var d = load(K_DRAFT, null); if (d) fillForm(d); else rememberTypeValue(); })();
   updateFormMode();
   bindColorField('muzzle_color');
   bindColorField('bullet_color');
   $('f_type').addEventListener('input', maybeApplyColorDefaults);
-  $('f_name').addEventListener('input', maybeApplyColorDefaults);
+  $('f_type').addEventListener('change', maybeApplyColorDefaults);
+  if ($('syncBulletColor')) {
+    $('syncBulletColor').addEventListener('click', function () {
+      var copied = BC.syncMuzzleFromBullet
+        ? BC.syncMuzzleFromBullet(colorVal('bullet_color'), colorVal('muzzle_color'))
+        : colorVal('bullet_color');
+      setColor('muzzle_color', copied);
+      rememberTypeValue();
+      save(K_DRAFT, formVals());
+    });
+  }
   $('bulletForm').addEventListener('input', function () { save(K_DRAFT, formVals()); checkDup(); $('formErr').classList.add('hidden'); });
   $('cancelEdit').addEventListener('click', function () { exitEdit(true); });
 

@@ -19,10 +19,10 @@ func test_version_is_at_least_0_4_37() -> void:
 
 
 func test_ammo_defs_and_tag_colors() -> void:
-	assert_eq(str(DataRegistry.get_ammo(QISHI).get("name")), "起势弹")
-	assert_eq(str(DataRegistry.get_ammo(XULI).get("name")), "蓄力弹")
-	assert_eq(str(DataRegistry.get_ammo(DIZENG).get("name")), "递增弹")
-	assert_eq(str(DataRegistry.get_ammo(ZHONGSHEN).get("name")), "终审弹")
+	assert_eq(str(DataRegistry.get_ammo(QISHI).get("name")), "加伤弹")
+	assert_eq(str(DataRegistry.get_ammo(XULI).get("name")), "倍伤弹")
+	assert_eq(str(DataRegistry.get_ammo(DIZENG).get("name")), "伤害递增弹")
+	assert_eq(str(DataRegistry.get_ammo(ZHONGSHEN).get("name")), "总伤二分弹")
 	assert_eq(AmmoColors.type_tag_of(DataRegistry.get_ammo(QISHI)), "开始")
 	assert_eq(AmmoColors.type_tag_of(DataRegistry.get_ammo(XULI)), "开始")
 	assert_eq(AmmoColors.type_tag_of(DataRegistry.get_ammo(DIZENG)), "中间")

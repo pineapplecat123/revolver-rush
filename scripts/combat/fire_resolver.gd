@@ -31,12 +31,19 @@ const ID_WEIZHONG := CombatConstants.WEIZHONG_AMMO_ID
 const ID_XIANWEI := CombatConstants.XIANWEI_AMMO_ID
 const ID_CHONGFU_KAISHI := CombatConstants.CHONGFU_KAISHI_AMMO_ID
 const ID_BAIBAN := CombatConstants.BAIBAN_AMMO_ID
+const ID_DIESHI := CombatConstants.DIESHI_AMMO_ID
+const ID_BAOCHUAN := CombatConstants.BAOCHUAN_AMMO_ID
+const ID_CHUANDI := CombatConstants.CHUANDI_AMMO_ID
 const XULI_MULT := 1.5
 const QISHI_BONUS := 0.5
 const DIZENG_BASE := 2.0
 const DIZENG_PER_SLOT := 0.75
 const XIANWEI_BASE := 3.0
 const XIANWEI_PER_END := 3.0
+const DIESHI_BONUS := 0.65
+const DIESHI_BASE := 3.0
+const CHUANDI_BASE := 3.0
+const BAOCHUAN_PIERCE_OVER := 7
 
 
 static func count_by_id(order: Array[int]) -> Dictionary:
@@ -84,7 +91,7 @@ static func base_damage_for(ammo_id: int, _order: Array[int], _index: int) -> in
 			return 2
 		ID_QISHI, ID_XULI, ID_ZHONGSHEN, ID_CHONGFU_KAISHI:
 			return 0
-		ID_DIZENG, ID_WEIZHONG, ID_XIANWEI, ID_BAIBAN:
+		ID_DIZENG, ID_WEIZHONG, ID_XIANWEI, ID_BAIBAN, ID_DIESHI, ID_BAOCHUAN, ID_CHUANDI:
 			return 3
 		_:
 			var def: Dictionary = DataRegistry.get_ammo(ammo_id)
@@ -139,6 +146,7 @@ static func compute_volley_damages(order: Array[int]) -> Array[float]:
 	var xuli := 1.0
 	var prior := 0.0
 	var slot := 0
+	var carry := 0.0
 	var out: Array[float] = []
 	for ammo_id in order:
 		slot += 1
@@ -146,19 +154,26 @@ static func compute_volley_damages(order: Array[int]) -> Array[float]:
 			out.append(0.0)
 			continue
 		var effect_id: int = copied_start_effect_id(order, slot - 1) if ammo_id == ID_CHONGFU_KAISHI else ammo_id
-		var base := _formula_base(effect_id if effect_id > 0 else ammo_id, slot, prior, order)
+		var base := _formula_base(effect_id if effect_id > 0 else ammo_id, slot, prior, order, slot - 1)
 		if ammo_id == ID_CHONGFU_KAISHI and effect_id <= 0:
 			base = 0.0
 		var start := is_start_type(ammo_id)
 		var qishi_mult: float = 1.0 if start else (1.0 + QISHI_BONUS * float(qishi))
 		var pending: float = 1.0 if start else xuli
 		var dmg: float = base * qishi_mult * pending
+		if carry != 0.0:
+			dmg += carry
+			carry = 0.0
 		if effect_id == ID_XULI:
 			xuli *= XULI_MULT
 		elif not start:
 			xuli = 1.0
 		if effect_id == ID_QISHI:
 			qishi += 1
+		if effect_id == ID_CHUANDI:
+			var extra: int = round_damage(dmg) - int(CHUANDI_BASE)
+			if extra > 0:
+				carry = float(extra)
 		prior += dmg
 		out.append(dmg)
 	return out
@@ -187,7 +202,29 @@ static func copied_start_effect_id(order: Array[int], index: int) -> int:
 	return 0
 
 
-static func _formula_base(ammo_id: int, slot: int, prior_computed: float, order: Array[int] = []) -> float:
+static func _same_type_streak(order: Array[int], index: int) -> int:
+	## 本轮在 index 之前、紧邻的同类型实际开火次数。空仓跳过且不打断。
+	if index < 0 or index >= order.size():
+		return 0
+	var tag := type_tag(int(order[index]))
+	if tag.is_empty():
+		return 0
+	var n := 0
+	var i: int = index - 1
+	while i >= 0:
+		var aid: int = int(order[i])
+		if aid == Magazine.EMPTY:
+			i -= 1
+			continue
+		if type_tag(aid) == tag:
+			n += 1
+			i -= 1
+		else:
+			break
+	return n
+
+
+static func _formula_base(ammo_id: int, slot: int, prior_computed: float, order: Array[int] = [], index: int = -1) -> float:
 	match ammo_id:
 		ID_QISHI, ID_XULI, ID_CHONGFU_KAISHI:
 			return 0.0
@@ -199,8 +236,20 @@ static func _formula_base(ammo_id: int, slot: int, prior_computed: float, order:
 			return prior_computed * 0.5
 		ID_XIANWEI:
 			return XIANWEI_BASE + XIANWEI_PER_END * float(count_end_type(order))
+		ID_DIESHI:
+			var n: int = _same_type_streak(order, index if index >= 0 else slot - 1)
+			if n < 2:
+				return DIESHI_BASE
+			return DIESHI_BASE * (1.0 + DIESHI_BONUS * float(n))
 		_:
 			return float(base_damage_for(ammo_id, [], 0))
+
+
+static func shot_self_pierce(ammo_id: int, planned_damage: int) -> bool:
+	## 爆穿：预计伤害（四舍五入后）大于 7 时本发自带穿透；不挂枪口。
+	if ammo_id != ID_BAOCHUAN:
+		return false
+	return planned_damage > BAOCHUAN_PIERCE_OVER
 
 
 static func compute_shot_damages(order: Array[int]) -> Array[int]:

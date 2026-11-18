@@ -112,7 +112,7 @@ func test_sandbox_console_lists_enabled_ammo_with_big_buttons() -> void:
 		names.append((l as Label).text)
 	var joined := " ".join(names)
 	assert_true("白板弹" in joined)
-	assert_true("起势弹" in joined)
+	assert_true("加伤弹" in joined)
 	assert_true("尾重弹" in joined)
 	var plus_bag := 0
 	for b in scene.dev_panel.find_children("*", "Button", true, false):

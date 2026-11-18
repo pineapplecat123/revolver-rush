@@ -48,7 +48,7 @@ func test_defs_tags_colors_and_reward_pool() -> void:
 		assert_eq(FireResolver.base_damage_for(id, [], 0), 0)
 		assert_true(DataRegistry.is_ammo_reward_eligible(id), "进奖励池")
 	assert_eq(str(DataRegistry.get_ammo(JIASU).get("name")), "加速弹")
-	assert_eq(str(DataRegistry.get_ammo(CHETUI).get("name")), "撤退弹")
+	assert_eq(str(DataRegistry.get_ammo(CHETUI).get("name")), "随机复制弹")
 	var jm: Dictionary = DataRegistry.muzzle_status_of(JIASU)
 	assert_eq((jm["color"] as Color).to_html(false).to_upper(), "94FFF1")
 	var cm: Dictionary = DataRegistry.muzzle_status_of(CHETUI)

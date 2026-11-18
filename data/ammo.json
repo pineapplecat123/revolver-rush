@@ -3,7 +3,7 @@
   "items": [
     {
       "id": 40,
-      "name": "起势弹",
+      "name": "加伤弹",
       "rarity": "common",
       "school": "清算",
       "base_damage": 0,
@@ -15,7 +15,7 @@
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "后续非开始弹+50％，加法叠加",
+      "blurb": "后续非开始弹伤害+50%，可叠加",
       "bullet_color": "#52C76B",
       "muzzle_color": "#4AE06A",
       "muzzle_status": {
@@ -28,7 +28,7 @@
     },
     {
       "id": 41,
-      "name": "蓄力弹",
+      "name": "倍伤弹",
       "rarity": "common",
       "school": "清算",
       "base_damage": 0,
@@ -40,7 +40,7 @@
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "下一发非开始弹×1.5，可连乘",
+      "blurb": "下一颗非开始弹伤害×1.5，可叠加",
       "bullet_color": "#52C76B",
       "muzzle_color": "#2CC4B4",
       "muzzle_status": {
@@ -53,7 +53,7 @@
     },
     {
       "id": 42,
-      "name": "递增弹",
+      "name": "伤害递增弹",
       "rarity": "common",
       "school": "清算",
       "base_damage": 2,
@@ -65,13 +65,13 @@
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "越靠后越高，2+槽位×0.75，四舍五入",
+      "blurb": "按开火槽位越后越高：2+槽位×0.75",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38"
     },
     {
       "id": 43,
-      "name": "终审弹",
+      "name": "总伤二分弹",
       "rarity": "common",
       "school": "清算",
       "base_damage": null,
@@ -83,7 +83,7 @@
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "已开火总伤害的一半",
+      "blurb": "伤害等于本轮已开火总伤害的一半",
       "bullet_color": "#DB3D38",
       "muzzle_color": "#DB3D38"
     },
@@ -113,7 +113,7 @@
     },
     {
       "id": 45,
-      "name": "撤退弹",
+      "name": "随机复制弹",
       "rarity": "common",
       "school": "通用",
       "base_damage": 0,
@@ -161,7 +161,7 @@
     },
     {
       "id": 47,
-      "name": "衔尾蛇弹",
+      "name": "吃尾弹",
       "rarity": "common",
       "school": "通用",
       "base_damage": 3,
@@ -209,6 +209,60 @@
       "blurb": "没有特殊效果的基本子弹",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38"
+    },
+    {
+      "id": 50,
+      "name": "叠势弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 3,
+      "base_damage_mode": "formula",
+      "special": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n不是1。同类型指开始/中间/结束标签；按本轮实际开火顺序计算，空仓不计入也不打断连续；n为2或更多时才加伤。",
+      "tags": [
+        "中间",
+        "清算"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "连续同类型n≥2时加伤n×65%",
+      "bullet_color": "#FFB41F",
+      "muzzle_color": "#FFB41F"
+    },
+    {
+      "id": 51,
+      "name": "爆穿",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "如果这颗子弹的预计伤害大于7，则自带穿透效果（穿过一个敌人后伤害衰减1直到没有）；预计伤害小于或等于7则没有穿透。只作用于本发，不挂到后续枪口。",
+      "tags": [
+        "结束",
+        "清算"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "预计伤害大于7时穿透并逐个-1",
+      "bullet_color": "#FF0000",
+      "muzzle_color": "#FF0000"
+    },
+    {
+      "id": 52,
+      "name": "传递弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "special": "如果这颗子弹被加强了伤害，则将多加出来的伤害（四舍五入后的预计伤害减去基础3）相同数值加给下一颗实际开火的子弹。",
+      "tags": [
+        "中间",
+        "清算"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "把多出来的伤害传给下一颗",
+      "bullet_color": "#FFE600",
+      "muzzle_color": "#FFD900"
     }
   ]
 }

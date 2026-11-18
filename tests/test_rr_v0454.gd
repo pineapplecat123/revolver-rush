@@ -27,7 +27,7 @@ func test_version_is_at_least_0_4_54() -> void:
 
 
 func test_new_ammo_defs() -> void:
-	assert_eq(str(DataRegistry.get_ammo(XIANWEI).get("name")), "衔尾蛇弹")
+	assert_eq(str(DataRegistry.get_ammo(XIANWEI).get("name")), "吃尾弹")
 	assert_eq(FireResolver.type_tag(XIANWEI), "开始")
 	assert_eq(FireResolver.base_damage_for(XIANWEI, [], 0), 3)
 	assert_true(DataRegistry.is_ammo_reward_eligible(XIANWEI))
