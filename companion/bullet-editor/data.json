@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-18T19:01:45+08:00",
+  "updated_at": "2026-11-18T19:03:37+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -212,6 +212,21 @@
       "in_game": false,
       "created_at": "2026-11-18T19:01:45+08:00",
       "updated_at": "2026-11-18T19:01:45+08:00"
+    },
+    {
+      "id": "b20261118-190327-0ad8",
+      "name": "传递弹",
+      "type": "中间",
+      "damage": "3",
+      "rarity": "",
+      "school": "清算",
+      "effect": "如果这颗子弹被加强了伤害，则将多加出来的伤害相同数值加给下一颗子弹",
+      "notes": "",
+      "muzzle_color": "#FFD900",
+      "bullet_color": "#FFE600",
+      "in_game": false,
+      "created_at": "2026-11-18T19:03:37+08:00",
+      "updated_at": "2026-11-18T19:03:37+08:00"
     }
   ]
 }
