@@ -203,6 +203,9 @@ var _combat_speed: float = COMBAT_SPEED_DEFAULT
 var _speed_row: HBoxContainer = null
 ## v0.4.44 沙盒：顶部三分之一控制台（袋/手加减）+ 伤害统计 HUD
 const SB_TOUCH_H := 60.0  ## 可点控件最小高（逻辑像素，视口 720 宽）
+const SB_AMMO_BTN_H := 96.0  ## 袋/手加减按钮：加大方便点按
+const SB_AMMO_BTN_MIN_W := 100.0
+const SB_AMMO_BTN_FONT := 30
 const SB_STEP_BTN_W := 56.0
 const SB_STEP_VAL_W := 64.0
 const SB_FONT := 24
@@ -6224,8 +6227,34 @@ func _prepare_sandbox_console_chrome() -> void:
 	var scroll2 := vbox.get_node_or_null("DevScroll") as ScrollContainer
 	if scroll2 != null:
 		scroll2.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_ensure_sandbox_clear_bag_btn(vbox, scroll2)
 	dev_panel.z_index = 80
 	dev_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _ensure_sandbox_clear_bag_btn(vbox: VBoxContainer, scroll: ScrollContainer) -> void:
+	## 钉在滚动区上方：一键只清袋，手和弹仓不动；袋会保持空直到再加弹。
+	var btn := vbox.get_node_or_null("SandboxClearBag") as Button
+	if btn == null:
+		btn = Button.new()
+		btn.name = "SandboxClearBag"
+		btn.focus_mode = Control.FOCUS_NONE
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		if scroll != null:
+			vbox.add_child(btn)
+			vbox.move_child(btn, scroll.get_index())
+		else:
+			vbox.add_child(btn)
+		btn.pressed.connect(func():
+			if state != null:
+				state.dev_clear_bag()
+				_refresh()
+		)
+	btn.text = "清空弹药袋"
+	btn.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
+	btn.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
+	btn.disabled = state == null or state.bag.is_empty()
+	btn.tooltip_text = "只清空弹药袋，手里和弹仓里的子弹不动"
 
 
 func _sandbox_type_color(ammo_id: int) -> Color:
@@ -6386,15 +6415,18 @@ func _sb_console_btn(parent: Control, label: String, cb: Callable) -> Button:
 	var b := Button.new()
 	b.text = label
 	b.focus_mode = Control.FOCUS_NONE
-	b.custom_minimum_size = Vector2(72, SB_TOUCH_H)
+	b.custom_minimum_size = Vector2(SB_AMMO_BTN_MIN_W, SB_AMMO_BTN_H)
 	b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b.add_theme_font_size_override("font_size", SB_FONT)
+	b.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
 	_sb_bind_scroll_drag(b, cb)
 	parent.add_child(b)
 	return b
 
 
 func _refresh_sandbox_console_counts() -> void:
+	var clear_btn := dev_panel.get_node_or_null("DevMargin/DevVBox/SandboxClearBag") as Button if dev_panel != null else null
+	if clear_btn != null:
+		clear_btn.disabled = state == null or state.bag.is_empty()
 	if state == null or _sb_count_nodes.is_empty():
 		return
 	for aid in _sb_count_nodes.keys():
