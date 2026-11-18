@@ -56,6 +56,8 @@ func clear() -> void:
 ## 写入单个仓位（逐步装填用）。
 func set_slot(index: int, ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
 	assert(index >= 0 and index < slots.size())
+	if ammo_id != EMPTY:
+		ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	slots[index] = ammo_id
 	_ensure_temp_size()
 	temp_slots[index] = temp_value(temporary) if ammo_id != EMPTY else 0.0
@@ -69,11 +71,14 @@ func load_sequence(ammo_ids: Array[int], temporary_flags: Array = []) -> int:
 	clear()
 	var n: int = mini(ammo_ids.size(), slots.size())
 	for i in n:
-		slots[i] = ammo_ids[i]
+		var aid: int = int(ammo_ids[i])
+		if aid != EMPTY:
+			aid = CombatConstants.migrate_ammo_id(aid)
+		slots[i] = aid
 		var tv: float = 0.0
 		if i < temporary_flags.size():
 			tv = temp_value(temporary_flags[i])
-		temp_slots[i] = tv if ammo_ids[i] != EMPTY else 0.0
+		temp_slots[i] = tv if aid != EMPTY else 0.0
 	start_index = 0
 	return n
 

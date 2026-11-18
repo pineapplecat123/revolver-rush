@@ -22,20 +22,25 @@ func before_each() -> void:
 
 
 func test_data_registry_loads_tables() -> void:
-	assert_eq(DataRegistry.get_ammo(1).get("name"), "平庸子弹")
+	assert_eq(DataRegistry.get_ammo(CombatConstants.WHITE_AMMO_ID).get("name"), "白板弹")
+	assert_eq(DataRegistry.get_ammo(CombatConstants.RETIRED_PINGYONG_AMMO_ID).get("name"), "白板弹")
 	assert_eq(DataRegistry.get_enemy(1).get("name"), "平民")
 	assert_true(DataRegistry.get_tag("生物").has("effect"))
-	assert_eq(int(DataRegistry.get_ammo(1).get("base_damage")), 3)
+	assert_eq(int(DataRegistry.get_ammo(CombatConstants.WHITE_AMMO_ID).get("base_damage")), 3)
 	assert_eq(int(DataRegistry.get_enemy(1).get("hp")), 10)
 
 
 func test_magazine_load_and_fire_order() -> void:
 	var mag := Magazine.new()
 	var ids: Array[int] = [1, 1, 1, 1, 1, 1]
+	var migrated: Array[int] = [
+		CombatConstants.BAIBAN_AMMO_ID, CombatConstants.BAIBAN_AMMO_ID, CombatConstants.BAIBAN_AMMO_ID,
+		CombatConstants.BAIBAN_AMMO_ID, CombatConstants.BAIBAN_AMMO_ID, CombatConstants.BAIBAN_AMMO_ID,
+	]
 	assert_eq(mag.load_sequence(ids), 6)
-	assert_eq(mag.fire_order(), ids)
+	assert_eq(mag.fire_order(), migrated)
 	mag.set_start(2)
-	assert_eq(mag.fire_order(), [1, 1, 1, 1, 1, 1])
+	assert_eq(mag.fire_order(), migrated)
 	mag.load_sequence([10, 11, 12, 13, 14, 15] as Array[int])
 	mag.set_start(3)
 	assert_eq(mag.fire_order(), [13, 14, 15, 10, 11, 12])
@@ -442,9 +447,9 @@ func test_stepwise_load_partial_when_bag_small() -> void:
 
 func test_ammo_detail_text_from_table() -> void:
 	var text := DataRegistry.format_ammo_detail_text(1)
-	assert_true(text.contains("平庸子弹"))
+	assert_true(text.contains("白板弹"))
 	assert_true(text.contains("3"))
-	assert_true(text.contains("常规子弹") or text.contains("无"))
+	assert_true("没特殊效果" in text or "基本" in text)
 
 
 func test_ammo_detail_text_invalid() -> void:

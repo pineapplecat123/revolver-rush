@@ -34,10 +34,11 @@ func test_ammo_defs_and_tag_colors() -> void:
 	assert_gt((y["bg"] as Color).r, 0.7)
 	assert_gt((y["bg"] as Color).g, 0.6)
 	assert_gt((r["bg"] as Color).r, (r["bg"] as Color).g)
-	# 平庸无标签，保持浅灰白
+	# 白板是中间类型，用类型黄
+	assert_eq(FireResolver.type_tag(WHITE), "中间")
 	var w: Dictionary = AmmoColors.colors_for(WHITE)
-	assert_gt((w["bg"] as Color).r, 0.85)
-	assert_almost_eq((w["bg"] as Color).r, (w["bg"] as Color).g, 0.05)
+	assert_gt((w["bg"] as Color).r, 0.7)
+	assert_gt((w["bg"] as Color).g, 0.6)
 
 
 func test_qishi_additive_stacking() -> void:

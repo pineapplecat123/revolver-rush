@@ -5,7 +5,7 @@ const BOARD_SIZE := 10
 const PLAYER_CELL := 0
 const MAGAZINE_SIZE := 6
 const PLAYER_MAX_HP := 20
-const WHITE_AMMO_ID := 1
+const RETIRED_PINGYONG_AMMO_ID := 1  ## 已退役的平庸弹，读取时并入白板弹
 const QISHI_AMMO_ID := 40  ## 起势弹
 const XULI_AMMO_ID := 41  ## 蓄力弹
 const DIZENG_AMMO_ID := 42  ## 递增弹
@@ -16,6 +16,7 @@ const WEIZHONG_AMMO_ID := 46  ## 尾重弹
 const XIANWEI_AMMO_ID := 47  ## 衔尾蛇弹
 const CHONGFU_KAISHI_AMMO_ID := 48  ## 重复开始弹
 const BAIBAN_AMMO_ID := 49  ## 白板弹
+const WHITE_AMMO_ID := BAIBAN_AMMO_ID  ## 旧名：现已指向白板弹
 const CIVILIAN_ENEMY_ID := 1
 const ZOMBIE_ENEMY_ID := 4
 const SUPER_ZOMBIE_ENEMY_ID := 5
@@ -25,7 +26,7 @@ const SANDBOX_DUMMY_DEFAULT_HP := 999
 const SANDBOX_DEFAULT_DUMMY_CELLS: Array[int] = [3, 5, 7]
 ## v0.4.20 沙盒伤害统计：DPS 与「最近单次最大」都看最近这么多战斗秒。
 const SANDBOX_DPS_WINDOW_SEC := 5.0
-## 开局袋：6 平庸 + 清算弹各 2 发。
+## 开局袋：6 白板 + 清算弹各 2 发。
 const STARTER_WHITE_COUNT := 6
 const STARTER_SIN_COUNT := 0
 const STARTER_CLEARING_EACH := 2
@@ -46,6 +47,27 @@ static func starter_ammo_ids() -> Array[int]:
 	for ammo_id in starter_clearing_ids():
 		for _j in STARTER_CLEARING_EACH:
 			out.append(ammo_id)
+	return out
+
+
+## 沙盒点一次「袋+」加入的发数（刻意是 2，不是事件重复）。
+const SANDBOX_BAG_ADD_PER_TAP := 2
+
+
+static func migrate_ammo_id(ammo_id: int) -> int:
+	## 把仍写着旧平庸 id 的弹药改成白板弹；其它 id 原样返回。
+	if ammo_id == RETIRED_PINGYONG_AMMO_ID:
+		return BAIBAN_AMMO_ID
+	return ammo_id
+
+
+static func migrate_ammo_ids(ids: Array) -> Array:
+	var out: Array = []
+	for x in ids:
+		if x is int or x is float:
+			out.append(migrate_ammo_id(int(x)))
+		else:
+			out.append(x)
 	return out
 
 ## 战斗胜利奖励（灰盒）

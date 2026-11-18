@@ -579,7 +579,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	_spawn_up_to_cap()
 	_spawn_timer = spawn_interval_now()
 	_set_phase(Phase.AWAIT_LOAD)
-	_log("rush!：平庸 ×%d + %s ×%d · 第 %d 波。" % [
+	_log("rush!：白板 ×%d + %s ×%d · 第 %d 波。" % [
 		CombatConstants.STARTER_WHITE_COUNT,
 		_ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_SIN_COUNT, wave_index
 	])
@@ -949,6 +949,7 @@ static func _normalize_temp_for(ammo_id: int, temporary) -> float:
 
 
 func _bag_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
+	ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	if sandbox_hold_bag_empty:
 		sandbox_hold_bag_empty = false
 	bag.append(ammo_id)
@@ -965,6 +966,7 @@ func _bag_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> vo
 
 
 func _discard_append(ammo_id: int, temporary = false) -> void:
+	ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	discard.append(ammo_id)
 	discard_temp.append(_normalize_temp_for(ammo_id, temporary))
 
@@ -986,7 +988,7 @@ func _sync_temp_arrays() -> void:
 
 
 func _fill_starter_bag(_extra_sin: int = 0) -> void:
-	## 开局 6 平庸 + 清算弹（起势/蓄力/递增/终审/尾重）各 2 发。extra_sin 参数保留给旧调用。
+	## 开局 6 白板 + 清算弹（起势/蓄力/递增/终审/尾重）各 2 发。extra_sin 参数保留给旧调用。
 	bag.clear()
 	bag_temp.clear()
 	bag_envy_copy.clear()
@@ -1008,6 +1010,7 @@ func _counts_as_permanent(ammo_id: int, temporary) -> bool:
 
 
 func _note_baseline_add(ammo_id: int, temporary) -> void:
+	ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	if _counts_as_permanent(ammo_id, temporary):
 		_combat_bag_baseline.append(ammo_id)
 
@@ -1145,6 +1148,9 @@ func can_refill_bag() -> bool:
 	## 纯查询：袋空时能否战斗内重置出至少 1 发（不改任何状态）。
 	if not bag.is_empty():
 		return true
+	# 沙盒打光后保持空袋，不把构筑基线或开局袋补回来。
+	if sandbox_mode:
+		return false
 	return (not _bag_reset_pool(bag_reset_count + 1).is_empty()) or _count_ghosts_bag_and_discard() > 0 or count_temporary_in_discard() > 0
 
 
@@ -1278,11 +1284,11 @@ func _auto_reset_bag_if_empty_at_turn_start() -> bool:
 
 func ensure_bag_refilled_if_empty() -> bool:
 	## 袋一空就补：立刻战斗内重置（构筑基线 + N 临时罪孽，保留幽灵）。弃牌并入重置逻辑。
-	## v0.4.30 沙盒：玩家主动清空后保持空袋，直到再加弹。
+	## 沙盒：打光或主动清空后都保持空袋，不把基线/开局袋补回来（效果中途生成的弹仍可直接入袋）。
 	if not bag.is_empty():
 		sandbox_hold_bag_empty = false
 		return false
-	if sandbox_mode and sandbox_hold_bag_empty:
+	if sandbox_mode:
 		return false
 	if not _reset_bag_in_combat():
 		return false
@@ -1296,9 +1302,9 @@ func ensure_bag_refilled_if_empty() -> bool:
 
 
 func choose_sin(sin_ammo_id: int) -> void:
-	## UI：开局选定罪孽后灌入 10 平庸 + 5 罪孽（不含战斗内重置加成）。
+	## UI：开局选定罪孽后灌入 10 白板 + 5 罪孽（不含战斗内重置加成）。
 	_apply_sin_choice(sin_ammo_id, true)
-	_log("选定罪孽：%s。弹药袋：平庸 ×%d + %s ×%d。" % [
+	_log("选定罪孽：%s。弹药袋：白板 ×%d + %s ×%d。" % [
 		_ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_WHITE_COUNT,
 		_ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_SIN_COUNT
 	])
@@ -2166,6 +2172,7 @@ func _alloc_hand_uid() -> int:
 
 
 func _hand_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
+	ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	hand.append(ammo_id)
 	var tv: float = _normalize_temp_for(ammo_id, temporary)
 	if envy_copy and tv == 0.0:
@@ -2754,6 +2761,9 @@ func _return_magazine_to_bag() -> void:
 
 ## 下回合洗回：标记为真，或袋已空且弃牌有弹时，把弃牌洗混回袋。不在当回合装弹中途洗满。
 func _reshuffle_if_needed_for_load() -> void:
+	# 沙盒不把已打出的弃牌自动洗回，避免打光后冒出弹药。
+	if sandbox_mode:
+		return
 	if needs_reshuffle_next_load or (bag.is_empty() and not discard.is_empty()):
 		_reshuffle_discard_into_bag()
 		needs_reshuffle_next_load = false
@@ -5670,7 +5680,7 @@ func _make_scaled_enemy(def: Dictionary, cell: int) -> EnemyInstance:
 # ——— 开发者工具 ———
 
 func dev_add_ammo(ammo_id: int, count: int = 1) -> void:
-	## 仅允许战斗启用弹药（平庸+罪孽）；老子弹等退役弹不可加袋。
+	## 仅允许战斗启用弹药；老子弹等退役弹不可加袋。
 	if ammo_id != CombatConstants.INVALID_AMMO_ID and not DataRegistry.is_ammo_enabled(ammo_id):
 		_log("[开发] 已退役弹药不可添加：%s" % _ammo_name(ammo_id))
 		return

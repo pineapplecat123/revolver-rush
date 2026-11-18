@@ -111,7 +111,7 @@ func test_sandbox_console_lists_enabled_ammo_with_big_buttons() -> void:
 	for l in scene.dev_panel.find_children("*", "Label", true, false):
 		names.append((l as Label).text)
 	var joined := " ".join(names)
-	assert_true("平庸" in joined or "平庸子弹" in joined)
+	assert_true("白板弹" in joined)
 	assert_true("起势弹" in joined)
 	assert_true("尾重弹" in joined)
 	var plus_bag := 0
@@ -123,11 +123,11 @@ func test_sandbox_console_lists_enabled_ammo_with_big_buttons() -> void:
 		if btn.text == "袋+":
 			plus_bag += 1
 	assert_eq(plus_bag, scene.state.sandbox_enabled_ammo_ids().size())
-	# 点一发平庸入袋，计数更新，袋区仍在控制台下面
+	# 点白板入袋，计数更新，袋区仍在控制台下面
 	for b in scene.dev_panel.find_children("*", "Button", true, false):
 		var btn2 := b as Button
 		if btn2.text == "袋+" and btn2.is_visible_in_tree():
-			# 点第一行（按类型排序，平庸在无标签组，不一定第一行）
+			# 点第一行（按类型排序，白板在中间组）
 			pass
 	scene.state.sandbox_add_ammo(WHITE, 1)
 	scene._refresh()

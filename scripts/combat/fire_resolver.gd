@@ -1,7 +1,7 @@
 class_name FireResolver
 ## 整匣射击：按表计算每发基础伤害。
 
-const ID_WHITE := 1
+const ID_WHITE := CombatConstants.WHITE_AMMO_ID
 const ID_GOLD := 8
 const ID_WRATH := 16  ## 愤怒
 const ID_PRIDE := 17  ## 傲慢

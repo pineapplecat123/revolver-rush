@@ -83,13 +83,13 @@ func test_auto_load_orders_by_type_tag_in_fire_order() -> void:
 	var n: int = cs.auto_load_from_hand()
 	assert_eq(n, 6)
 	assert_true(cs.hand.is_empty())
-	# 自击发位 2 起：开始、开始、中间、结束、无标签、无标签
+	# 自击发位 2 起：开始、开始、中间（白板已是中间，保持手中相对顺序）、结束
 	var fire0: int = cs.magazine.chamber_at_fire_port()
 	assert_eq(fire0, 2)
 	var got: Array[int] = []
 	for k in 6:
 		got.append(cs.magazine.slots[(fire0 + k) % 6])
-	assert_eq(got, [QISHI, XULI, DIZENG, ZHONGSHEN, WHITE, WHITE] as Array[int])
+	assert_eq(got, [QISHI, XULI, WHITE, DIZENG, WHITE, ZHONGSHEN] as Array[int])
 
 
 func test_auto_load_keeps_already_loaded_chambers() -> void:

@@ -413,7 +413,7 @@ func _ready() -> void:
 		call_deferred("_fit_sandbox_panel")  # 首帧布局后按 TopPanel 实际高度再贴一次
 	else:
 		btn_next_wave.text = "重新开始 rush!"
-		# 本分支只有平庸弹，开局直接进战斗。
+		# 开局直接进战斗。
 		state.start_rush(0, FireResolver.ID_WRATH)
 		state.pace_after_fire = true
 		state.defer_impacts = true
@@ -6017,7 +6017,7 @@ func _build_sin_pick_panel() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.45))
 	vbox.add_child(title)
 	var hint := Label.new()
-	hint.text = "开局弹药袋：平庸 ×%d，起势/蓄力/递增/终审/尾重各 ×%d" % [CombatConstants.STARTER_WHITE_COUNT, CombatConstants.STARTER_CLEARING_EACH]
+	hint.text = "开局弹药袋：白板 ×%d，起势/蓄力/递增/终审/尾重各 ×%d" % [CombatConstants.STARTER_WHITE_COUNT, CombatConstants.STARTER_CLEARING_EACH]
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)
@@ -6115,7 +6115,7 @@ func _rebuild_dev_tool_body() -> void:
 	_dev_add_btn(col_general["box"], "玩家 HP +5", func(): state.dev_set_player_hp(state.player_hp + 5))
 	_dev_add_btn(col_general["box"], "玩家 HP -5", func(): state.dev_set_player_hp(state.player_hp - 5))
 	_dev_add_btn(col_general["box"], "前敌 HP→1", func(): state.dev_set_front_enemy_hp(1))
-	_dev_add_btn(col_general["box"], "强制装 6 平庸", func():
+	_dev_add_btn(col_general["box"], "强制装 6 白板", func():
 		var ids: Array[int] = [
 			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
 			CombatConstants.WHITE_AMMO_ID, CombatConstants.WHITE_AMMO_ID,
@@ -6124,7 +6124,7 @@ func _rebuild_dev_tool_body() -> void:
 		state.dev_force_load(ids)
 	)
 	_dev_add_btn(col_general["box"], "跳过怪回合", func(): state.dev_skip_enemy_turn())
-	# —— 弹药（仅 enabled_in_combat：平庸+罪孽族；老子弹不暴露）——
+	# —— 弹药（仅 enabled_in_combat；老子弹不暴露）——
 	_dev_add_btn(col_ammo["box"], "清空弹药袋", func(): state.dev_clear_bag())
 	var ammo_items: Array = DataRegistry.all_ammo().duplicate()
 	ammo_items.sort_custom(func(a, b): return int(a.get("id", 0)) < int(b.get("id", 0)))
@@ -6312,7 +6312,7 @@ func _sb_build_ammo_row(parent: Control, ammo_id: int) -> void:
 	vb.add_child(row)
 	var b_bag_plus := _sb_console_btn(row, "袋+", func(id := ammo_id):
 		if state != null:
-			state.sandbox_add_ammo(id, 1, 0.0)
+			state.sandbox_add_ammo(id, CombatConstants.SANDBOX_BAG_ADD_PER_TAP, 0.0)
 			_refresh()
 	)
 	var b_bag_minus := _sb_console_btn(row, "袋-", func(id := ammo_id):
@@ -6385,11 +6385,14 @@ func _sb_on_scroll_gui_input(ctrl: Control, event: InputEvent, on_tap: Callable)
 	if is_press:
 		ctrl.set_meta("_sb_press_pos", pos)
 		ctrl.set_meta("_sb_dragging", false)
+		# 同一次按下可能同时来鼠标和触屏事件，只允许触发一次点按。
+		ctrl.set_meta("_sb_tap_armed", true)
 		return
 	if is_drag and ctrl.has_meta("_sb_press_pos"):
 		var origin: Vector2 = ctrl.get_meta("_sb_press_pos")
 		if not bool(ctrl.get_meta("_sb_dragging", false)) and pos.distance_to(origin) >= SB_TAP_MAX_PX:
 			ctrl.set_meta("_sb_dragging", true)
+			ctrl.set_meta("_sb_tap_armed", false)
 			if ctrl is BaseButton:
 				(ctrl as BaseButton).set_pressed_no_signal(false)
 		if bool(ctrl.get_meta("_sb_dragging", false)) and scroll != null:
@@ -6398,7 +6401,9 @@ func _sb_on_scroll_gui_input(ctrl: Control, event: InputEvent, on_tap: Callable)
 		return
 	if is_release:
 		var dragging: bool = bool(ctrl.get_meta("_sb_dragging", false))
+		var armed: bool = bool(ctrl.get_meta("_sb_tap_armed", false))
 		ctrl.set_meta("_sb_dragging", false)
+		ctrl.set_meta("_sb_tap_armed", false)
 		if ctrl.has_meta("_sb_press_pos"):
 			ctrl.remove_meta("_sb_press_pos")
 		if dragging:
@@ -6406,7 +6411,7 @@ func _sb_on_scroll_gui_input(ctrl: Control, event: InputEvent, on_tap: Callable)
 				(ctrl as BaseButton).set_pressed_no_signal(false)
 			ctrl.accept_event()
 			return
-		if on_tap.is_valid() and not (ctrl is BaseButton and (ctrl as BaseButton).disabled):
+		if armed and on_tap.is_valid() and not (ctrl is BaseButton and (ctrl as BaseButton).disabled):
 			on_tap.call()
 			ctrl.accept_event()
 

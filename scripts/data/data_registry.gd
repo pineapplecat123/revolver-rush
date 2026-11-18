@@ -43,7 +43,7 @@ func _load_by_string_id(path: String) -> Dictionary:
 
 
 func get_ammo(ammo_id: int) -> Dictionary:
-	return _ammo_by_id.get(ammo_id, {})
+	return _ammo_by_id.get(CombatConstants.migrate_ammo_id(ammo_id), {})
 
 
 func get_enemy(enemy_id: int) -> Dictionary:

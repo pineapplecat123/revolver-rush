@@ -16,11 +16,12 @@ func test_changelog_has_0_4_15_entry() -> void:
 
 
 func test_shop_pool_rarity_table_snapshot() -> void:
-	## 本分支商店池：平庸 + 清算五弹 + 加速/撤退 + 衔尾蛇/重复开始/白板。
-	assert_eq(DataRegistry.all_ammo().size(), 11)
+	## 本分支商店池：清算五弹 + 加速/撤退 + 衔尾蛇/重复开始/白板（平庸已并入白板，不重复）。
+	assert_eq(DataRegistry.all_ammo().size(), 10)
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.XIANWEI_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.CHONGFU_KAISHI_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.BAIBAN_AMMO_ID))
+	assert_eq(CombatConstants.WHITE_AMMO_ID, CombatConstants.BAIBAN_AMMO_ID)
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WHITE_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WEIZHONG_AMMO_ID))
 	assert_eq(DataRegistry.get_ammo_rarity(CombatConstants.WHITE_AMMO_ID), "common")
@@ -28,7 +29,8 @@ func test_shop_pool_rarity_table_snapshot() -> void:
 
 func test_price_formula_matches_constants() -> void:
 	var shop := ShopState.new()
-	assert_eq(shop.ammo_price(1), 5)
+	assert_eq(shop.ammo_price(CombatConstants.WHITE_AMMO_ID), 5)
+	assert_eq(shop.ammo_price(CombatConstants.RETIRED_PINGYONG_AMMO_ID), 5)
 	assert_eq(ShopConstants.price_for_rarity("common"), 5)
 	assert_eq(ShopConstants.price_for_rarity("uncommon"), 8)
 	assert_eq(ShopConstants.price_for_rarity("rare"), 14)

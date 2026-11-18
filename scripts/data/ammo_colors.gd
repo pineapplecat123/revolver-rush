@@ -1,6 +1,6 @@
 class_name AmmoColors
 ## 弹药色板：类型标签有默认色（开始绿 / 中间黄 / 结束红），单弹可在 ammo.json 用 color 覆盖。
-## 无标签的旧弹（如平庸）沿用原来的按 id 色。
+## 无标签的旧弹沿用原来的按 id 色。
 
 const TAG_START := "开始"
 const TAG_MID := "中间"

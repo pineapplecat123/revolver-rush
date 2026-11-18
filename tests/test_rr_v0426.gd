@@ -122,7 +122,9 @@ func test_load_ignored_and_button_disabled_while_shooting() -> void:
 		assert_false(ui._volley_ui_running, "不软锁 delay=%.2f" % delay)
 		assert_false(cs.is_volley_pending())
 		assert_false(ui._wheel_animating, "转盘动画已收束")
-		# 恢复：能倒出，再经状态 API 装入（UI 无自动装入键，靠拖装）
+		# 沙盒打光后不再自动补袋；这里只验证按键恢复，袋空时再加弹。
+		if cs.bag.is_empty() and cs.hand.is_empty():
+			cs.dev_add_ammo(WHITE, 10)
 		ui._refresh()
 		assert_false(ui.btn_manual_load.disabled, "打完后倒出键恢复")
 		ui._on_manual_load()

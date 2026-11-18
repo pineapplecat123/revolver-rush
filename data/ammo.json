@@ -2,18 +2,6 @@
   "version": 1,
   "items": [
     {
-      "id": 1,
-      "name": "平庸子弹",
-      "rarity": "common",
-      "base_damage": 3,
-      "base_damage_mode": "fixed",
-      "special": "常规平庸弹药，基础伤害3。",
-      "tags": [],
-      "enabled_in_combat": true,
-      "blurb": "常规平庸",
-      "bullet_color": "#EAEAEF"
-    },
-    {
       "id": 40,
       "name": "起势弹",
       "rarity": "common",

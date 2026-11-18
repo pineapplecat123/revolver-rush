@@ -98,4 +98,4 @@ func test_ammo_text_mentions_new_numbers() -> void:
 	assert_true(DataRegistry.get_ammo(FireResolver.ID_LUST).is_empty())
 	assert_true(DataRegistry.get_ammo(FireResolver.ID_SLOTH).is_empty())
 	assert_true(DataRegistry.get_ammo(GHOST).is_empty())
-	assert_eq(str(DataRegistry.get_ammo(CombatConstants.WHITE_AMMO_ID).get("name", "")), "平庸子弹")
+	assert_eq(str(DataRegistry.get_ammo(CombatConstants.WHITE_AMMO_ID).get("name", "")), "白板弹")

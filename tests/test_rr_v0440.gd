@@ -45,8 +45,9 @@ func test_bullet_and_muzzle_colors_from_data() -> void:
 	var xuli: Dictionary = DataRegistry.get_ammo(XULI)
 	assert_eq(str(xuli.get("muzzle_color", "")).to_upper(), "#2CC4B4")
 	var white_bg: Color = AmmoColors.colors_for(WHITE)["bg"]
-	assert_gt(white_bg.r, 0.85)
-	assert_almost_eq(white_bg.r, white_bg.g, 0.05)
+	# 白板弹是中间类型黄
+	assert_gt(white_bg.r, 0.7)
+	assert_gt(white_bg.g, 0.6)
 	var muzzle_q: Color = AmmoColors.muzzle_color(QISHI)
 	assert_gt(muzzle_q.g, muzzle_q.r)
 	var muzzle_x: Color = AmmoColors.muzzle_color(XULI)
