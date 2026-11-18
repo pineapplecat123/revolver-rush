@@ -1259,6 +1259,15 @@ func is_bag_index_temporary(index: int) -> bool:
 	return index < bag_envy_copy.size() and bool(bag_envy_copy[index])
 
 
+func is_hand_index_temporary(index: int) -> bool:
+	if index < 0 or index >= hand.size():
+		return false
+	_sync_hand_arrays()
+	if index < hand_temp.size() and Magazine.temp_value(hand_temp[index]) != 0.0:
+		return true
+	return index < hand_envy_copy.size() and bool(hand_envy_copy[index])
+
+
 func count_temporary_in_bag() -> int:
 	var n := 0
 	for i in bag_temp.size():
@@ -4149,8 +4158,9 @@ func spin_cylinder_for_volley() -> int:
 	var steps: int
 	var start_slots: Array[int] = _loaded_start_type_slots()
 	if start_slots.size() > 0:
-		# 有「开始」弹：落点在其中均匀随机；抽到当前仓 → 整圈（逻辑锤位不变）。
-		steps = magazine.random_roll_to_one_of(rng, start_slots)
+		# v0.4.58：落点固定为弹匣自然顺序里最先的那发开始弹（下标最小）；
+		# 画面仍转。已在该仓则整圈（逻辑锤位不变）。
+		steps = magazine.roll_to_slot(start_slots[0])
 		if steps < 0:
 			return 0
 		if steps == 0:
@@ -5403,7 +5413,13 @@ func tick_temp_sin_lifetimes(delta_sec: float) -> bool:
 		for s in magazine.slots.size():
 			if not magazine.is_slot_temporary(s):
 				continue
-			var mv: float = magazine.slot_temp_life(s) - delta_sec
+			# 打出即毁（含嫉妒复制、撤退弹生成的临时复制体）不计时，不能按剩余秒清仓。
+			if magazine.is_slot_fire_once(s):
+				continue
+			var life: float = magazine.slot_temp_life(s)
+			if life <= 0.0:
+				continue
+			var mv: float = life - delta_sec
 			if mv <= 0.0:
 				expired_temp_events.append({"where": "mag", "slot": s, "id": int(magazine.slots[s])})
 				_log("临时%s到期消失（转轮仓 %d → 空仓）。" % [_ammo_name(int(magazine.slots[s])), s])

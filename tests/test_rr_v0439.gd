@@ -119,7 +119,7 @@ func test_auto_load_keeps_already_loaded_chambers() -> void:
 func test_spin_lands_on_random_start_type() -> void:
 	var cs := CombatState.new(43903)
 	cs.start_rush(43903, FireResolver.ID_WRATH)
-	# 满匣：起势在 1、4，其余平庸。反复转必须落在 1 或 4。
+	# v0.4.58：满匣起势在 1、4，反复转必须始终落在最先（下标最小）的开始仓 1。
 	cs.magazine.clear()
 	cs.magazine.start_index = 0
 	cs.magazine.set_slot(0, WHITE)
@@ -129,14 +129,11 @@ func test_spin_lands_on_random_start_type() -> void:
 	cs.magazine.set_slot(4, XULI)
 	cs.magazine.set_slot(5, WHITE)
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
-	var landed: Dictionary = {}
 	for i in 24:
 		var steps: int = cs.spin_cylinder_for_volley()
 		assert_gt(steps, 0)
 		var port: int = cs.magazine.chamber_at_fire_port()
-		assert_true(port == 1 or port == 4, "应停在开始弹仓，实际 %d" % port)
-		landed[port] = true
-	assert_eq(landed.size(), 2, "两个开始仓都应能落到")
+		assert_eq(port, 1, "应停在最先的开始弹仓，实际 %d" % port)
 
 
 func test_spin_without_start_type_keeps_old_behavior() -> void:

@@ -60,7 +60,10 @@ func set_slot(index: int, ammo_id: int, temporary = false, envy_copy: bool = fal
 		ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	slots[index] = ammo_id
 	_ensure_temp_size()
-	temp_slots[index] = temp_value(temporary) if ammo_id != EMPTY else 0.0
+	var tv: float = temp_value(temporary) if ammo_id != EMPTY else 0.0
+	if ammo_id != EMPTY and bool(envy_copy) and tv == 0.0:
+		tv = CombatConstants.FIRE_ONCE_TEMP
+	temp_slots[index] = tv
 	while envy_copy_slots.size() < slots.size():
 		envy_copy_slots.append(false)
 	envy_copy_slots[index] = bool(envy_copy) and ammo_id != EMPTY
@@ -117,6 +120,17 @@ func random_roll_to_loaded(p_rng: RandomNumberGenerator) -> int:
 		if slots[i] != EMPTY:
 			loaded.append(i)
 	var target: int = loaded[p_rng.randi_range(0, loaded.size() - 1)]
+	var steps: int = posmod(target - start_index, slots.size())
+	start_index = target
+	return steps
+
+
+## 转到指定仓对准击发点。0/1 发、目标非法或空仓返回 -1。
+func roll_to_slot(target: int) -> int:
+	if loaded_count() <= 1 or slots.size() <= 1:
+		return -1
+	if target < 0 or target >= slots.size() or slots[target] == EMPTY:
+		return -1
 	var steps: int = posmod(target - start_index, slots.size())
 	start_index = target
 	return steps

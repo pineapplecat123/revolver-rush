@@ -4920,7 +4920,8 @@ func _make_hand_ball_panel(hand_index: int, aid: int) -> Control:
 	var sz: Vector2 = _hand_bullet_wh(h)
 	panel.custom_minimum_size = sz
 	panel.size = sz
-	panel.setup(aid, _ammo_colors(aid), _ammo_bag_glyph(aid))
+	var is_temp: bool = state != null and state.is_hand_index_temporary(hand_index)
+	panel.setup(aid, _ammo_colors(aid), _ammo_bag_glyph(aid), is_temp)
 	panel.gui_input.connect(_on_hand_slot_gui_input.bind(hand_index))
 	return panel
 
@@ -5330,8 +5331,11 @@ func _drag_begin(kind: String, index: int, global_pos: Vector2) -> void:
 		ghost.z_index = 200
 		ghost.custom_minimum_size = sz
 		ghost.size = sz
-		ghost.setup(aid, _ammo_colors(aid), _ammo_bag_glyph(aid))
-		ghost.modulate = Color(1, 1, 1, 0.85)
+		var ghost_temp: bool = state.is_hand_index_temporary(index)
+		ghost.setup(aid, _ammo_colors(aid), _ammo_bag_glyph(aid), ghost_temp)
+		# 拖影略透明；临时弹保持半透明观感，不要被拖影透明度盖成实心。
+		if not ghost_temp:
+			ghost.modulate = Color(1, 1, 1, 0.85)
 		_drag_ghost = ghost
 	else:
 		var ghost_p := Panel.new()
