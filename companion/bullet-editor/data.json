@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-19T10:20:29+08:00",
+  "updated_at": "2026-11-19T13:23:21+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -220,13 +220,13 @@
       "damage": "3",
       "rarity": "",
       "school": "清算",
-      "effect": "如果这颗子弹被加强了伤害，则给枪口挂上加同样多出数值伤害的状态（四舍五入后的预计伤害减去基础3），由下一颗实际开火的子弹获得后消耗。空仓不消耗该状态。",
+      "effect": "如果这颗子弹被加强了伤害，则给枪口挂上加同样多出数值伤害的状态（四舍五入后的预计伤害减去基础3），由本弹夹剩余所有子弹开火获得并消耗，每颗剩余子弹获得的伤害加成递减。",
       "notes": "",
       "muzzle_color": "#FFD900",
       "bullet_color": "#FFE600",
-      "in_game": true,
+      "in_game": false,
       "created_at": "2026-11-18T19:03:37+08:00",
-      "updated_at": "2026-11-18T19:03:37+08:00"
+      "updated_at": "2026-11-19T13:23:21+08:00"
     }
   ]
 }
