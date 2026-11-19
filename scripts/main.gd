@@ -46,22 +46,18 @@ func _style_menu() -> void:
 	%BtnClearCache.custom_minimum_size = Vector2(420, 64)
 	%BtnQuit.custom_minimum_size = Vector2(420, 64)
 	%TitleLabel.add_theme_font_size_override("font_size", 64)
-	%Subtitle.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
-	%HintLabel.add_theme_color_override("font_color", Color(0.6, 0.65, 0.72))
-	%VersionLabel.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
+	%TitleLabel.add_theme_color_override("font_color", UiStyle.TEXT_TITLE)
+	%Subtitle.add_theme_color_override("font_color", UiStyle.TEXT_DIM)
+	%HintLabel.add_theme_color_override("font_color", UiStyle.TEXT_DIM)
+	%VersionLabel.add_theme_color_override("font_color", UiStyle.TEXT_DIM)
+	for path in ["BtnCampaign", "BtnStart", "BtnSandbox", "BtnChangelog", "BtnCodex", "BtnClearCache", "BtnQuit"]:
+		if has_node("%" + path):
+			UiStyle.apply_text_button(get_node("%" + path) as Button)
+	_ensure_menu_backdrop()
 
 
 func _style_changelog_panel() -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.13, 0.18, 0.96)
-	style.set_border_width_all(2)
-	style.border_color = Color(0.45, 0.55, 0.75, 0.9)
-	style.set_corner_radius_all(10)
-	style.content_margin_left = 4
-	style.content_margin_right = 4
-	style.content_margin_top = 4
-	style.content_margin_bottom = 4
-	%ChangelogPanel.add_theme_stylebox_override("panel", style)
+	UiStyle.apply_panel(%ChangelogPanel, UiStyle.PANEL_HEAVY, 0.8, 8)
 
 
 func _load_changelog_entries() -> Array:
@@ -130,20 +126,9 @@ func _set_changelog_open(open: bool) -> void:
 
 
 func _style_codex_panel() -> void:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.11, 0.12, 0.16, 0.97)
-	style.set_border_width_all(2)
-	style.border_color = Color(0.92, 0.72, 0.35, 0.9)
-	style.set_corner_radius_all(10)
-	style.content_margin_left = 10
-	style.content_margin_right = 10
-	style.content_margin_top = 8
-	style.content_margin_bottom = 10
-	%CodexPanel.add_theme_stylebox_override("panel", style)
+	UiStyle.apply_panel(%CodexPanel, UiStyle.PANEL_HEAVY, 0.8, 8)
 	if has_node("%CodexDetailPanel"):
-		var ds := style.duplicate() as StyleBoxFlat
-		ds.bg_color = Color(0.09, 0.1, 0.14, 0.98)
-		%CodexDetailPanel.add_theme_stylebox_override("panel", ds)
+		UiStyle.apply_panel(%CodexDetailPanel, UiStyle.PANEL, 0.5, 6)
 	_setup_codex_kinetic_scroll()
 
 
@@ -456,6 +441,25 @@ func _on_codex_detail_dimmer_gui_input(event: InputEvent) -> void:
 
 func is_warmup_done() -> bool:
 	return _warmup_done
+
+
+func _ensure_menu_backdrop() -> void:
+	if get_node_or_null("MenuBackdrop") != null:
+		return
+	var bg := get_node_or_null("Bg") as ColorRect
+	if bg != null:
+		bg.color = Color(0.05, 0.06, 0.08, 1.0)
+	var art: CampaignBackdrop = (load("res://scripts/combat/campaign_backdrop.gd") as GDScript).new()
+	art.name = "MenuBackdrop"
+	art.z_as_relative = false
+	art.z_index = 0
+	if bg != null:
+		bg.add_child(art)
+	else:
+		add_child(art)
+		move_child(art, 0)
+	var vs := get_viewport_rect().size if is_inside_tree() else Vector2(720, 1280)
+	art.configure(vs, vs.y * 0.62, 24.0, vs.x - 24.0)
 
 
 func _begin_background_warmup() -> void:

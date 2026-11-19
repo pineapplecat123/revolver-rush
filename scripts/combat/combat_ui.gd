@@ -12,6 +12,8 @@ const PixelFxSpawnScript = preload("res://scripts/combat/pixelfx_spawn.gd")
 const BurnVfxScript = preload("res://scripts/combat/burn_vfx.gd")
 const GoldCoinVfxScript = preload("res://scripts/combat/gold_coin_vfx.gd")
 const XpOrbVfxScript = preload("res://scripts/combat/xp_orb_vfx.gd")
+const CampaignBackdropScript = preload("res://scripts/combat/campaign_backdrop.gd")
+const ShopHouseScript = preload("res://scripts/combat/shop_house.gd")
 
 ## 竖屏 720 宽：10 格 × 68 = 680
 const CELL_W := 68
@@ -127,16 +129,16 @@ const WAVE_BANNER_FADE_OUT := 0.40
 const WAVE_BANNER_FONT_SIZE := 128
 const Z_WAVE_BANNER_DIMMER := 99
 
-const COL_PHASE := Color(1.0, 0.92, 0.45)
-const COL_HP_OK := Color(0.45, 0.95, 0.55)
-const COL_HP_LOW := Color(1.0, 0.45, 0.4)
-const COL_BAG := Color(0.55, 0.85, 1.0)
-const COL_DISCARD := Color(0.85, 0.7, 1.0)
-const COL_GOLD := Color(1.0, 0.84, 0.3)
-const COL_TURN := Color(0.8, 0.8, 0.85)
-const COL_REWARD_TITLE := Color(1.0, 0.95, 0.72)
-const COL_REWARD_HINT := Color(0.9, 0.92, 0.98)
-const COL_REWARD_BTN := Color(0.98, 0.98, 1.0)
+const COL_PHASE := Color(0.86, 0.90, 0.93)
+const COL_HP_OK := Color(0.62, 0.82, 0.70)
+const COL_HP_LOW := Color(0.86, 0.52, 0.50)
+const COL_BAG := Color(0.70, 0.82, 0.90)
+const COL_DISCARD := Color(0.74, 0.72, 0.82)
+const COL_GOLD := Color(0.78, 0.72, 0.52)
+const COL_TURN := Color(0.70, 0.74, 0.78)
+const COL_REWARD_TITLE := Color(0.90, 0.93, 0.96)
+const COL_REWARD_HINT := Color(0.70, 0.75, 0.80)
+const COL_REWARD_BTN := Color(0.90, 0.93, 0.96)
 
 var state: CombatState
 var _chamber_panels: Array[Panel] = []
@@ -281,6 +283,9 @@ var _shop: ShopState = ShopState.new()
 var _shop_open: bool = false
 var _shop_temps: Array = []
 var _shop_disc_temps: Array = []  ## v0.4.29 店里弃牌堆的临时寿命（与 _shop.discard 同序）
+var _campaign_backdrop: CampaignBackdrop = null
+var _shop_house: ShopHouse = null
+var _cat_hidden_in_house: bool = false
 var _volley_ui_running: bool = false
 ## v0.4.24：连射步进中（用慢一点、看得清的转一格动画）；上一发转盘动画时长（未乘速度）。
 var _volley_stepping: bool = false
@@ -370,6 +375,8 @@ func _ready() -> void:
 		hint_lab.text = "倒出：袋→手（最多 6）。拖进空仓会吸附。射击时没装上的自动回袋，再打已装弹。"
 	_style_overlay_panels()
 	_style_corner_buttons()
+	_ensure_campaign_backdrop()
+	_ensure_shop_house()
 	_ensure_long_press_timer()
 	_ensure_enemy_auto_timer()
 	_build_board_cells()
@@ -441,38 +448,30 @@ func _style_overlay_panels() -> void:
 	for panel in [bag_panel, hand_panel, dev_panel, reward_panel]:
 		if panel == null:
 			continue
-		var style := StyleBoxFlat.new()
-		style.bg_color = Color(0.12, 0.13, 0.18, 0.96)
-		style.set_border_width_all(2)
-		style.border_color = Color(0.45, 0.55, 0.75, 0.9)
-		style.set_corner_radius_all(10)
-		style.content_margin_left = 4
-		style.content_margin_right = 4
-		style.content_margin_top = 4
-		style.content_margin_bottom = 4
-		panel.add_theme_stylebox_override("panel", style)
+		UiStyle.apply_panel(panel, UiStyle.PANEL, 1.0, 6)
 	# 袋区不要矩形框、底板或标题栏，只留皮袋画在场景底上。
 	_clear_bag_area_chrome()
-	# 竖屏三等分：战斗区 / 转轮+弹药袋 / 操作区 各一块底板
-	var thirds := {
-		"Margin/RootVBox/TopPanel": Color(0.1, 0.11, 0.15, 1.0),
-		"Margin/RootVBox/MidPanel": Color(0.12, 0.11, 0.1, 1.0),
-		"Margin/RootVBox/BottomPanel": Color(0.09, 0.1, 0.14, 1.0),
-	}
-	for path in thirds:
-		var sec := get_node_or_null(path) as PanelContainer
-		if sec == null:
-			continue
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = thirds[path]
-		sb.set_border_width_all(1)
-		sb.border_color = Color(0.3, 0.33, 0.42, 0.8)
-		sb.set_corner_radius_all(10)
-		sb.content_margin_left = 8
-		sb.content_margin_right = 8
-		sb.content_margin_top = 6
-		sb.content_margin_bottom = 6
-		sec.add_theme_stylebox_override("panel", sb)
+	# 上方面板全透明，露出静止巷景；中下为半透明平底，不再用厚描边。
+	var top := get_node_or_null("Margin/RootVBox/TopPanel") as PanelContainer
+	if top != null:
+		UiStyle.apply_panel(top, UiStyle.PANEL_GHOST, 0.0, 0)
+		var empty := StyleBoxEmpty.new()
+		empty.content_margin_left = 8
+		empty.content_margin_right = 8
+		empty.content_margin_top = 6
+		empty.content_margin_bottom = 6
+		top.add_theme_stylebox_override("panel", empty)
+	var mid := get_node_or_null("Margin/RootVBox/MidPanel") as PanelContainer
+	if mid != null:
+		UiStyle.apply_panel(mid, Color(0.06, 0.07, 0.09, 0.78), 0.6, 6)
+	var bot := get_node_or_null("Margin/RootVBox/BottomPanel") as PanelContainer
+	if bot != null:
+		UiStyle.apply_panel(bot, Color(0.05, 0.06, 0.08, 0.82), 0.6, 6)
+	var bg := get_node_or_null("Bg") as ColorRect
+	if bg != null:
+		bg.color = Color(0.05, 0.06, 0.08, 1.0)
+	if dimmer != null:
+		dimmer.color = UiStyle.DIMMER
 
 
 
@@ -505,24 +504,7 @@ func _clear_bag_area_chrome() -> void:
 
 func _style_corner_buttons() -> void:
 	for btn in [btn_menu, btn_dev]:
-		_apply_light_button_font(btn)
-		var normal := StyleBoxFlat.new()
-		normal.bg_color = Color(0.22, 0.2, 0.16, 0.92)
-		normal.set_border_width_all(2)
-		normal.border_color = Color(0.85, 0.7, 0.35, 0.9)
-		normal.set_corner_radius_all(8)
-		normal.content_margin_left = 10
-		normal.content_margin_right = 10
-		normal.content_margin_top = 6
-		normal.content_margin_bottom = 6
-		var hover := normal.duplicate()
-		hover.bg_color = Color(0.32, 0.28, 0.2, 0.96)
-		var pressed := normal.duplicate()
-		pressed.bg_color = Color(0.16, 0.14, 0.12, 0.96)
-		btn.add_theme_stylebox_override("normal", normal)
-		btn.add_theme_stylebox_override("hover", hover)
-		btn.add_theme_stylebox_override("pressed", pressed)
-		btn.add_theme_stylebox_override("focus", hover)
+		UiStyle.apply_text_button(btn)
 
 
 func _ensure_top_labels_uncropped() -> void:
@@ -705,42 +687,21 @@ func _ensure_action_buttons() -> void:
 	var fire_normal := btn_fire.get_theme_stylebox("normal")
 	if fire_normal is StyleBoxFlat:
 		var f := (fire_normal as StyleBoxFlat).duplicate() as StyleBoxFlat
-		f.bg_color = Color(0.42, 0.14, 0.12, 0.98)
-		f.border_color = Color(1.0, 0.55, 0.45, 0.95)
+		f.bg_color = Color(0.28, 0.12, 0.12, 0.92)
+		f.border_color = Color(0.62, 0.40, 0.40, 0.35)
 		btn_fire.add_theme_stylebox_override("normal", f)
 		var fh := f.duplicate() as StyleBoxFlat
-		fh.bg_color = Color(0.55, 0.2, 0.16, 1.0)
+		fh.bg_color = Color(0.34, 0.16, 0.16, 0.95)
 		btn_fire.add_theme_stylebox_override("hover", fh)
 		btn_fire.add_theme_stylebox_override("focus", fh)
 		var fp := f.duplicate() as StyleBoxFlat
-		fp.bg_color = Color(0.3, 0.1, 0.08, 1.0)
+		fp.bg_color = Color(0.20, 0.09, 0.09, 0.95)
 		btn_fire.add_theme_stylebox_override("pressed", fp)
 	_ensure_sandbox_fire_split()
 
 
 func _style_square_action_button(btn: Button) -> void:
-	_apply_light_button_font(btn)
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.2, 0.24, 0.34, 0.98)
-	normal.set_border_width_all(2)
-	normal.border_color = Color(0.75, 0.82, 0.95, 0.95)
-	normal.set_corner_radius_all(10)
-	normal.content_margin_left = 6
-	normal.content_margin_right = 6
-	normal.content_margin_top = 6
-	normal.content_margin_bottom = 6
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.3, 0.36, 0.5, 1.0)
-	var pressed := normal.duplicate()
-	pressed.bg_color = Color(0.14, 0.18, 0.28, 1.0)
-	var disabled := normal.duplicate()
-	disabled.bg_color = Color(0.14, 0.15, 0.18, 0.9)
-	disabled.border_color = Color(0.4, 0.42, 0.48, 0.65)
-	btn.add_theme_stylebox_override("normal", normal)
-	btn.add_theme_stylebox_override("hover", hover)
-	btn.add_theme_stylebox_override("pressed", pressed)
-	btn.add_theme_stylebox_override("focus", hover)
-	btn.add_theme_stylebox_override("disabled", disabled)
+	UiStyle.apply_text_button(btn)
 
 
 func _fit_modal(panel: Control, w: float, h: float) -> void:
@@ -1078,7 +1039,7 @@ func _build_board_cells() -> void:
 		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		var ground := ColorRect.new()
 		ground.name = "GroundSeg"
-		ground.color = Color(0.78, 0.72, 0.55, 0.95)
+		ground.color = Color(0.22, 0.23, 0.25, 0.0)
 		ground.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		ground.position = Vector2(0.0, float(CELL_H) - GROUND_LINE_H)
 		ground.size = Vector2(CELL_W, GROUND_LINE_H)
@@ -1423,6 +1384,8 @@ func _process(delta: float) -> void:
 		return
 	_apply_campaign_presentation()
 	_tick_campaign_ground_stains(delta)
+	_sync_campaign_backdrop()
+	_sync_shop_house()
 	if _shop_open or state.shop_hold:
 		return
 	# 射速帽不绑在「敌人自动走」上。商店/升级/选罪已经在上面或 _enemy_auto_allowed 里停掉。
@@ -1441,6 +1404,8 @@ func _process(delta: float) -> void:
 	if state.shop_touch_pending and not _shop_open and not _reward_open and not _sin_pick_open:
 		if state.campaign_offer_pending:
 			pass
+		elif state.shop_house_seq == CombatState.SHOP_HOUSE_APPROACH:
+			pass  # 还没走进门口，不开店
 		elif state._shop_field_safe_to_open():
 			_open_rush_shop()
 			return
@@ -3788,22 +3753,29 @@ var _campaign_debris_drift: float = 0.0
 func _apply_campaign_presentation() -> void:
 	if state == null:
 		return
-	# 闯关只用原来的静止战斗底，不再挂滚动景物。
+	# 巷景背景静止；地上碎块仍随走路后退。商店小屋按序列单独横移，不是滚动背景。
+	var house_walk: bool = state.shop_house_is_walking() and not _shop_open
 	var want_walk: bool = (
-		state.campaign_mode
-		and state.campaign_should_walk()
-		and not _shop_open
+		not _shop_open
 		and not _reward_open
 		and not state.reward_pending
 		and not state.campaign_offer_pending
+		and (
+			house_walk
+			or (
+				state.campaign_mode
+				and state.campaign_should_walk()
+			)
+		)
 	)
 	if _skel_player != null and is_instance_valid(_skel_player):
 		if want_walk:
-			_skel_player.set_walk_tempo(state.campaign_walk_tempo())
+			var tempo: float = CampaignRules.walk_shop_tempo() if house_walk else state.campaign_walk_tempo()
+			_skel_player.set_walk_tempo(tempo)
 			_skel_player.set_walking(true)
 		elif state.campaign_mode or (not state.sandbox_mode):
-			# 闯关非走路阶段停步；rush 保持原待机。沙盒预览走路不在这里关掉。
-			if state.campaign_mode:
+			# 闯关非走路阶段停步；rush 保持原待机（进出店除外）。沙盒预览走路不在这里关掉。
+			if state.campaign_mode or house_walk:
 				_skel_player.set_walking(false)
 	var drift: float = 0.0
 	if want_walk:
@@ -4612,16 +4584,7 @@ func _build_rush_shop_panel() -> void:
 	_shop_panel.offset_top = -300.0
 	_shop_panel.offset_right = 380.0
 	_shop_panel.offset_bottom = 300.0
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.11, 0.12, 0.16, 0.97)
-	style.set_border_width_all(2)
-	style.border_color = Color(0.92, 0.72, 0.35, 0.95)
-	style.set_corner_radius_all(12)
-	style.content_margin_left = 14
-	style.content_margin_right = 14
-	style.content_margin_top = 12
-	style.content_margin_bottom = 12
-	_shop_panel.add_theme_stylebox_override("panel", style)
+	_shop_panel.add_theme_stylebox_override("panel", UiStyle.panel_box(UiStyle.PANEL_HEAVY, 0.8, 8, 14))
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 4)
 	margin.add_theme_constant_override("margin_right", 4)
@@ -4698,7 +4661,14 @@ func _build_rush_shop_panel() -> void:
 
 func _open_rush_shop() -> void:
 	## v0.4.0：地图商店碰到玩家后打开（复用旧 ShopState；货架池稍后重做）。
+	## v0.4.72：须等走进门口之后才开界面；进店过程中不开。
 	if state == null:
+		return
+	if _shop_open:
+		return
+	if state.shop_house_seq == CombatState.SHOP_HOUSE_APPROACH:
+		return
+	if state.shop_house_seq == CombatState.SHOP_HOUSE_EXITING:
 		return
 	if _shop_panel == null:
 		_build_rush_shop_panel()
@@ -4892,6 +4862,8 @@ func _on_rush_shop_leave() -> void:
 		)
 		if state.campaign_mode:
 			state.campaign_on_shop_left()
+		else:
+			state.conclude_shop_visit()
 	_shop_temps.clear()
 	_shop_disc_temps.clear()
 	_shop_open = false
@@ -4912,28 +4884,7 @@ func _apply_light_button_font(btn: Button) -> void:
 
 
 func _style_reward_action_button(btn: Button) -> void:
-	_apply_light_button_font(btn)
-	var normal := StyleBoxFlat.new()
-	normal.bg_color = Color(0.22, 0.28, 0.42, 1.0)
-	normal.set_border_width_all(2)
-	normal.border_color = Color(0.7, 0.78, 0.95, 0.95)
-	normal.set_corner_radius_all(8)
-	normal.content_margin_left = 12
-	normal.content_margin_right = 12
-	normal.content_margin_top = 8
-	normal.content_margin_bottom = 8
-	var hover := normal.duplicate()
-	hover.bg_color = Color(0.3, 0.38, 0.55, 1.0)
-	var pressed := normal.duplicate()
-	pressed.bg_color = Color(0.18, 0.22, 0.34, 1.0)
-	var disabled := normal.duplicate()
-	disabled.bg_color = Color(0.16, 0.17, 0.22, 1.0)
-	disabled.border_color = Color(0.4, 0.42, 0.48, 0.7)
-	btn.add_theme_stylebox_override("normal", normal)
-	btn.add_theme_stylebox_override("hover", hover)
-	btn.add_theme_stylebox_override("pressed", pressed)
-	btn.add_theme_stylebox_override("focus", hover)
-	btn.add_theme_stylebox_override("disabled", disabled)
+	UiStyle.apply_text_button(btn)
 
 
 func _style_reward_choice_button(btn: Button, ammo_bg: Color) -> void:
@@ -7183,7 +7134,98 @@ func _drop_uncollected_pickups() -> void:
 			c.queue_free()
 
 
+func _ensure_campaign_backdrop() -> void:
+	if _campaign_backdrop != null and is_instance_valid(_campaign_backdrop):
+		return
+	_campaign_backdrop = CampaignBackdropScript.new()
+	_campaign_backdrop.name = "CampaignBackdrop"
+	_campaign_backdrop.z_as_relative = true
+	_campaign_backdrop.z_index = 0
+	_campaign_backdrop.show_behind_parent = false
+	add_child(_campaign_backdrop)
+	move_child(_campaign_backdrop, 0)
+	var bg := get_node_or_null("Bg") as ColorRect
+	if bg != null:
+		bg.color = Color(0, 0, 0, 0)
+		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# 让巷景画在纯色底之上、UI 之下
+		if bg.get_index() < _campaign_backdrop.get_index():
+			move_child(_campaign_backdrop, bg.get_index())
+	_sync_campaign_backdrop()
+
+
+func _sync_campaign_backdrop() -> void:
+	_ensure_campaign_backdrop()
+	var vs: Vector2 = size if size.x > 8.0 else Vector2(720, 1280)
+	if is_inside_tree():
+		vs = get_viewport_rect().size
+	var gy_g: float = _board_ground_global_y()
+	var bleft := 20.0
+	var bright := vs.x - 20.0
+	if board_row != null and board_row.get_child_count() > 0:
+		var a: Control = board_row.get_child(0) as Control
+		var b: Control = board_row.get_child(board_row.get_child_count() - 1) as Control
+		if a != null:
+			bleft = a.global_position.x
+		if b != null:
+			bright = b.global_position.x + b.size.x
+	var inv := get_global_transform().affine_inverse()
+	var local_gy: float = (inv * Vector2(0.0, gy_g)).y
+	var local_l: float = (inv * Vector2(bleft, gy_g)).x
+	var local_r: float = (inv * Vector2(bright, gy_g)).x
+	_campaign_backdrop.position = Vector2.ZERO
+	_campaign_backdrop.configure(vs, local_gy, local_l, local_r)
+
+
+func _ensure_shop_house() -> void:
+	if _shop_house != null and is_instance_valid(_shop_house):
+		return
+	_shop_house = ShopHouseScript.new()
+	_shop_house.name = "ShopHouse"
+	add_child(_shop_house)
+
+
+func _player_foot_global_x() -> float:
+	if _skel_player != null and is_instance_valid(_skel_player):
+		return _skel_player.global_position.x
+	if board_row != null and board_row.get_child_count() > CombatConstants.PLAYER_CELL:
+		var slot: Control = board_row.get_child(CombatConstants.PLAYER_CELL) as Control
+		if slot != null:
+			var rest: Vector2 = _unit_rest_position()
+			return slot.global_position.x + rest.x + UNIT_W * 0.5
+	return 80.0
+
+
+func _sync_shop_house() -> void:
+	_ensure_shop_house()
+	if state == null or not state.shop_house_active() or state.sandbox_mode:
+		if _shop_house != null:
+			_shop_house.visible = false
+		_set_cat_house_hidden(false)
+		return
+	var cat_x: float = _player_foot_global_x()
+	var gy_g: float = _board_ground_global_y()
+	var left_g: float = state.shop_house_left_at(cat_x)
+	var inv := get_global_transform().affine_inverse()
+	var local_p: Vector2 = inv * Vector2(left_g, gy_g)
+	_shop_house.visible = true
+	_shop_house.set_grounded(local_p.x, local_p.y)
+	_shop_house.set_lit(_shop_open or state.shop_house_seq == CombatState.SHOP_HOUSE_INSIDE)
+	var occ: String = state.shop_house_occlusion_at(cat_x)
+	_set_cat_house_hidden(occ == "inside")
+
+
+func _set_cat_house_hidden(hidden: bool) -> void:
+	_cat_hidden_in_house = hidden
+	if _skel_player != null and is_instance_valid(_skel_player):
+		_skel_player.visible = not hidden
+	# 进屋后不要把生命环/名字挡在墙外
+	if _player_rings != null and is_instance_valid(_player_rings) and hidden:
+		_player_rings.visible = false
+
+
 func _ensure_shop_overlay() -> Panel:
+
 	if _shop_overlay != null and is_instance_valid(_shop_overlay):
 		return _shop_overlay
 	_shop_overlay = Panel.new()

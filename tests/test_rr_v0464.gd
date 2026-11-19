@@ -165,9 +165,12 @@ func test_last_kill_opens_shop_once_without_refill() -> void:
 	var before: int = cs.alive_enemies().size()
 	assert_gt(before, 0)
 	_clear_field(cs)
-	# 清场路径必须开门店，不能立刻补刷。
+	# 清场路径必须开始走进店铺，不能立刻补刷。
 	assert_false(cs._field_cleared())
-	assert_true(cs.shop_touch_pending, "最后一击后只开一次店")
+	assert_eq(cs.shop_house_seq, CombatState.SHOP_HOUSE_APPROACH, "先走向门口")
+	assert_false(cs.shop_touch_pending, "走进去之前不开店")
+	cs.tick_shop_house(CampaignRules.walk_to_shop_sec() + 0.05)
+	assert_true(cs.shop_touch_pending, "进门完成后才 pending 开店")
 	assert_false(cs.shop_drain)
 	assert_eq(cs.alive_enemies().size(), 0, "排空清场不得立刻补怪")
 	# 再走一遍清场/时钟，不能开第二次、不能补怪。
@@ -199,11 +202,16 @@ func test_no_regular_or_boss_refill_during_drain() -> void:
 	assert_eq(cs._boss_spawned, 1)
 	_clear_field(cs)
 	cs._field_cleared()
+	cs.tick_shop_house(CampaignRules.walk_to_shop_sec() + 0.05)
 	assert_true(cs.shop_touch_pending)
-	# 模拟离店。此时已过 135 秒节点，应跳过该点（下次 225），不要立刻再开店。
+	# 模拟离店并走完出门。此时已过 135 秒节点，应跳过该点（下次 225），不要立刻再开店。
 	cs.shop_hold = true
 	cs.acknowledge_shop_touch()
 	cs.shop_hold = false
+	cs.conclude_shop_visit()
+	cs.shop_house_walk_left = 0.0
+	cs.tick_shop_house(0.0)
+	cs.clear_shop_house()
 	assert_false(cs.encounter_spawns_blocked())
 	assert_eq(cs.shop_spawn_count, 2, "已过的 135 秒节点被跳过")
 	assert_false(cs.shop_drain)
@@ -245,6 +253,9 @@ func test_reward_and_death_do_not_open_shop() -> void:
 	assert_eq(cs.alive_enemies().size(), 0, "也不补刷")
 	cs.reward_pending = false
 	cs._field_cleared()
+	assert_eq(cs.shop_house_seq, CombatState.SHOP_HOUSE_APPROACH)
+	assert_false(cs.shop_touch_pending, "刚能走去时仍未进门")
+	cs.tick_shop_house(CampaignRules.walk_to_shop_sec() + 0.05)
 	assert_true(cs.shop_touch_pending)
 
 	var cs2 := _rush(46415)
@@ -277,9 +288,13 @@ func test_next_shop_keeps_existing_cadence() -> void:
 	cs.tick_map_shop(0.0)
 	_clear_field(cs)
 	cs.tick_map_shop(0.0)
+	assert_eq(cs.shop_house_seq, CombatState.SHOP_HOUSE_APPROACH)
+	cs.tick_shop_house(CampaignRules.walk_to_shop_sec() + 0.05)
 	assert_true(cs.shop_touch_pending)
 	assert_eq(cs.shop_spawn_count, 1)
 	cs.acknowledge_shop_touch()
+	cs.conclude_shop_visit()
+	cs.clear_shop_house()
 	# 第二次节点仍是 45+90=135，不是另起一套频率。
 	cs.elapsed_sec = CombatConstants.MAP_SHOP_FIRST_SEC + CombatConstants.MAP_SHOP_RESPAWN_SEC - 1.0
 	_put(cs, CIV, 5, 10)

@@ -62,6 +62,10 @@ var campaign_offer_pending: bool = false
 var campaign_offer_picked_id: int = 0
 var campaign_await_boss_reward: bool = false
 var campaign_walk_left: float = 0.0
+## 商店小屋序列：0无 1走向入口 2在屋内/购物 3从另一扇门走出。
+var shop_house_seq: int = 0
+var shop_house_walk_left: float = 0.0
+var shop_house_stage_dur: float = 0.0
 ## 测试用：走路进店/进场时长视为 0，仍走同一套阶段切换。
 var campaign_instant_transitions: bool = false
 var campaign_transition_lock: bool = false
@@ -458,6 +462,10 @@ var shop_touch_pending: bool = false
 ## v0.4.64：商店节点已到，停止遭遇刷怪，等场上清空后再打开商店。
 var shop_drain: bool = false
 var _shop_move_prog: float = 0.0
+const SHOP_HOUSE_NONE := 0
+const SHOP_HOUSE_APPROACH := 1
+const SHOP_HOUSE_INSIDE := 2
+const SHOP_HOUSE_EXITING := 3
 var load_temp_sins_spawned: int = 0
 var _pending_tombstone_ghost_shots: Array = []
 ## 本玩家开火链已累计授予的额外轮数（含主匣与嵌套）；达上限后不再叠加。
@@ -654,6 +662,7 @@ func _reset_campaign_flags() -> void:
 	campaign_transition_lock = false
 	campaign_opening_resolved = false
 	campaign_boss_reward_issued = false
+	clear_shop_house()
 
 
 func start_campaign(seed_value: int = 0) -> void:
@@ -671,6 +680,7 @@ func start_campaign(seed_value: int = 0) -> void:
 	shop_drain = false
 	shop_hold = false
 	_shop_move_prog = 0.0
+	clear_shop_house()
 	_spawn_timer = 99999.0
 	_boss_spawned = 999999
 	encounter_kind = EncounterKind.NORMAL
@@ -728,6 +738,8 @@ func campaign_progress_text() -> String:
 			return "闯关 · 第%d关 %s · 走向商店（%d/3）" % [campaign_floor, floor_n, campaign_shops_this_floor + 1]
 		CampaignRules.PHASE_SHOP:
 			return "闯关 · 第%d关 %s · 商店 %d/3" % [campaign_floor, floor_n, campaign_shops_this_floor]
+		CampaignRules.PHASE_LEAVE_SHOP:
+			return "闯关 · 第%d关 %s · 离店" % [campaign_floor, floor_n]
 		CampaignRules.PHASE_BOSS:
 			return "闯关 · 第%d关 %s · 楼层首领" % [campaign_floor, floor_n]
 		CampaignRules.PHASE_BOSS_REWARD:
@@ -745,7 +757,7 @@ func campaign_walk_tempo() -> float:
 		return 1.0
 	if campaign_phase == CampaignRules.PHASE_COMBAT or campaign_phase == CampaignRules.PHASE_BOSS:
 		return CampaignRules.walk_combat_tempo()
-	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR]:
+	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_LEAVE_SHOP, CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR]:
 		return CampaignRules.walk_shop_tempo()
 	return CampaignRules.walk_combat_tempo()
 
@@ -901,6 +913,10 @@ func campaign_try_advance() -> void:
 		if campaign_walk_left <= 0.0 and campaign_field_safe():
 			_campaign_finish_walk_to_shop()
 		return
+	if campaign_phase == CampaignRules.PHASE_LEAVE_SHOP:
+		if campaign_walk_left <= 0.0:
+			_finish_shop_house_exit()
+		return
 	if campaign_phase == CampaignRules.PHASE_ENTER and campaign_walk_left <= 0.0:
 		_campaign_start_segment_combat()
 		return
@@ -928,10 +944,13 @@ func _begin_walk_to_shop() -> void:
 		return
 	if not campaign_field_safe():
 		return
+	if shop_house_seq != SHOP_HOUSE_NONE:
+		return
 	campaign_transition_lock = true
 	campaign_phase = CampaignRules.PHASE_WALK_SHOP
 	campaign_walk_left = _campaign_walk_duration(CampaignRules.walk_to_shop_sec())
 	_log("闯关：第%d段清空，走向商店。" % campaign_segment)
+	_begin_shop_house_approach(campaign_walk_left)
 	if campaign_walk_left <= 0.0:
 		_campaign_finish_walk_to_shop()
 	_emit()
@@ -941,55 +960,46 @@ func _campaign_finish_walk_to_shop() -> void:
 	if phase == Phase.LOST or phase == Phase.WON:
 		campaign_transition_lock = false
 		shop_touch_pending = false
+		clear_shop_house()
 		return
-	if not campaign_field_safe():
-		# 走路结束时若仍不安全（升级选择、残留弹道等），放开锁，安全后再开店。
-		campaign_transition_lock = false
-		return
-	shop_touch_pending = true
-	campaign_phase = CampaignRules.PHASE_SHOP
-	campaign_shops_this_floor += 1
-	campaign_walk_left = 0.0
-	campaign_transition_lock = false
-	_log("闯关：打开商店（本关 %d/3）。" % campaign_shops_this_floor)
-	hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": -1, "campaign": true})
-	_emit()
+	_finish_shop_house_approach()
 
 
 func campaign_on_shop_left() -> void:
 	if not campaign_mode:
 		return
 	if phase == Phase.LOST or phase == Phase.WON:
+		clear_shop_house()
 		return
 	if campaign_phase != CampaignRules.PHASE_SHOP and not shop_hold:
 		# 允许测试在 shop_touch_pending 时直接离店
-		if campaign_phase != CampaignRules.PHASE_SHOP:
+		if campaign_phase != CampaignRules.PHASE_SHOP and campaign_phase != CampaignRules.PHASE_LEAVE_SHOP:
 			if shop_touch_pending:
 				shop_touch_pending = false
-			if campaign_shops_this_floor <= 0:
+			if campaign_shops_this_floor <= 0 and shop_house_seq == SHOP_HOUSE_NONE:
 				return
 	shop_touch_pending = false
 	shop_hold = false
-	if campaign_shops_this_floor >= CampaignRules.SEGMENTS_PER_FLOOR:
-		_campaign_start_boss()
-	else:
-		campaign_segment += 1
-		campaign_wave = 1
-		_campaign_start_segment_combat()
+	_begin_shop_house_exit()
 
 
 func campaign_simulate_shop_cycle() -> bool:
-	## 测试用：完成当前走向商店（若有）并视作进店后立刻离开。
+	## 测试用：完成当前走向/进入商店（若有）并视作进店后立刻从另一扇门离开。
 	if not campaign_mode:
 		return false
-	if campaign_phase == CampaignRules.PHASE_WALK_SHOP:
+	if campaign_phase == CampaignRules.PHASE_WALK_SHOP or shop_house_seq == SHOP_HOUSE_APPROACH:
 		campaign_walk_left = 0.0
+		shop_house_walk_left = 0.0
 		_campaign_finish_walk_to_shop()
-	if campaign_phase != CampaignRules.PHASE_SHOP and not shop_touch_pending:
+	if campaign_phase != CampaignRules.PHASE_SHOP and campaign_phase != CampaignRules.PHASE_LEAVE_SHOP and not shop_touch_pending and shop_house_seq == SHOP_HOUSE_NONE:
 		return false
 	shop_touch_pending = false
 	shop_hold = false
 	campaign_on_shop_left()
+	if campaign_phase == CampaignRules.PHASE_LEAVE_SHOP or shop_house_seq == SHOP_HOUSE_EXITING:
+		campaign_walk_left = 0.0
+		shop_house_walk_left = 0.0
+		_finish_shop_house_exit()
 	return true
 
 
@@ -997,8 +1007,11 @@ func campaign_skip_walk() -> void:
 	if not campaign_mode:
 		return
 	campaign_walk_left = 0.0
-	if campaign_phase == CampaignRules.PHASE_WALK_SHOP:
+	shop_house_walk_left = 0.0
+	if campaign_phase == CampaignRules.PHASE_WALK_SHOP or shop_house_seq == SHOP_HOUSE_APPROACH:
 		_campaign_finish_walk_to_shop()
+	elif campaign_phase == CampaignRules.PHASE_LEAVE_SHOP or shop_house_seq == SHOP_HOUSE_EXITING:
+		_finish_shop_house_exit()
 	elif campaign_phase == CampaignRules.PHASE_ENTER:
 		campaign_transition_lock = false
 		_campaign_start_segment_combat()
@@ -1046,7 +1059,7 @@ func _tick_campaign(delta_sec: float) -> bool:
 	if not campaign_mode or phase == Phase.LOST or phase == Phase.WON:
 		return false
 	var changed := false
-	if campaign_phase in [CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_WALK_FLOOR]:
+	if campaign_phase in [CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR]:
 		if campaign_walk_left > 0.0:
 			campaign_walk_left = maxf(0.0, campaign_walk_left - delta_sec)
 			changed = true
@@ -1055,13 +1068,13 @@ func _tick_campaign(delta_sec: float) -> bool:
 				campaign_transition_lock = false
 				_campaign_start_segment_combat()
 				changed = true
-			elif campaign_phase == CampaignRules.PHASE_WALK_SHOP:
-				_campaign_finish_walk_to_shop()
-				changed = true
 			elif campaign_phase == CampaignRules.PHASE_WALK_FLOOR:
 				campaign_transition_lock = false
 				_campaign_begin_floor_combat()
 				changed = true
+	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_LEAVE_SHOP] or shop_house_seq in [SHOP_HOUSE_APPROACH, SHOP_HOUSE_EXITING]:
+		if tick_shop_house(delta_sec):
+			changed = true
 	if campaign_phase == CampaignRules.PHASE_COMBAT or campaign_phase == CampaignRules.PHASE_BOSS:
 		campaign_try_advance()
 	if campaign_phase == CampaignRules.PHASE_BOSS_REWARD and campaign_await_boss_reward:
@@ -5717,8 +5730,8 @@ func _field_cleared() -> bool:
 		# 商店排空阶段：清场只开门店，绝不立刻补刷。
 		_try_finish_shop_drain()
 		return false
-	if spawn_paused or shop_touch_pending or shop_hold:
-		return false  # 沙盒 / 即将开店 / 店内：清场不自动补怪
+	if spawn_paused or shop_touch_pending or shop_hold or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE:
+		return false  # 沙盒 / 即将开店 / 店内 / 进出小屋：清场不自动补怪
 	if reward_pending or has_corpse_enemies():
 		# v0.3.9：升级三选一期间一律不刷怪（纯暂停）；选完恢复战斗时由 tick_combat_time 补刷。
 		# 还有尸体（pace 飚血未清）时也先不刷：尸体清掉才发经验，避免先刷怪、后弹升级。
@@ -5937,6 +5950,213 @@ func tick_dot(delta_sec: float) -> bool:
 
 
 
+
+func shop_house_active() -> bool:
+	return shop_house_seq != SHOP_HOUSE_NONE
+
+
+func shop_house_is_walking() -> bool:
+	## 走向入口或从另一扇门走出时猫应快走；购物期间停步。
+	return shop_house_seq == SHOP_HOUSE_APPROACH or shop_house_seq == SHOP_HOUSE_EXITING
+
+
+func shop_house_progress() -> float:
+	if shop_house_seq == SHOP_HOUSE_NONE:
+		return 0.0
+	if shop_house_seq == SHOP_HOUSE_INSIDE:
+		return 1.0
+	if shop_house_stage_dur <= 0.0:
+		return 1.0
+	return clampf(1.0 - shop_house_walk_left / shop_house_stage_dur, 0.0, 1.0)
+
+
+func shop_house_approach_distance() -> float:
+	return CampaignRules.walk_to_shop_sec() * CampaignRules.walk_shop_tempo() * CampaignRules.walk_world_drift_px()
+
+
+func shop_house_exit_travel() -> float:
+	return CampaignRules.shop_house_width() + CampaignRules.shop_house_clear_pad() - CampaignRules.shop_house_entrance_x()
+
+
+func shop_house_left_at(cat_x: float) -> float:
+	## 房屋左缘世界 X（与小猫脚点同一空间）。seq 为 NONE 时把房子放在右侧场外。
+	var ent: float = CampaignRules.shop_house_entrance_x()
+	var prog: float = shop_house_progress()
+	if shop_house_seq == SHOP_HOUSE_APPROACH:
+		return cat_x + (1.0 - prog) * shop_house_approach_distance() - ent
+	if shop_house_seq == SHOP_HOUSE_INSIDE:
+		return cat_x - ent
+	if shop_house_seq == SHOP_HOUSE_EXITING:
+		return cat_x - ent - prog * shop_house_exit_travel()
+	return cat_x + shop_house_approach_distance() - ent
+
+
+func shop_house_occlusion_at(cat_x: float) -> String:
+	if shop_house_seq == SHOP_HOUSE_NONE:
+		return "outside"
+	var left: float = shop_house_left_at(cat_x)
+	var lx: float = cat_x - left
+	var in_l: float = CampaignRules.shop_house_entrance_x() - CampaignRules.shop_house_entrance_half_w()
+	var in_r: float = CampaignRules.shop_house_entrance_x() + CampaignRules.shop_house_entrance_half_w()
+	var out_l: float = CampaignRules.shop_house_exit_x() - CampaignRules.shop_house_exit_half_w()
+	var out_r: float = CampaignRules.shop_house_exit_x() + CampaignRules.shop_house_exit_half_w()
+	if lx >= in_l and lx <= in_r:
+		return "door_in"
+	if lx >= out_l and lx <= out_r:
+		return "door_out"
+	if lx > in_r and lx < out_l:
+		return "inside"
+	return "outside"
+
+
+func clear_shop_house() -> void:
+	shop_house_seq = SHOP_HOUSE_NONE
+	shop_house_walk_left = 0.0
+	shop_house_stage_dur = 0.0
+
+
+func _shop_house_stage_duration(is_approach: bool) -> float:
+	if campaign_mode and campaign_instant_transitions:
+		return 0.0
+	if is_approach:
+		return CampaignRules.walk_to_shop_sec()
+	return CampaignRules.walk_from_shop_sec()
+
+
+func _begin_shop_house_approach(duration: float = -1.0) -> void:
+	if shop_house_seq == SHOP_HOUSE_APPROACH or shop_house_seq == SHOP_HOUSE_INSIDE:
+		return
+	if phase == Phase.LOST or phase == Phase.WON:
+		return
+	var dur: float = duration if duration >= 0.0 else _shop_house_stage_duration(true)
+	shop_house_seq = SHOP_HOUSE_APPROACH
+	shop_house_stage_dur = dur
+	shop_house_walk_left = dur
+	if dur <= 0.0:
+		_finish_shop_house_approach()
+
+
+func _finish_shop_house_approach() -> void:
+	if shop_house_seq == SHOP_HOUSE_INSIDE and shop_touch_pending:
+		return
+	if shop_house_seq != SHOP_HOUSE_APPROACH and not (shop_house_seq == SHOP_HOUSE_NONE and campaign_phase == CampaignRules.PHASE_WALK_SHOP):
+		if shop_house_seq == SHOP_HOUSE_INSIDE:
+			return
+		if shop_house_seq != SHOP_HOUSE_APPROACH:
+			shop_house_seq = SHOP_HOUSE_APPROACH
+	if phase == Phase.LOST or phase == Phase.WON:
+		campaign_transition_lock = false
+		shop_touch_pending = false
+		clear_shop_house()
+		return
+	shop_house_walk_left = 0.0
+	shop_house_stage_dur = maxf(shop_house_stage_dur, 0.0)
+	if not _shop_field_safe_to_open():
+		# 停在门口等升级/弹道结束，不提前开店。
+		campaign_transition_lock = false
+		return
+	if shop_touch_pending and shop_house_seq == SHOP_HOUSE_INSIDE:
+		return
+	shop_house_seq = SHOP_HOUSE_INSIDE
+	shop_touch_pending = true
+	if campaign_mode:
+		campaign_phase = CampaignRules.PHASE_SHOP
+		campaign_shops_this_floor += 1
+		campaign_walk_left = 0.0
+		campaign_transition_lock = false
+		_log("闯关：走进店铺，打开商店（本关 %d/3）。" % campaign_shops_this_floor)
+		hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": -1, "campaign": true})
+	else:
+		_log("走进店铺，打开地图商店。")
+		hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": shop_cell, "campaign": false})
+	_emit()
+
+
+func _begin_shop_house_exit() -> void:
+	if shop_house_seq == SHOP_HOUSE_EXITING:
+		return
+	if phase == Phase.LOST or phase == Phase.WON:
+		clear_shop_house()
+		return
+	shop_touch_pending = false
+	shop_hold = false
+	var dur: float = _shop_house_stage_duration(false)
+	shop_house_seq = SHOP_HOUSE_EXITING
+	shop_house_stage_dur = dur
+	shop_house_walk_left = dur
+	if campaign_mode:
+		campaign_phase = CampaignRules.PHASE_LEAVE_SHOP
+		campaign_walk_left = dur
+		campaign_transition_lock = true
+	if dur <= 0.0:
+		_finish_shop_house_exit()
+
+
+func _finish_shop_house_exit() -> void:
+	if shop_house_seq == SHOP_HOUSE_NONE and (not campaign_mode or campaign_phase != CampaignRules.PHASE_LEAVE_SHOP):
+		return
+	if shop_house_seq != SHOP_HOUSE_EXITING and campaign_phase != CampaignRules.PHASE_LEAVE_SHOP:
+		# 允许从店内被立刻收束（即时过场）
+		if shop_house_seq != SHOP_HOUSE_INSIDE and shop_house_seq != SHOP_HOUSE_EXITING:
+			clear_shop_house()
+			return
+	shop_touch_pending = false
+	shop_hold = false
+	clear_shop_house()
+	if campaign_mode:
+		_campaign_after_shop_exit()
+	_emit()
+
+
+func _campaign_after_shop_exit() -> void:
+	if not campaign_mode:
+		return
+	if phase == Phase.LOST or phase == Phase.WON:
+		campaign_transition_lock = false
+		return
+	campaign_transition_lock = false
+	if campaign_shops_this_floor >= CampaignRules.SEGMENTS_PER_FLOOR:
+		_campaign_start_boss()
+	else:
+		campaign_segment += 1
+		campaign_wave = 1
+		_campaign_start_segment_combat()
+
+
+func tick_shop_house(delta_sec: float) -> bool:
+	if shop_house_seq != SHOP_HOUSE_APPROACH and shop_house_seq != SHOP_HOUSE_EXITING:
+		return false
+	if phase == Phase.LOST or phase == Phase.WON:
+		clear_shop_house()
+		return true
+	if delta_sec <= 0.0 and shop_house_walk_left > 0.0:
+		return false
+	if shop_house_walk_left > 0.0:
+		shop_house_walk_left = maxf(0.0, shop_house_walk_left - maxf(0.0, delta_sec))
+		if campaign_mode and campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_LEAVE_SHOP]:
+			campaign_walk_left = shop_house_walk_left
+	if shop_house_walk_left > 0.0:
+		return true
+	if shop_house_seq == SHOP_HOUSE_APPROACH:
+		_finish_shop_house_approach()
+	elif shop_house_seq == SHOP_HOUSE_EXITING:
+		_finish_shop_house_exit()
+	return true
+
+
+func conclude_shop_visit() -> void:
+	## 测试/离店：关闭待开标记并开始（或立即完成）从另一扇门走出。
+	shop_touch_pending = false
+	shop_hold = false
+	if campaign_mode:
+		campaign_on_shop_left()
+		return
+	if shop_house_seq == SHOP_HOUSE_INSIDE or shop_house_seq == SHOP_HOUSE_APPROACH:
+		_begin_shop_house_exit()
+	else:
+		clear_shop_house()
+
+
 func acknowledge_shop_touch() -> void:
 	shop_touch_pending = false
 	shop_drain = false
@@ -5947,7 +6167,7 @@ func acknowledge_shop_touch() -> void:
 
 func encounter_spawns_blocked() -> bool:
 	## 商店排空/待开/开着时，停止遭遇刷怪（普通补刷、定时刷、到点 Boss），不影响场上已有敌人与超级僵尸召唤。
-	return shop_drain or shop_touch_pending or shop_hold
+	return shop_drain or shop_touch_pending or shop_hold or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE
 
 
 func _shop_milestone_due() -> bool:
@@ -5958,7 +6178,7 @@ func _shop_milestone_due() -> bool:
 
 
 func _shop_cycle_busy() -> bool:
-	return shop_drain or shop_touch_pending or shop_hold or shop_cell >= 0
+	return shop_drain or shop_touch_pending or shop_hold or shop_cell >= 0 or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE
 
 
 func has_pending_impacts() -> bool:
@@ -5986,9 +6206,8 @@ func _try_finish_shop_drain() -> bool:
 	if not _shop_field_safe_to_open():
 		return false
 	shop_drain = false
-	shop_touch_pending = true
-	_log("场上已清空，打开地图商店。")
-	hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": shop_cell})
+	_begin_shop_house_approach()
+	_log("场上已清空，走向店铺门口。")
 	return true
 
 
@@ -5998,6 +6217,8 @@ func tick_map_shop(delta_sec: float) -> bool:
 	if map_shop_disabled:
 		return false
 	var changed := false
+	if shop_house_seq in [SHOP_HOUSE_APPROACH, SHOP_HOUSE_EXITING]:
+		changed = tick_shop_house(delta_sec) or changed
 	if _shop_milestone_due() and not _shop_cycle_busy():
 		shop_drain = true
 		shop_spawn_count += 1

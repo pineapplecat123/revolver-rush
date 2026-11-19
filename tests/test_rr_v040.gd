@@ -139,7 +139,11 @@ func test_map_shop_spawns_and_touches_player() -> void:
 	# 直接清场，避免击杀经验弹出升级三选一挡住开店。
 	cs.enemies.clear()
 	cs.tick_map_shop(0.0)
+	assert_eq(cs.shop_house_seq, CombatState.SHOP_HOUSE_APPROACH, "清场后先走向门口，还不pending")
+	assert_false(cs.shop_touch_pending)
+	cs.tick_shop_house(CampaignRules.walk_to_shop_sec() + 0.05)
 	assert_true(cs.shop_touch_pending)
+	assert_eq(cs.shop_house_seq, CombatState.SHOP_HOUSE_INSIDE)
 	assert_false(cs.shop_drain)
 	assert_eq(cs.shop_cell, -1)
 

@@ -16,6 +16,7 @@ const PHASE_BOSS := 6
 const PHASE_BOSS_REWARD := 7
 const PHASE_WALK_FLOOR := 8
 const PHASE_VICTORY := 9
+const PHASE_LEAVE_SHOP := 10
 
 static var _cache: Dictionary = {}
 
@@ -54,6 +55,40 @@ static func walk_shop_tempo() -> float:
 
 static func walk_to_shop_sec() -> float:
 	return maxf(0.0, float(data().get("walk_to_shop_sec", 1.6)))
+
+
+static func walk_from_shop_sec() -> float:
+	return maxf(0.0, float(data().get("walk_from_shop_sec", 2.55)))
+
+
+static func shop_house_width() -> float:
+	return 360.0
+
+
+static func shop_house_height() -> float:
+	return 236.0
+
+
+static func shop_house_entrance_x() -> float:
+	## 入口门洞中心相对房屋左缘。
+	return 62.0
+
+
+static func shop_house_exit_x() -> float:
+	## 另一扇门（侧门/后门）中心相对房屋左缘。
+	return 304.0
+
+
+static func shop_house_entrance_half_w() -> float:
+	return 23.0
+
+
+static func shop_house_exit_half_w() -> float:
+	return 20.0
+
+
+static func shop_house_clear_pad() -> float:
+	return 80.0
 
 
 static func walk_enter_sec() -> float:
@@ -181,5 +216,7 @@ static func phase_title(phase: int) -> String:
 			return "前往下层"
 		PHASE_VICTORY:
 			return "胜利"
+		PHASE_LEAVE_SHOP:
+			return "离店"
 		_:
 			return ""

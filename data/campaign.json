@@ -5,6 +5,7 @@
   "walk_combat_tempo": 0.72,
   "walk_shop_tempo": 1.85,
   "walk_to_shop_sec": 1.6,
+  "walk_from_shop_sec": 2.55,
   "walk_enter_sec": 1.0,
   "walk_floor_sec": 1.2,
   "walk_world_drift_px": 80.0,
