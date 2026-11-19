@@ -31,7 +31,7 @@ func test_version_and_fire_cap_constants() -> void:
 	assert_true('"version": "0.4.21"' in text)
 	assert_almost_eq(CombatConstants.MAX_FIRE_RATE_HZ, 10.0, 0.001)
 	assert_almost_eq(CombatConstants.MIN_FIRE_INTERVAL_SEC, 0.1, 0.001)
-	assert_almost_eq(CombatConstants.KILL_GOLD_DROP_CHANCE, 0.25, 0.001)
+	assert_almost_eq(CombatConstants.KILL_GOLD_DROP_CHANCE, 1.0, 0.001)
 	assert_eq(CombatConstants.KILL_GOLD_DROP_AMOUNT, 2)
 	assert_almost_eq(CombatConstants.KILL_GOLD_BOSS_DROP_CHANCE, 1.0, 0.001)
 	assert_eq(CombatConstants.KILL_GOLD_BOSS_DROP_AMOUNT, 8)

@@ -223,8 +223,8 @@ const JIASU_SPEED_PER_STACK := 1.0
 ## v0.4.24：装满后、开火前都不再随机转轮；从当前击发仓直接开打。
 const LOAD_FULL_RANDOM_SPIN := false
 
-## v0.4.21 击杀掉金币。普通怪 25% 掉 2；Boss（超级僵尸）必掉 8。木桩不掉。
-const KILL_GOLD_DROP_CHANCE := 0.25
+## v0.4.21 击杀掉金币；v0.4.70 普通怪改为必掉。普通怪（含召唤僵尸、闯关非超级僵尸首领）必掉 2；超级僵尸（def_id 5）必掉 8。木桩不掉。
+const KILL_GOLD_DROP_CHANCE := 1.0
 const KILL_GOLD_DROP_AMOUNT := 2
 const KILL_GOLD_BOSS_DROP_CHANCE := 1.0
 const KILL_GOLD_BOSS_DROP_AMOUNT := 8
