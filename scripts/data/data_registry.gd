@@ -46,6 +46,57 @@ func get_ammo(ammo_id: int) -> Dictionary:
 	return _ammo_by_id.get(CombatConstants.migrate_ammo_id(ammo_id), {})
 
 
+func ammo_display_name(ammo_id: int) -> String:
+	## 当前图鉴名。缺条目或名为空时回退「未知#id」，供伤害修正/枪口展示跟随改名。
+	var nid: int = CombatConstants.migrate_ammo_id(ammo_id)
+	var def: Dictionary = get_ammo(nid)
+	if def.is_empty():
+		return "未知#%d" % nid
+	var n: String = str(def.get("name", "")).strip_edges()
+	if n.is_empty():
+		return "未知#%d" % nid
+	return n
+
+
+func muzzle_source_ammo_id(entry: Dictionary) -> int:
+	## 用稳定状态 id / 记录的来源弹 id 找回效果来源子弹，不用写死展示名。
+	var sid: int = int(entry.get("source_ammo_id", 0))
+	if sid > 0:
+		return CombatConstants.migrate_ammo_id(sid)
+	var kind: String = str(entry.get("id", "")).strip_edges()
+	if kind == "qishi":
+		return CombatConstants.QISHI_AMMO_ID
+	if kind == "xuli":
+		return CombatConstants.XULI_AMMO_ID
+	if kind == "huiwei":
+		return CombatConstants.HUIWEI_AMMO_ID
+	if kind == "chuandi":
+		return CombatConstants.CHUANDI_AMMO_ID
+	if kind == "jiasu":
+		return CombatConstants.JIASU_AMMO_ID
+	return 0
+
+
+func muzzle_buff_display_label(entry: Dictionary) -> String:
+	## 伤害类枪口展示名跟随来源子弹当前图鉴名；其它状态仍用数据里的短标签。
+	var kind: String = str(entry.get("effect_kind", ""))
+	var sid: int = muzzle_source_ammo_id(entry)
+	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat" or sid == CombatConstants.QISHI_AMMO_ID or sid == CombatConstants.XULI_AMMO_ID or sid == CombatConstants.HUIWEI_AMMO_ID or sid == CombatConstants.CHUANDI_AMMO_ID:
+		if sid > 0:
+			return ammo_display_name(sid)
+	if sid > 0 and str(entry.get("label", "")).strip_edges().is_empty():
+		return ammo_display_name(sid)
+	var lab: String = str(entry.get("label", "")).strip_edges()
+	if not lab.is_empty():
+		return lab
+	var nm: String = str(entry.get("name", "")).strip_edges()
+	if not nm.is_empty():
+		return nm
+	if sid > 0:
+		return ammo_display_name(sid)
+	return ""
+
+
 func get_enemy(enemy_id: int) -> Dictionary:
 	return _enemies_by_id.get(enemy_id, {})
 
@@ -186,12 +237,22 @@ func muzzle_status_of(ammo_id: int) -> Dictionary:
 	var out := src.duplicate(true)
 	if not out.has("id") or str(out.get("id", "")).strip_edges() == "":
 		out["id"] = str(def.get("name", ammo_id))
+	out["source_ammo_id"] = ammo_id
+	var display: String = ammo_display_name(ammo_id)
 	if not out.has("name") or str(out.get("name", "")).strip_edges() == "":
-		out["name"] = str(def.get("name", ""))
-	var label := str(out.get("label", "")).strip_edges()
-	if label.is_empty():
-		label = _default_muzzle_status_label(str(out.get("name", "")))
-	out["label"] = label
+		out["name"] = display
+	var kind: String = str(out.get("effect_kind", ""))
+	# 伤害类枪口标签跟当前子弹名走，不用数据里写死的旧称（如「起势」「蓄力」）。
+	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat":
+		out["name"] = display
+		out["label"] = display
+	else:
+		var label := str(out.get("label", "")).strip_edges()
+		if label.is_empty():
+			label = _default_muzzle_status_label(display if not display.begins_with("未知#") else str(out.get("name", "")))
+		out["label"] = label
+		if str(out.get("name", "")).strip_edges() == "":
+			out["name"] = display
 	if not out.has("duration_type") or str(out.get("duration_type", "")).strip_edges() == "":
 		out["duration_type"] = "rest_of_volley"
 	var explicit := _muzzle_status_color(out.get("color", null), ammo_id)

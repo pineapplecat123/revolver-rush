@@ -151,7 +151,9 @@ func _toggle_popup(ic: _Icon) -> void:
 		_hide_popup()
 		return
 	_open_id = eid
-	_popup_name.text = str(ic.entry.get("name", ic.entry.get("label", "")))
+	_popup_name.text = DataRegistry.muzzle_buff_display_label(ic.entry)
+	if _popup_name.text.strip_edges().is_empty():
+		_popup_name.text = str(ic.entry.get("name", ic.entry.get("label", "")))
 	_popup_dur.text = DataRegistry.format_muzzle_status_duration(ic.entry)
 	_popup_eff.text = DataRegistry.format_muzzle_status_effect(ic.entry)
 	_popup.visible = true
@@ -265,9 +267,11 @@ class _Icon extends Control:
 		var r: float = minf(size.x, size.y) * 0.5 - 1.5
 		draw_circle(cx, r - 1.0, Color(c.r * 0.18, c.g * 0.18, c.b * 0.18, 0.92))
 		draw_circle(cx, r - 4.0, Color(c.r * 0.35, c.g * 0.38, c.b * 0.32, 0.96))
-		var label := str(entry.get("label", ""))
+		var label := DataRegistry.muzzle_buff_display_label(entry)
+		if label.is_empty():
+			label = str(entry.get("label", ""))
 		var font: Font = FONT
-		var fs := 11 if label.length() >= 2 else 13
+		var fs := 9 if label.length() >= 3 else (11 if label.length() >= 2 else 13)
 		var ts := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 		var fg := Color(0.07, 0.12, 0.07) if (c.r * 0.3 + c.g * 0.6 + c.b * 0.1) > 0.55 else Color(0.95, 0.98, 0.92)
 		draw_string(font, cx - ts * 0.5 + Vector2(0, ts.y * 0.35), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)

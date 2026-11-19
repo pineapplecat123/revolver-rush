@@ -3239,6 +3239,9 @@ func _maybe_mount_aftertaste_muzzle(ammo_id: int, dealt: int) -> void:
 	var entry: Dictionary = def.duplicate(true)
 	entry["id"] = "huiwei"
 	entry["ammo_id"] = ammo_id
+	entry["source_ammo_id"] = CombatConstants.HUIWEI_AMMO_ID
+	entry["label"] = DataRegistry.ammo_display_name(CombatConstants.HUIWEI_AMMO_ID)
+	entry["name"] = entry["label"]
 	entry["stacks"] = stacks
 	entry["amount"] = amount
 	entry["remaining"] = rem
@@ -3318,7 +3321,12 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	var entry: Dictionary = def.duplicate(true)
 	entry["id"] = kind
 	entry["ammo_id"] = ammo_id
+	entry["source_ammo_id"] = source_id
 	entry["stacks"] = stacks
+	var dlab: String = DataRegistry.muzzle_buff_display_label(entry)
+	if not dlab.is_empty():
+		entry["label"] = dlab
+		entry["name"] = dlab
 	entry["remaining"] = remaining
 	entry["total"] = total
 	_volley_muzzle_buffs.append(entry)
@@ -4092,10 +4100,7 @@ func _thunder_chain(origin: EnemyInstance, dmg: int, gas: bool, fire: bool, wate
 func _ammo_name(ammo_id: int) -> String:
 	if ammo_id == CombatConstants.INVALID_AMMO_ID:
 		return CombatConstants.INVALID_AMMO_NAME
-	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
-	if def.is_empty():
-		return "未知#%d" % ammo_id
-	return str(def.get("name", str(ammo_id)))
+	return DataRegistry.ammo_display_name(ammo_id)
 
 
 func _advance_cylinder_one_step() -> void:
@@ -6718,31 +6723,35 @@ func sandbox_damage_modifiers() -> Dictionary:
 			chuandi_flat = int(round(delta))
 	var parts: Array = []
 	var notes: Array = []
+	var qishi_name: String = DataRegistry.ammo_display_name(CombatConstants.QISHI_AMMO_ID)
+	var xuli_name: String = DataRegistry.ammo_display_name(CombatConstants.XULI_AMMO_ID)
+	var huiwei_name: String = DataRegistry.ammo_display_name(CombatConstants.HUIWEI_AMMO_ID)
+	var chuandi_name: String = DataRegistry.ammo_display_name(CombatConstants.CHUANDI_AMMO_ID)
 	if qishi_pct != 0:
 		if has_next and is_start:
-			parts.append("起势+%d%%（对本发「%s」无效）" % [qishi_pct, ammo_name])
+			parts.append("%s+%d%%（对本发「%s」无效）" % [qishi_name, qishi_pct, ammo_name])
 		elif has_next:
-			parts.append("起势+%d%%（下一发「%s」）" % [qishi_pct, ammo_name])
+			parts.append("%s+%d%%（下一发「%s」）" % [qishi_name, qishi_pct, ammo_name])
 		else:
-			parts.append("起势+%d%%" % qishi_pct)
+			parts.append("%s+%d%%" % [qishi_name, qishi_pct])
 	if not is_equal_approx(xuli_mult, 1.0):
 		var xs: String = ("%.4f" % xuli_mult).rstrip("0").rstrip(".")
 		if has_next and is_start:
-			parts.append("蓄力×%s（对本发「%s」无效，保留到下一颗非开始弹）" % [xs, ammo_name])
+			parts.append("%s×%s（对本发「%s」无效，保留到下一颗非开始弹）" % [xuli_name, xs, ammo_name])
 		elif has_next:
-			parts.append("蓄力×%s（下一发「%s」）" % [xs, ammo_name])
+			parts.append("%s×%s（下一发「%s」）" % [xuli_name, xs, ammo_name])
 		else:
-			parts.append("蓄力×%s" % xs)
+			parts.append("%s×%s" % [xuli_name, xs])
 	if huiwei_flat != 0:
 		if has_next:
-			parts.append("回味%+d（本弹夹剩余，含「%s」）" % [huiwei_flat, ammo_name])
+			parts.append("%s%+d（本弹夹剩余，含「%s」）" % [huiwei_name, huiwei_flat, ammo_name])
 		else:
-			parts.append("回味%+d（本弹夹剩余）" % huiwei_flat)
+			parts.append("%s%+d（本弹夹剩余）" % [huiwei_name, huiwei_flat])
 	if chuandi_flat != 0:
 		if has_next:
-			parts.append("传递+%d（下一发「%s」）" % [chuandi_flat, ammo_name])
+			parts.append("%s+%d（下一发「%s」）" % [chuandi_name, chuandi_flat, ammo_name])
 		else:
-			parts.append("传递+%d" % chuandi_flat)
+			parts.append("%s+%d" % [chuandi_name, chuandi_flat])
 	var text: String
 	if parts.is_empty():
 		text = "伤害修正：无"

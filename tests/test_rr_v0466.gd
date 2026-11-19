@@ -48,30 +48,37 @@ func _overlap(a: Control, b: Control) -> bool:
 
 
 func test_sandbox_dps_hud_sits_in_bottom_not_over_battle() -> void:
+	## v0.4.67：统计条改到转轮下方左侧空位，不再占用下方操作区。
 	var ui = await _boot_sandbox(true)
 	var hud := _hud(ui)
 	assert_true(hud.visible)
 	var bottom := ui.get_node_or_null("Margin/RootVBox/BottomPanel") as Control
-	var section := ui.get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as Control
 	var top := ui.get_node_or_null("Margin/RootVBox/TopPanel") as Control
 	var mid := ui.get_node_or_null("Margin/RootVBox/MidPanel") as Control
 	var bag: Control = ui.bag_panel
 	var hand: Control = ui.hand_panel
 	var mag := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as Control
+	var wheel := ui.get_node_or_null("%MagWheel") as Control
+	if wheel == null:
+		wheel = ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol/MagWheel") as Control
+	var speed := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol/CombatSpeedRow") as Control
 	var action := ui.get_node_or_null("%ActionRow") as Control
-	assert_not_null(bottom)
-	assert_eq(hud.get_parent(), section, "HUD 应进入下方 BottomSection 布局")
+	assert_not_null(mag)
+	assert_eq(hud.get_parent(), mag, "HUD 应放在转轮列下方")
 	var hr := hud.get_global_rect()
-	var br := bottom.get_global_rect()
-	assert_true(br.grow(-1.0).encloses(hr) or br.intersection(hr).is_equal_approx(hr),
-		"HUD 应完全落在下方面板内，实际 HUD=%s bottom=%s" % [hr, br])
+	var midr := mid.get_global_rect()
+	assert_true(midr.grow(2.0).encloses(hr) or midr.intersection(hr).size.y > 8.0,
+		"HUD 应落在中段内，实际 HUD=%s mid=%s" % [hr, midr])
+	assert_false(_overlap(hud, bottom), "不再占用下方操作区")
 	assert_false(_overlap(hud, top), "不得挡住战斗区 TopPanel")
 	assert_false(_overlap(hud, bag), "不得挡住弹药袋")
 	assert_false(_overlap(hud, hand), "不得挡手区")
-	assert_false(_overlap(hud, mag), "不得挡住转轮")
+	assert_false(_overlap(hud, wheel), "不得挡住转轮本体")
+	assert_false(_overlap(hud, speed), "不得挡住速度条")
 	assert_false(_overlap(hud, action), "不得挡住倒出/装填/开火")
-	assert_gt(hr.position.y, mid.get_global_rect().end.y - 2.0, "HUD 应在中段（袋/转轮）之下")
-	assert_gt(action.get_global_rect().size.y, 140.0, "操作键仍要够高可点")
+	if wheel != null:
+		assert_gt(hr.position.y, wheel.get_global_rect().end.y - 2.0, "HUD 应在转轮之下")
+	assert_gt(action.get_global_rect().size.y, 200.0, "下方操作键应恢复高度")
 	assert_eq(hud.mouse_filter, Control.MOUSE_FILTER_IGNORE)
 	var clear: Button = hud.find_child("StatsClear", true, false)
 	assert_not_null(clear)
@@ -106,13 +113,18 @@ func test_long_modifier_wraps_inside_hud_without_covering_controls() -> void:
 	var ui = await _boot_sandbox(true)
 	var hud := _hud(ui)
 	assert_eq(ui._sb_stats_mod.autowrap_mode, TextServer.AUTOWRAP_WORD_SMART)
-	var long_mod := "伤害修正：起势+50%（下一发「白板」）  蓄力×1.5（下一发「白板」）  回味+12（本弹夹剩余，含「白板」）  传递+8（下一发「白板」）  起势+50%（下一发「蓄力」）"
+	var qn := DataRegistry.ammo_display_name(CombatConstants.QISHI_AMMO_ID)
+	var xn := DataRegistry.ammo_display_name(CombatConstants.XULI_AMMO_ID)
+	var hn := DataRegistry.ammo_display_name(CombatConstants.HUIWEI_AMMO_ID)
+	var cn := DataRegistry.ammo_display_name(CombatConstants.CHUANDI_AMMO_ID)
+	var bn := DataRegistry.ammo_display_name(CombatConstants.BAIBAN_AMMO_ID)
+	var long_mod := "伤害修正：%s+50%%（下一发「%s」）  %s×1.5（下一发「%s」）  %s+12（本弹夹剩余，含「%s」）  %s+8（下一发「%s」）  %s+50%%（下一发「%s」）" % [qn, bn, xn, bn, hn, bn, cn, bn, qn, xn]
 	var font: Font = ui._sb_stats_mod.get_theme_font("font")
 	var fs: int = ui._sb_stats_mod.get_theme_font_size("font_size")
 	var text_w: float = ui._sb_stats_mod.size.x
 	if text_w < 32.0:
-		var section := ui.get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as Control
-		text_w = maxf(section.size.x - 24.0, 200.0) if section != null else 664.0
+		var magc := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as Control
+		text_w = maxf(magc.size.x - 24.0, 160.0) if magc != null else 276.0
 	assert_not_null(font)
 	var one_h: float = font.get_string_size(long_mod, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).y
 	var wrap_h: float = font.get_multiline_string_size(long_mod, HORIZONTAL_ALIGNMENT_LEFT, text_w, fs).y
@@ -128,21 +140,21 @@ func test_long_modifier_wraps_inside_hud_without_covering_controls() -> void:
 	ui.state.magazine.set_slot(0, CombatConstants.BAIBAN_AMMO_ID)
 	ui._update_sandbox_stats_hud()
 	await wait_process_frames(3)
-	assert_true("起势+" in str(ui._sb_stats_mod.text))
-	assert_true("蓄力" in str(ui._sb_stats_mod.text))
-	assert_true("回味" in str(ui._sb_stats_mod.text))
+	assert_true(qn + "+" in str(ui._sb_stats_mod.text))
+	assert_true(xn in str(ui._sb_stats_mod.text))
+	assert_true(hn in str(ui._sb_stats_mod.text))
 	var action := ui.get_node_or_null("%ActionRow") as Control
 	var top := ui.get_node_or_null("Margin/RootVBox/TopPanel") as Control
 	var bag: Control = ui.bag_panel
 	var hand: Control = ui.hand_panel
-	var mag := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as Control
+	var wheel := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol/MagWheel") as Control
 	assert_true(hud.get_global_rect().grow(2.0).encloses(ui._sb_stats_mod.get_global_rect()))
 	assert_false(_overlap(hud, top))
 	assert_false(_overlap(hud, bag))
 	assert_false(_overlap(hud, hand))
-	assert_false(_overlap(hud, mag))
+	assert_false(_overlap(hud, wheel))
 	assert_false(_overlap(hud, action), "换行后仍不得盖住操作键")
-	assert_gt(action.get_global_rect().size.y, 140.0)
+	assert_gt(action.get_global_rect().size.y, 200.0)
 	assert_true(hud.get_global_rect().end.y <= action.get_global_rect().position.y + 1.0)
 	CombatState.boot_sandbox = false
 
@@ -159,14 +171,15 @@ func test_portrait_scale_keeps_hud_in_bottom() -> void:
 		var hand: Control = ui.hand_panel
 		var mag := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as Control
 		var action := ui.get_node_or_null("%ActionRow") as Control
-		var bottom := ui.get_node_or_null("Margin/RootVBox/BottomPanel") as Control
+		var midp := ui.get_node_or_null("Margin/RootVBox/MidPanel") as Control
+		var wheel := ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol/MagWheel") as Control
 		assert_true(hud.visible, "portrait %s" % avail)
 		assert_false(_overlap(hud, top), "portrait %s 战斗区" % avail)
 		assert_false(_overlap(hud, bag), "portrait %s 袋" % avail)
 		assert_false(_overlap(hud, hand), "portrait %s 手" % avail)
-		assert_false(_overlap(hud, mag), "portrait %s 转轮" % avail)
+		assert_false(_overlap(hud, wheel), "portrait %s 转轮" % avail)
 		assert_false(_overlap(hud, action), "portrait %s 操作键" % avail)
-		var inter := hud.get_global_rect().intersection(bottom.get_global_rect())
+		var inter := hud.get_global_rect().intersection(midp.get_global_rect())
 		assert_gt(inter.size.x, 10.0)
 		assert_gt(inter.size.y, 10.0)
 	CombatState.boot_sandbox = false
@@ -198,7 +211,7 @@ func test_sandbox_console_open_hud_stays_in_bottom() -> void:
 	var top := ui.get_node_or_null("Margin/RootVBox/TopPanel") as Control
 	var action := ui.get_node_or_null("%ActionRow") as Control
 	assert_true(hud.visible)
-	assert_eq(hud.get_parent(), ui.get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection"))
+	assert_eq(hud.get_parent(), ui.get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol"), "打开控制台时统计条仍在转轮下方")
 	assert_false(_overlap(hud, top), "打开控制台时也不要把统计条贴到战斗区")
 	assert_false(_overlap(hud, action))
 	CombatState.boot_sandbox = false

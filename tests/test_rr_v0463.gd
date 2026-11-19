@@ -82,8 +82,8 @@ func test_deferred_huiwei_does_not_mount_until_actual_hit() -> void:
 	assert_eq(_huiwei_amount(cs), 2)
 	var mod: Dictionary = cs.sandbox_damage_modifiers()
 	assert_eq(int(mod.get("huiwei_flat", 0)), 2)
-	assert_true("回味+2" in str(mod.get("text", "")))
-	assert_false("回味×" in str(mod.get("text", "")))
+	assert_true(DataRegistry.ammo_display_name(HUIWEI) + "+2" in str(mod.get("text", "")), str(mod.get("text", "")))
+	assert_false(DataRegistry.ammo_display_name(HUIWEI) + "×" in str(mod.get("text", "")))
 
 
 func test_deferred_huiwei_boosts_next_shot_hp_and_plan() -> void:
@@ -158,7 +158,7 @@ func test_combat_ui_manual_and_auto_huiwei_actually_boosts() -> void:
 	assert_eq(_huiwei_amount(ui.state), 2)
 	ui._update_sandbox_stats_hud()
 	var live: String = ui.state.sandbox_damage_modifiers_text()
-	assert_true("回味+2" in live)
+	assert_true(DataRegistry.ammo_display_name(HUIWEI) + "+2" in live, live)
 	assert_eq(ui._sb_stats_mod.text, live)
 	# 手动再打一发白板
 	ui.state.player_fire_gate_remaining = 0.0

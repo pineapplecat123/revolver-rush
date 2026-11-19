@@ -588,6 +588,9 @@ func _ensure_combat_layout() -> void:
 	var mag_col: VBoxContainer = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as VBoxContainer
 	if mag_col != null:
 		mag_col.add_theme_constant_override("separation", 6)
+		# v0.4.67：转轮整列靠上，把中段左侧下方空位留给沙盒 DPS / 伤害修正。
+		mag_col.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		mag_col.alignment = BoxContainer.ALIGNMENT_BEGIN
 	var right_col: VBoxContainer = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/RightCol") as VBoxContainer
 	if right_col != null:
 		right_col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -6045,7 +6048,11 @@ func _build_sin_pick_panel() -> void:
 	title.add_theme_color_override("font_color", Color(1.0, 0.85, 0.45))
 	vbox.add_child(title)
 	var hint := Label.new()
-	hint.text = "开局弹药袋：白板 ×%d，起势/蓄力/递增/终审/尾重各 ×%d" % [CombatConstants.STARTER_WHITE_COUNT, CombatConstants.STARTER_CLEARING_EACH]
+	var white_nm: String = DataRegistry.ammo_display_name(CombatConstants.BAIBAN_AMMO_ID)
+	var clear_nms: PackedStringArray = PackedStringArray()
+	for cid in CombatConstants.starter_clearing_ids():
+		clear_nms.append(DataRegistry.ammo_display_name(int(cid)))
+	hint.text = "开局弹药袋：%s ×%d，%s各 ×%d" % [white_nm, CombatConstants.STARTER_WHITE_COUNT, "、".join(clear_nms), CombatConstants.STARTER_CLEARING_EACH]
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	hint.add_theme_font_size_override("font_size", 14)
@@ -6569,7 +6576,7 @@ func _sb_row(parent: Control) -> HBoxContainer:
 	return r
 
 
-# —— v0.4.20 伤害统计 HUD（v0.4.66 起进入下方面板布局，不再挡住战斗区）——
+# —— v0.4.20 伤害统计 HUD（v0.4.67 起放在转轮下方左侧空位，下方面板按钮恢复高度）——
 
 func _ensure_sandbox_stats_hud() -> void:
 	if _sb_stats_panel != null:
@@ -6585,10 +6592,10 @@ func _ensure_sandbox_stats_hud() -> void:
 	sb.set_border_width_all(2)
 	sb.border_color = Color(0.92, 0.72, 0.35, 0.9)
 	sb.set_corner_radius_all(10)
-	sb.content_margin_left = 12
-	sb.content_margin_right = 8
-	sb.content_margin_top = 4
-	sb.content_margin_bottom = 4
+	sb.content_margin_left = 8
+	sb.content_margin_right = 6
+	sb.content_margin_top = 3
+	sb.content_margin_bottom = 3
 	_sb_stats_panel.add_theme_stylebox_override("panel", sb)
 	var outer := VBoxContainer.new()
 	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -6605,19 +6612,23 @@ func _ensure_sandbox_stats_hud() -> void:
 	row.add_child(col)
 	_sb_stats_main = Label.new()
 	_sb_stats_main.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_sb_stats_main.add_theme_font_size_override("font_size", 24)
+	_sb_stats_main.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sb_stats_main.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sb_stats_main.add_theme_font_size_override("font_size", 18)
 	_sb_stats_main.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
 	col.add_child(_sb_stats_main)
 	_sb_stats_sub = Label.new()
 	_sb_stats_sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_sb_stats_sub.add_theme_font_size_override("font_size", 18)
+	_sb_stats_sub.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sb_stats_sub.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sb_stats_sub.add_theme_font_size_override("font_size", 15)
 	_sb_stats_sub.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
 	col.add_child(_sb_stats_sub)
 	_sb_stats_mod = Label.new()
 	_sb_stats_mod.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sb_stats_mod.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_sb_stats_mod.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_sb_stats_mod.add_theme_font_size_override("font_size", 18)
+	_sb_stats_mod.add_theme_font_size_override("font_size", 15)
 	_sb_stats_mod.add_theme_color_override("font_color", Color(0.95, 0.82, 0.55))
 	# 修正行单独全宽，避免被右侧「清零」挤窄后提前换行撑高。
 	outer.add_child(_sb_stats_mod)
@@ -6626,8 +6637,8 @@ func _ensure_sandbox_stats_hud() -> void:
 	clear.text = "清零"
 	clear.focus_mode = Control.FOCUS_NONE
 	clear.mouse_filter = Control.MOUSE_FILTER_STOP
-	clear.custom_minimum_size = Vector2(120, SB_TOUCH_H)
-	clear.add_theme_font_size_override("font_size", SB_FONT)
+	clear.custom_minimum_size = Vector2(88, SB_TOUCH_H)
+	clear.add_theme_font_size_override("font_size", 21)
 	clear.pressed.connect(func():
 		if state != null:
 			state.damage_stats_reset()
@@ -6637,63 +6648,71 @@ func _ensure_sandbox_stats_hud() -> void:
 	_place_sandbox_stats_hud()
 
 
+func _restore_bottom_action_space() -> void:
+	## v0.4.66 曾把统计条插进下方面板并压矮按钮；现已移走，恢复操作区。
+	var section := get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as VBoxContainer
+	if section != null:
+		section.add_theme_constant_override("separation", 10)
+	for raw in [btn_manual_load, btn_auto_load, btn_fire]:
+		var btn := raw as Button
+		if btn != null:
+			var m: Vector2 = btn.custom_minimum_size
+			btn.custom_minimum_size = Vector2(m.x, maxf(m.y, 160.0))
+	if _sb_fire_split != null and is_instance_valid(_sb_fire_split):
+		var sm: Vector2 = _sb_fire_split.custom_minimum_size
+		_sb_fire_split.custom_minimum_size = Vector2(sm.x, maxf(sm.y, 160.0))
+
+
 func _place_sandbox_stats_hud() -> void:
 	if _sb_stats_panel == null:
 		return
-	var section := get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as VBoxContainer
-	var action := get_node_or_null("%ActionRow") as Control
+	_restore_bottom_action_space()
+	var mag_col: VBoxContainer = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as VBoxContainer
 	var parent := _sb_stats_panel.get_parent()
-	if section != null and parent != section:
+	if mag_col != null and parent != mag_col:
 		if parent != null:
 			parent.remove_child(_sb_stats_panel)
-		section.add_child(_sb_stats_panel)
-		if action != null:
-			section.move_child(_sb_stats_panel, action.get_index())
+		mag_col.add_child(_sb_stats_panel)
+		var speed: Node = mag_col.get_node_or_null("CombatSpeedRow")
+		var wheel: Node = mag_col.get_node_or_null("MagWheel")
+		if speed != null:
+			mag_col.move_child(_sb_stats_panel, speed.get_index() + 1)
+		elif wheel != null:
+			mag_col.move_child(_sb_stats_panel, wheel.get_index() + 1)
 	_sb_stats_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_sb_stats_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
-	# 进容器后不要再写绝对坐标，否则会叠在战斗区上。
-	var hud_on: bool = _sb_stats_panel.visible and state != null and state.sandbox_mode
-	if section != null:
-		section.add_theme_constant_override("separation", 6 if hud_on else 10)
 	_fit_sandbox_stats_hud_height()
+
 
 func _fit_sandbox_stats_hud_height() -> void:
 	if _sb_stats_panel == null:
 		return
-	var section := get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as Control
-	var hint := get_node_or_null("%HintLabel") as Control
-	var action := get_node_or_null("%ActionRow") as Control
-	var section_h: float = section.size.y if section != null and section.size.y > 8.0 else 302.0
-	var hint_h: float = hint.get_combined_minimum_size().y if hint != null and hint.visible else 0.0
-	var hud_on: bool = _sb_stats_panel.visible and state != null and state.sandbox_mode
-	var gap: float = 6.0 if hud_on else 10.0
-	var sep: float = gap * (2.0 if hint_h > 0.0 else 1.0)
-	# 给倒出/装填/开火留出可点高度（沙盒左右分键最小约 72+72+6）。
-	var action_floor: float = 150.0
-	var max_h: float = maxf(72.0, section_h - hint_h - sep - action_floor)
-	var want: float = SB_STATS_H
-	if _sb_stats_mod != null and not _sb_stats_mod.text.is_empty():
-		var font: Font = _sb_stats_mod.get_theme_font("font")
-		var fs: int = _sb_stats_mod.get_theme_font_size("font_size")
-		var text_w: float = _sb_stats_mod.size.x
-		if text_w < 32.0 and section != null:
-			text_w = maxf(section.size.x - 24.0, 200.0)
-		if font != null:
-			var th: float = font.get_multiline_string_size(_sb_stats_mod.text, HORIZONTAL_ALIGNMENT_LEFT, text_w, fs).y
-			# 主行+次行+修正行 + 边框边距。
-			want = maxf(want, 24.0 + 18.0 + th + 20.0)
-	want = minf(want, max_h)
+	var mag_col: Control = get_node_or_null("Margin/RootVBox/MidPanel/MidSection/MagCol") as Control
+	var mid: Control = get_node_or_null("Margin/RootVBox/MidPanel") as Control
+	var mid_bottom: float = mid.get_global_rect().end.y if mid != null else 952.0
+	var col_w: float = mag_col.size.x if mag_col != null and mag_col.size.x > 8.0 else MUZZLE_SLOT_W
+	var text_w: float = maxf(col_w - 24.0, 160.0)
+	if _sb_stats_mod != null and _sb_stats_mod.size.x >= 32.0:
+		text_w = _sb_stats_mod.size.x
+	var want: float = 96.0
+	var extra: float = 0.0
+	for lab in [_sb_stats_main, _sb_stats_sub, _sb_stats_mod]:
+		if lab == null or lab.text.is_empty():
+			continue
+		var font: Font = lab.get_theme_font("font")
+		var fs: int = lab.get_theme_font_size("font_size")
+		if font == null:
+			continue
+		extra += font.get_multiline_string_size(lab.text, HORIZONTAL_ALIGNMENT_LEFT, text_w, fs).y
+	want = maxf(want, extra + 16.0)
+	# 留在中段下沿之内，不要伸进下方操作区或盖住转轮。
+	var top_y: float = _sb_stats_panel.get_global_rect().position.y
+	if top_y > 8.0:
+		want = minf(want, maxf(72.0, mid_bottom - top_y - 6.0))
+	else:
+		want = minf(want, 200.0)
 	_sb_stats_panel.custom_minimum_size = Vector2(0.0, want)
-	if action != null and _sb_stats_panel.visible and state != null and state.sandbox_mode:
-		# 不改 rush 按钮最小高度；只在沙盒统计条占位时略降，避免把下方面板撑出视口。
-		for raw in [btn_manual_load, btn_auto_load, btn_fire]:
-			var btn := raw as Button
-			if btn != null:
-				var m: Vector2 = btn.custom_minimum_size
-				btn.custom_minimum_size = Vector2(m.x, minf(m.y if m.y > 0.0 else 160.0, action_floor))
-		if _sb_fire_split != null and is_instance_valid(_sb_fire_split):
-			var sm: Vector2 = _sb_fire_split.custom_minimum_size
-			_sb_fire_split.custom_minimum_size = Vector2(sm.x, minf(sm.y if sm.y > 0.0 else 160.0, action_floor))
+	_sb_stats_panel.visible = state != null and state.sandbox_mode and state.phase != CombatState.Phase.LOST
 
 
 

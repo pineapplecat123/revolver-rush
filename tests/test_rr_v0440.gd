@@ -60,7 +60,8 @@ func test_bullet_and_muzzle_colors_from_data() -> void:
 
 func test_muzzle_status_defs_are_data_driven() -> void:
 	var q: Dictionary = DataRegistry.muzzle_status_of(QISHI)
-	assert_eq(str(q.get("label", "")), "起势")
+	assert_eq(str(q.get("id", "")), "qishi")
+	assert_eq(DataRegistry.muzzle_buff_display_label(q), DataRegistry.ammo_display_name(QISHI))
 	assert_eq(str(q.get("duration_type", "")), "rest_of_volley")
 	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+50%")
 	q["stacks"] = 2
@@ -68,7 +69,8 @@ func test_muzzle_status_defs_are_data_driven() -> void:
 	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+100%")
 	assert_eq(DataRegistry.format_muzzle_status_duration(q), "后续 4 发子弹")
 	var x: Dictionary = DataRegistry.muzzle_status_of(XULI)
-	assert_eq(str(x.get("label", "")), "蓄力")
+	assert_eq(str(x.get("id", "")), "xuli")
+	assert_eq(DataRegistry.muzzle_buff_display_label(x), DataRegistry.ammo_display_name(XULI))
 	assert_eq(str(x.get("duration_type", "")), "until_consumed")
 	assert_eq(DataRegistry.format_muzzle_status_effect(x), "下一发×1.5")
 	x["stacks"] = 2
@@ -107,7 +109,8 @@ func test_qishi_icon_counts_remaining_then_clears() -> void:
 	assert_eq(int(first[0].get("ammo_id", -1)), QISHI)
 	var buffs: Array = cs.volley_muzzle_buffs()
 	assert_eq(buffs.size(), 1)
-	assert_eq(str(buffs[0].get("label", "")), "起势")
+	assert_eq(str(buffs[0].get("id", "")), "qishi")
+	assert_eq(DataRegistry.muzzle_buff_display_label(buffs[0]), DataRegistry.ammo_display_name(QISHI))
 	assert_eq(int(buffs[0].get("remaining", -1)), 3)
 	assert_eq(int(buffs[0].get("total", -1)), 3)
 	assert_eq(DataRegistry.format_muzzle_status_effect(buffs[0]), "伤害+50%")
@@ -136,7 +139,8 @@ func test_xuli_passes_start_and_consumes_on_white() -> void:
 	cs.fire_tap(false)
 	var buffs: Array = cs.volley_muzzle_buffs()
 	assert_eq(buffs.size(), 1)
-	assert_eq(str(buffs[0].get("label", "")), "蓄力")
+	assert_eq(str(buffs[0].get("id", "")), "xuli")
+	assert_eq(DataRegistry.muzzle_buff_display_label(buffs[0]), DataRegistry.ammo_display_name(XULI))
 	assert_eq(int(buffs[0].get("remaining", -1)), 1)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()  # 起势：不消耗蓄力，并挂上起势
@@ -144,9 +148,9 @@ func test_xuli_passes_start_and_consumes_on_white() -> void:
 	assert_eq(buffs.size(), 2)
 	var labels: PackedStringArray = PackedStringArray()
 	for b in buffs:
-		labels.append(str(b.get("label", "")))
-	assert_true("蓄力" in labels)
-	assert_true("起势" in labels)
+		labels.append(str(b.get("id", "")))
+	assert_true("xuli" in labels)
+	assert_true("qishi" in labels)
 	cs.player_fire_gate_remaining = 0.0
 	var last: Array = cs.take_volley_shot()
 	assert_eq(int(last[0].get("ammo_id", -1)), WHITE)
@@ -174,7 +178,7 @@ func test_qishi_stacks_and_xuli_multiplies() -> void:
 	buffs = cs.volley_muzzle_buffs()
 	var xuli_e: Dictionary = {}
 	for b in buffs:
-		if str(b.get("label", "")) == "蓄力":
+		if str(b.get("id", "")) == "xuli":
 			xuli_e = b
 	assert_false(xuli_e.is_empty())
 	assert_eq(int(xuli_e.get("stacks", 0)), 2)
