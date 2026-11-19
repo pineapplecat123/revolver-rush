@@ -1,6 +1,7 @@
 class_name ShopHouse
 extends Node2D
 ## 右侧巷边店铺：嵌入式门洞，不是独立卡通小屋。分前后层，小猫可从门洞走进/走出。
+## 前后墙是 Node2D，挂到 UnitBody 里与骨骼做兄弟，才能真正挡住猫（Control 墙挡不住 Node2D 骨骼）。
 
 const WIDTH := 360.0
 const HEIGHT := 236.0
@@ -10,39 +11,78 @@ const ENTRANCE_W := 46.0
 const EXIT_W := 40.0
 const DOOR_H := 118.0
 const EXIT_DOOR_H := 108.0
+## 控件左上角相对「左下角贴地原点」的偏移，给屋顶和檐留空。
+const DRAW_OX := 10.0
+const DRAW_OY := HEIGHT + 40.0
 
 var lit_inside: bool = false
-var _back: Node2D = null
-var _front: Node2D = null
+var _back: _Layer = null
+var _front: _Layer = null
 
 
 func _ready() -> void:
 	if _back == null:
 		_back = _Layer.new()
 		_back.name = "HouseBack"
-		_back.z_as_relative = false
-		_back.z_index = 2
+		_back.z_as_relative = true
+		_back.z_index = 0
 		_back.is_front = false
 		_back.house = self
 		add_child(_back)
 	if _front == null:
 		_front = _Layer.new()
 		_front.name = "HouseFront"
-		_front.z_as_relative = false
-		_front.z_index = 8
+		_front.z_as_relative = true
+		_front.z_index = 20
 		_front.is_front = true
 		_front.house = self
 		add_child(_front)
 	visible = false
 
 
-func set_grounded(left_x: float, ground_y: float) -> void:
-	# 原点在房屋左下角（贴走道顶边）
-	position = Vector2(floorf(left_x) + 0.5, floorf(ground_y) + 0.5)
+func attach_layers(unit: Node) -> void:
+	## 把前后墙挂进 UnitBody，与骨骼小人成为 Node2D 兄弟，靠同级 z 挡住身体。
+	if unit == null or _back == null or _front == null:
+		return
+	if unit is Control:
+		(unit as Control).clip_contents = false
+	if _back.get_parent() != unit:
+		if _back.get_parent() != null:
+			_back.get_parent().remove_child(_back)
+		unit.add_child(_back)
+		unit.move_child(_back, 0)
+	if _front.get_parent() != unit:
+		if _front.get_parent() != null:
+			_front.get_parent().remove_child(_front)
+		unit.add_child(_front)
+	_back.z_as_relative = true
+	_back.z_index = 0
+	_front.z_as_relative = true
+	_front.z_index = 20
+
+
+func set_house_visible(v: bool) -> void:
+	visible = v
 	if _back:
-		_back.queue_redraw()
+		_back.visible = v
 	if _front:
-		_front.queue_redraw()
+		_front.visible = v
+
+
+func house_origin_global() -> Vector2:
+	if _back != null and _back.is_inside_tree():
+		return _back.global_position
+	return Vector2.ZERO
+
+
+func set_grounded(left_x: float, ground_y: float) -> void:
+	# 传入的是墙层父节点（UnitBody）坐标系里，左下角贴走道顶边的坐标。
+	var pos := Vector2(floorf(left_x) + 0.5, floorf(ground_y) + 0.5)
+	for layer in [_back, _front]:
+		if layer == null:
+			continue
+		layer.position = pos
+		layer.queue_redraw()
 
 
 func set_lit(v: bool) -> void:
@@ -56,18 +96,18 @@ func set_lit(v: bool) -> void:
 
 
 func entrance_center_x() -> float:
-	return global_position.x + ENTRANCE_X
+	return house_origin_global().x + ENTRANCE_X
 
 
 func exit_center_x() -> float:
-	return global_position.x + EXIT_X
+	return house_origin_global().x + EXIT_X
 
 
 func occlusion_at(cat_x: float) -> String:
 	## outside / door_in / inside / door_out
-	if not visible:
+	if _front == null or not _front.visible:
 		return "outside"
-	var lx: float = cat_x - global_position.x
+	var lx: float = cat_x - house_origin_global().x
 	var in_l: float = ENTRANCE_X - ENTRANCE_W * 0.5
 	var in_r: float = ENTRANCE_X + ENTRANCE_W * 0.5
 	var out_l: float = EXIT_X - EXIT_W * 0.5

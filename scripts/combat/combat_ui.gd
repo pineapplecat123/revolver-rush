@@ -445,10 +445,12 @@ func _ready() -> void:
 
 
 func _style_overlay_panels() -> void:
-	for panel in [bag_panel, hand_panel, dev_panel, reward_panel]:
+	for panel in [bag_panel, hand_panel, dev_panel]:
 		if panel == null:
 			continue
 		UiStyle.apply_panel(panel, UiStyle.PANEL, 1.0, 6)
+	if reward_panel != null:
+		UiStyle.apply_panel(reward_panel, UiStyle.PANEL_MODAL, 1.0, 8)
 	# 袋区不要矩形框、底板或标题栏，只留皮袋画在场景底上。
 	_clear_bag_area_chrome()
 	# 上方面板全透明，露出静止巷景；中下为半透明平底，不再用厚描边。
@@ -4584,7 +4586,7 @@ func _build_rush_shop_panel() -> void:
 	_shop_panel.offset_top = -300.0
 	_shop_panel.offset_right = 380.0
 	_shop_panel.offset_bottom = 300.0
-	_shop_panel.add_theme_stylebox_override("panel", UiStyle.panel_box(UiStyle.PANEL_HEAVY, 0.8, 8, 14))
+	_shop_panel.add_theme_stylebox_override("panel", UiStyle.panel_box(UiStyle.PANEL_MODAL, 1.0, 8, 14))
 	var margin := MarginContainer.new()
 	margin.add_theme_constant_override("margin_left", 4)
 	margin.add_theme_constant_override("margin_right", 4)
@@ -4597,14 +4599,14 @@ func _build_rush_shop_panel() -> void:
 	_shop_title = Label.new()
 	_shop_title.text = "rush! 商店"
 	_shop_title.add_theme_font_size_override("font_size", 22)
-	_shop_title.add_theme_color_override("font_color", COL_REWARD_TITLE)
+	UiStyle.apply_label(_shop_title, COL_REWARD_TITLE, true)
 	root.add_child(_shop_title)
 	_shop_gold_label = Label.new()
 	_shop_gold_label.add_theme_color_override("font_color", COL_GOLD)
 	root.add_child(_shop_gold_label)
 	_shop_hint = Label.new()
 	_shop_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_shop_hint.add_theme_color_override("font_color", COL_REWARD_HINT)
+	UiStyle.apply_label(_shop_hint, COL_REWARD_HINT, true)
 	root.add_child(_shop_hint)
 	var cols := HBoxContainer.new()
 	cols.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -7182,7 +7184,30 @@ func _ensure_shop_house() -> void:
 		return
 	_shop_house = ShopHouseScript.new()
 	_shop_house.name = "ShopHouse"
+	_shop_house.z_as_relative = false
+	_shop_house.z_index = 0
+	# 挂在 Combat 根上，避免进 VBox 把板面挤乱；和 UnitBody 一样靠绝对 z 比先后。
 	add_child(_shop_house)
+	# 顶栏字和按钮仍压在房子上面，避免被屋顶挡住。
+	for path in [
+		"Margin/RootVBox/TopPanel/TopSection/TopButtons",
+		"Margin/RootVBox/TopPanel/TopSection/TopBarPad",
+	]:
+		var chrome := get_node_or_null(path) as Control
+		if chrome != null:
+			chrome.z_index = 40
+
+
+func _player_slot() -> Control:
+	if board_row == null or board_row.get_child_count() <= CombatConstants.PLAYER_CELL:
+		return null
+	return board_row.get_child(CombatConstants.PLAYER_CELL) as Control
+
+
+func _player_unit_body() -> Control:
+	if board_row == null or board_row.get_child_count() <= CombatConstants.PLAYER_CELL:
+		return null
+	return board_row.get_child(CombatConstants.PLAYER_CELL).get_node_or_null("UnitBody") as Control
 
 
 func _player_foot_global_x() -> float:
@@ -7200,28 +7225,53 @@ func _sync_shop_house() -> void:
 	_ensure_shop_house()
 	if state == null or not state.shop_house_active() or state.sandbox_mode:
 		if _shop_house != null:
-			_shop_house.visible = false
+			_shop_house.set_house_visible(false)
 		_set_cat_house_hidden(false)
 		return
 	var cat_x: float = _player_foot_global_x()
 	var gy_g: float = _board_ground_global_y()
 	var left_g: float = state.shop_house_left_at(cat_x)
-	var inv := get_global_transform().affine_inverse()
+	var unit := _player_unit_body()
+	if unit != null:
+		_shop_house.attach_layers(unit)
+	var host: CanvasItem = unit if unit != null else self
+	var inv: Transform2D = host.get_global_transform().affine_inverse()
 	var local_p: Vector2 = inv * Vector2(left_g, gy_g)
-	_shop_house.visible = true
+	_shop_house.set_house_visible(true)
 	_shop_house.set_grounded(local_p.x, local_p.y)
 	_shop_house.set_lit(_shop_open or state.shop_house_seq == CombatState.SHOP_HOUSE_INSIDE)
 	var occ: String = state.shop_house_occlusion_at(cat_x)
-	_set_cat_house_hidden(occ == "inside")
+	_apply_shop_house_occlusion(occ)
+
+
+func _apply_shop_house_occlusion(occ: String) -> void:
+	## 用前墙门洞挡住小猫，不要 visible 开关造成瞬间消失/出现。
+	_cat_hidden_in_house = occ == "inside"
+	# 前后墙与骨骼同在 UnitBody 内：街上骨骼 z>前墙，进门后骨骼 z<前墙。
+	var house_on := state != null and state.shop_house_active()
+	var door_z := occ != "outside"
+	if _skel_player != null and is_instance_valid(_skel_player):
+		_skel_player.visible = true
+		_skel_player.z_as_relative = true
+		if house_on:
+			# 骨骼内部零件相对 z 最高约 4～5，进门后整只猫要低于前墙 20。
+			_skel_player.z_index = 1 if door_z else 30
+		else:
+			_skel_player.z_index = 0
+	# 格子上的血量字不要穿出墙面
+	var unit := _player_unit_body()
+	if unit != null:
+		var info := unit.get_node_or_null("VBox") as CanvasItem
+		if info != null:
+			info.visible = (not house_on) or (occ == "outside")
+	# 环不要穿出墙外或门楣；出屋后由 _update_player_status_rings 恢复。
+	if _player_rings != null and is_instance_valid(_player_rings) and occ != "outside":
+		_player_rings.visible = false
 
 
 func _set_cat_house_hidden(hidden: bool) -> void:
-	_cat_hidden_in_house = hidden
-	if _skel_player != null and is_instance_valid(_skel_player):
-		_skel_player.visible = not hidden
-	# 进屋后不要把生命环/名字挡在墙外
-	if _player_rings != null and is_instance_valid(_player_rings) and hidden:
-		_player_rings.visible = false
+	# 兼容旧调用：hidden 只表示「整只猫已在墙后」，不再隐藏猫本身。
+	_apply_shop_house_occlusion("inside" if hidden else "outside")
 
 
 func _ensure_shop_overlay() -> Panel:
@@ -7387,7 +7437,11 @@ func _update_player_status_rings() -> void:
 		add_child(_player_rings)
 	var entries: Array = state.player_status_ring_entries()
 	_player_rings.set_entries(entries)
-	_player_rings.visible = not entries.is_empty()
+	var hide_rings := _cat_hidden_in_house
+	if state.shop_house_active() and _shop_house != null and _shop_house.visible:
+		var occ_r: String = state.shop_house_occlusion_at(_player_foot_global_x())
+		hide_rings = occ_r != "outside"
+	_player_rings.visible = (not entries.is_empty()) and (not hide_rings)
 	if entries.is_empty():
 		return
 	var cols: int = mini(entries.size(), EnemyStatusRings.COLS)
