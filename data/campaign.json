@@ -1,6 +1,7 @@
 {
   "version": 1,
   "opening_offer_count": 3,
+  "opening_white_count": 5,
   "walk_combat_tempo": 0.72,
   "walk_shop_tempo": 1.85,
   "walk_to_shop_sec": 1.6,

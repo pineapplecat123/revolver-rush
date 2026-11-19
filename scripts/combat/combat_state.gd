@@ -657,7 +657,7 @@ func _reset_campaign_flags() -> void:
 
 
 func start_campaign(seed_value: int = 0) -> void:
-	## 独立闯关：不沿用 rush 开局袋/选罪/连续刷怪/定时店与 Boss。先共用重置，再改成 6 白板 + 开局三选一。
+	## 独立闯关：不沿用 rush 开局袋/选罪/连续刷怪/定时店与 Boss。先共用重置，再改成开局白板 + 开局三选一。
 	CampaignRules.reload()
 	start_rush(seed_value, FireResolver.ID_WRATH)
 	campaign_mode = true
@@ -687,7 +687,7 @@ func start_campaign(seed_value: int = 0) -> void:
 	discard_temp.clear()
 	if magazine != null:
 		magazine.clear()
-	for _i in CombatConstants.MAGAZINE_SIZE:
+	for _i in CampaignRules.opening_white_count():
 		_bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	_shuffle_bag()
 	_snapshot_combat_bag_baseline()
@@ -1522,19 +1522,25 @@ func _baseline_remove_one(ammo_id: int) -> void:
 
 
 func _snapshot_combat_bag_baseline() -> void:
-	## 永久构筑 = 袋 + 膛 + 弃牌里的永久弹（跳过 ephemeral 与带 TTL 的临时弹）。
-	## 只拍袋会把正在膛里/弃牌堆里的永久弹从基线抹掉，下次袋空重置就把它们丢了。
+	## 永久构筑 = 袋 + 手 + 膛 + 弃牌里的永久弹（跳过 ephemeral 与带 TTL 的临时弹）。
+	## 只拍袋会把正在手/膛/弃牌里的永久弹从基线抹掉，下次重置就把它们丢了。
 	_combat_bag_baseline.clear()
 	_sync_temp_arrays()
+	_sync_hand_arrays()
 	for i in bag.size():
 		var id: int = int(bag[i])
 		var tv = bag_temp[i] if i < bag_temp.size() else 0.0
 		if _counts_as_permanent(id, tv):
 			_combat_bag_baseline.append(id)
+	for i in hand.size():
+		var hid: int = int(hand[i])
+		var htv = hand_temp[i] if i < hand_temp.size() else 0.0
+		if _counts_as_permanent(hid, htv):
+			_combat_bag_baseline.append(hid)
 	if magazine != null:
-		for s in magazine.slots.size():
-			var mid: int = int(magazine.slots[s])
-			if _counts_as_permanent(mid, magazine.slot_temp_life(s)):
+		for slot_i in magazine.slots.size():
+			var mid: int = int(magazine.slots[slot_i])
+			if _counts_as_permanent(mid, magazine.slot_temp_life(slot_i)):
 				_combat_bag_baseline.append(mid)
 	for i in discard.size():
 		var did: int = int(discard[i])
@@ -1786,24 +1792,45 @@ func _clear_combat_bonus_ammo() -> void:
 	_snapshot_combat_bag_baseline()
 
 
+func bag_cycle_ready_to_reset() -> bool:
+	## 自动重置只在一整轮打光之后：袋、手、转轮都空，且没有未结算的射击/弹道。
+	## 最后一发只是倒进手里或装进转轮时不重置。沙盒不走自动重置。
+	if sandbox_mode:
+		return false
+	if not bag.is_empty() or not hand.is_empty():
+		return false
+	if magazine != null and not magazine.is_empty():
+		return false
+	if has_pending_impacts():
+		return false
+	if phase == Phase.FIRING:
+		return false
+	if phase == Phase.LOST or phase == Phase.WON:
+		return false
+	return true
+
+
 func _auto_reset_bag_if_empty_at_turn_start() -> bool:
-	## 兼容旧名：袋空立刻战斗内重置（见 ensure_bag_refilled_if_empty）。
+	## 兼容旧名：见 ensure_bag_refilled_if_empty。
 	return ensure_bag_refilled_if_empty()
 
 
 func ensure_bag_refilled_if_empty() -> bool:
-	## 袋一空就补：立刻战斗内重置（构筑基线 + N 临时罪孽，保留幽灵）。弃牌并入重置逻辑。
-	## 沙盒：打光或主动清空后都保持空袋，不把基线/开局袋补回来（效果中途生成的弹仍可直接入袋）。
+	## 非沙盒：仅当袋+手+转轮都空，且飞行中的射击/弹道都结算完，才战斗内重置一次。
+	## 最后一发倒出手或装进转轮时不补袋，避免把还在手里/膛里的弹再复制一份进基线池。
+	## 沙盒：打光或主动清空后都保持空袋（效果中途生成的弹仍可直接入袋）。
 	if not bag.is_empty():
 		sandbox_hold_bag_empty = false
 		return false
 	if sandbox_mode:
 		return false
+	if not bag_cycle_ready_to_reset():
+		return false
 	if not _reset_bag_in_combat():
 		return false
 	needs_reshuffle_next_load = false
-	_log("弹药袋已空：立刻战斗内重置（构筑 %d + 临时罪孽 ×%d，第 %d 次）。" % [
-		_combat_bag_baseline.size(), bag_reset_count, bag_reset_count
+	_log("弹药已全部打出：战斗内重置弹药袋（构筑 %d，第 %d 次）。" % [
+		_combat_bag_baseline.size(), bag_reset_count
 	])
 	return true
 
@@ -2740,12 +2767,11 @@ func can_dump_to_hand() -> bool:
 		return false
 	if reward_pending:
 		return false
-	if bag.is_empty() and not can_refill_bag():
-		return false
-	# 袋空但可补：允许，dump 里会 refill
-	if bag.is_empty():
-		return can_refill_bag()
-	return true
+	# 袋或手里还有弹：可以倒（先把手退回再抽），不因此重置。
+	if not bag.is_empty() or not hand.is_empty():
+		return true
+	# 袋和手都空：只有一整轮打光后才允许靠重置再倒。
+	return bag_cycle_ready_to_reset() and can_refill_bag()
 
 
 func dump_to_hand() -> int:
@@ -2962,14 +2988,14 @@ func swap_magazine_slots(a: int, b: int) -> bool:
 
 
 func can_manual_load() -> bool:
-	## 手装：随时可开新会话或在会话中继续装 1 发（袋有弹且未满匣）。
-	## 不要求先打空转轮；AWAIT_ACTION 下也可补弹。袋空则立刻补后再判。
+	## 手装：随时可开新会话或在会话中继续装 1 发（袋/手有弹且未满匣）。
+	## 不要求先打空转轮；AWAIT_ACTION 下也可把剩余弹补进空仓。袋空手空时，只有一整轮打光后才允许靠重置再装。
 	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
 		return false
 	if reward_pending:
 		return false
-	# v0.3.6：查询不改状态；袋空时只判断「能否补」，真正补袋在 begin_load / 会话结束 / 怪步
-	if bag.is_empty() and not can_refill_bag():
+	# 查询不改状态；不要在转轮还剩弹时因为袋空就当作能重置。
+	if bag.is_empty() and hand.is_empty() and not (bag_cycle_ready_to_reset() and can_refill_bag()):
 		return false
 	if magazine != null and magazine.loaded_count() >= CombatConstants.MAGAZINE_SIZE:
 		return false
@@ -4329,6 +4355,8 @@ func finalize_pending_impact(impact_id: int) -> void:
 	if not _volley_pending and _pending_impacts.is_empty():
 		if phase != Phase.WON and phase != Phase.LOST:
 			_check_end_after_player()
+		# 最后一发落地（含延迟效果）之后，若袋/手/转轮都空，再重置一次。
+		ensure_bag_refilled_if_empty()
 	_emit()
 
 
@@ -4634,6 +4662,7 @@ func _finish_fire() -> void:
 			_fire_total_damage, magazine.loaded_count() if magazine != null else 0
 		])
 		_reset_fire_session()
+		ensure_bag_refilled_if_empty()
 		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
 		_emit()
 		return
@@ -4649,6 +4678,7 @@ func _finish_fire() -> void:
 			_emit()
 			return
 		_post_fire_enemy_pending = false if auto_enemy_advance else true
+		ensure_bag_refilled_if_empty()
 		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
 		_emit()
 		return
@@ -4663,6 +4693,7 @@ func _finish_fire() -> void:
 	else:
 		# rush! 自动走位：不进怪回合，回到可行动（与 pace_after_fire 分支一致）
 		_set_phase(Phase.AWAIT_ACTION if (magazine != null and not magazine.is_empty()) else Phase.AWAIT_LOAD)
+	ensure_bag_refilled_if_empty()
 	_emit()
 
 

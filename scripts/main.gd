@@ -513,7 +513,7 @@ func _enter_combat() -> void:
 
 
 func _on_campaign_pressed() -> void:
-	## 闯关：独立九层，开局 6 白板再三选一颗子弹。
+	## 闯关：独立九层，开局 5 白板再三选一颗子弹。
 	CombatState.boot_sandbox = false
 	CombatState.boot_campaign = true
 	await _enter_combat()

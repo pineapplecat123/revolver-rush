@@ -1,5 +1,5 @@
 extends GutTest
-## v0.3.4：敌人 HP 砍半、波次数量 ×1.5、袋一空立刻补、枪口改持续时间。
+## v0.3.4：敌人 HP 砍半、波次数量 ×1.5、袋要等全部打光再补、枪口改持续时间。
 
 
 func before_each() -> void:
@@ -47,6 +47,7 @@ func test_bag_refills_immediately_on_empty_for_manual_load() -> void:
 
 
 func test_bag_refills_when_load_session_empties_bag() -> void:
+	## v0.4.71：装完袋里最后几发时不立刻重置；打空转轮后才补一次。
 	var cs := _rush(3404)
 	for e in cs.enemies:
 		e.hp = 9999
@@ -59,6 +60,10 @@ func test_bag_refills_when_load_session_empties_bag() -> void:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 2)
+	assert_eq(cs.bag_reset_count, 0)
+	assert_eq(cs.bag.size(), 0)
+	cs.magazine.clear()
+	assert_true(cs.ensure_bag_refilled_if_empty())
 	assert_eq(cs.bag_reset_count, 1)
 	assert_gt(cs.bag.size(), 0)
 

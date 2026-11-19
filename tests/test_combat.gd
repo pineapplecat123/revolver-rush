@@ -476,7 +476,7 @@ func test_ammo_inventory_bag_and_mag() -> void:
 
 
 func test_ammo_inventory_shows_owned_when_bag_empty() -> void:
-	## 装满匣后袋立刻补；库存含膛内+新袋，列表不为空。
+	## v0.4.71：装满匣后袋可以空着（先不重置）；库存仍要列出膛内弹，列表不为空。
 	var cs := CombatState.new(43)
 	cs.start_rush(43)
 	while cs.enemies.size() > 1:
@@ -491,14 +491,13 @@ func test_ammo_inventory_shows_owned_when_bag_empty() -> void:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 6)
-	assert_eq(cs.bag_reset_count, 1)
-	assert_false(cs.bag.is_empty())
+	assert_eq(cs.bag_reset_count, 0, "转轮还有弹时不重置")
+	assert_true(cs.bag.is_empty())
 	var inv: Dictionary = cs.ammo_inventory_by_id()
 	assert_false(inv.is_empty())
 	assert_true(inv.has(CombatConstants.WHITE_AMMO_ID))
 	var e: Dictionary = inv[CombatConstants.WHITE_AMMO_ID]
 	assert_eq(int(e["mag"]), 6)
-	# 开局平庸只有 6 发且都在膛内时，补袋不会再复制平庸；袋里是其余清算弹。
 	assert_eq(int(e["bag"]), 0)
 	assert_eq(int(e["discard"]), 0)
 	assert_eq(int(e["total"]), 6)
@@ -638,7 +637,7 @@ func test_magazine_random_roll_steps_nonzero_when_full() -> void:
 
 
 func test_partial_load_then_bag_refills_immediately() -> void:
-	## 袋剩 N 发只装 N；会话结束袋空则立刻战斗内重置，不必等怪走。
+	## v0.4.71：袋剩 N 发只装 N；转轮里还有弹时不重置。打空后再重置，才能再装满。
 	var cs := CombatState.new(42)
 	cs.start_rush(42)
 	while cs.enemies.size() > 1:
@@ -653,19 +652,26 @@ func test_partial_load_then_bag_refills_immediately() -> void:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 2)
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - cs.magazine.loaded_count() + cs.penalty_temp_sins_spawned, "v0.3.8：重置只还基础池（膛内弹不复制）")
-	assert_eq(cs.count_temporary_in_bag(), cs.penalty_temp_sins_spawned, "临时罪孽只来自惩罚")
-	assert_true(cs.can_manual_load())
+	assert_eq(cs.bag_reset_count, 0)
+	assert_eq(cs.bag.size(), 0, "装完剩余弹后先不重置")
+	assert_false(cs.can_manual_load(), "转轮未打空不得靠重置再装")
 	assert_true(cs.do_fire())
 	assert_ne(cs.phase, CombatState.Phase.LOST)
 	assert_eq(cs.lose_reason, CombatState.LoseReason.NONE)
+	cs.player_fire_gate_remaining = 0.0
+	if cs.has_pending_impacts():
+		for impact_id in cs._pending_impacts.keys():
+			cs.finalize_pending_impact(int(impact_id))
+	cs.ensure_bag_refilled_if_empty()
+	assert_eq(cs.bag_reset_count, 1)
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL + cs.penalty_temp_sins_spawned)
+	assert_true(cs.can_manual_load())
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), CombatConstants.MAGAZINE_SIZE)
 
 
 func test_roll_keeps_mag_and_bag_refills_on_empty_load() -> void:
-	## ROLL 不耗弹；装满后袋空立刻补；匣内仍有弹可继续行动。
+	## v0.4.71：ROLL 不耗弹；装满后袋可空着、先不重置。匣内仍有弹可继续行动；卸下再装也不额外复制。
 	var cs := CombatState.new(77)
 	cs.start_rush(77)
 	while cs.enemies.size() > 1:
@@ -678,10 +684,11 @@ func test_roll_keeps_mag_and_bag_refills_on_empty_load() -> void:
 	cs.discard_temp.clear()
 	for _i in 6:
 		cs._bag_append(CombatConstants.WHITE_AMMO_ID, false)
+	cs._snapshot_combat_bag_baseline()
 	assert_true(cs.do_load())
 	assert_eq(cs.magazine.loaded_count(), 6)
-	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - cs.magazine.loaded_count() + cs.penalty_temp_sins_spawned, "v0.3.8：重置只还基础池（膛内弹不复制）")
+	assert_eq(cs.bag_reset_count, 0)
+	assert_eq(cs.bag.size(), 0, "装满后先不重置")
 	var steps: int = cs.apply_roll()
 	assert_gte(steps, 1)
 	cs.resolve_after_player_action()
@@ -690,10 +697,18 @@ func test_roll_keeps_mag_and_bag_refills_on_empty_load() -> void:
 	assert_true(cs.can_fire())
 	assert_true(cs.do_unload())
 	assert_eq(cs.phase, CombatState.Phase.AWAIT_LOAD)
+	# 卸除进弃牌，并未发射；下次装填会把弃牌洗回，不是战斗内重置，更不会复制。
+	assert_eq(cs.magazine.loaded_count(), 0)
+	assert_eq(cs.discard.size(), 6)
+	assert_eq(cs.bag.size(), 0)
+	assert_eq(cs.bag_reset_count, 0)
 	assert_true(cs.can_manual_load())
 	assert_true(cs.do_load())
 	assert_ne(cs.lose_reason, CombatState.LoseReason.AMMO_EXHAUSTED)
 	assert_eq(cs.magazine.loaded_count(), 6)
+	assert_eq(cs.bag_reset_count, 0)
+	assert_eq(cs.bag.size(), 0)
+	assert_eq(cs.total_ammo_count(CombatConstants.WHITE_AMMO_ID), 6)
 
 
 func test_blank_chamber_skips_to_nearest_ammo() -> void:

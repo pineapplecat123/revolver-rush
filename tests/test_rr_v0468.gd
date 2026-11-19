@@ -49,13 +49,15 @@ func _pick_opening(cs: CombatState, index: int = 0) -> int:
 
 
 func test_opening_bag_is_six_whites_then_one_offer() -> void:
+	## v0.4.71：开局改为 5 白板，选 1 发后共 6 发。函数名保留以免拆旧用例。
 	var cs := _boot_cs(7)
 	assert_true(cs.campaign_mode)
 	assert_false(cs.sandbox_mode)
 	assert_true(cs.spawn_paused)
 	assert_true(cs.map_shop_disabled)
-	assert_eq(cs.bag.size(), 6)
-	assert_eq(_count_id(cs.bag, WHITE), 6)
+	assert_eq(cs.bag.size(), CampaignRules.opening_white_count())
+	assert_eq(CampaignRules.opening_white_count(), 5)
+	assert_eq(_count_id(cs.bag, WHITE), 5)
 	assert_eq(cs.hand.size(), 0)
 	assert_true(cs.campaign_offer_pending)
 	assert_eq(cs.campaign_offer_choices.size(), 3)
@@ -67,13 +69,13 @@ func test_opening_bag_is_six_whites_then_one_offer() -> void:
 		seen[int(aid)] = true
 	var picked := _pick_opening(cs, 1)
 	assert_false(cs.campaign_offer_pending)
-	assert_eq(cs.bag.size(), 7)
-	assert_eq(_count_id(cs.bag, WHITE), 6)
+	assert_eq(cs.bag.size(), 6)
+	assert_eq(_count_id(cs.bag, WHITE), 5)
 	assert_eq(_count_id(cs.bag, picked), 1)
 	assert_eq(cs.campaign_offer_picked_id, picked)
 	# 不能再领一次
 	assert_false(cs.campaign_pick_opening(0))
-	assert_eq(cs.bag.size(), 7)
+	assert_eq(cs.bag.size(), 6)
 
 
 func test_exactly_three_shops_then_boss_per_floor() -> void:
@@ -261,7 +263,7 @@ func test_menu_has_campaign_entry_and_ui_progress() -> void:
 	assert_true(ui.state.campaign_mode)
 	assert_true(ui.state.campaign_offer_pending)
 	assert_true("开局自选" in ui.turn_label.text or "闯关" in ui.turn_label.text)
-	assert_eq(ui.state.bag.size(), 6)
+	assert_eq(ui.state.bag.size(), 5)
 	# 选第一发后应进战斗或进场，并开始走路
 	assert_true(ui.state.campaign_pick_opening(0))
 	ui.state.campaign_instant_transitions = true

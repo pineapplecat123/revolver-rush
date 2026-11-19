@@ -39,6 +39,11 @@ static func opening_offer_count() -> int:
 	return maxi(1, int(data().get("opening_offer_count", 3)))
 
 
+static func opening_white_count() -> int:
+	## 开局袋里的白板数量（选子弹之前）。选完再加 1 发，合计比白板多 1。
+	return maxi(1, int(data().get("opening_white_count", 5)))
+
+
 static func walk_combat_tempo() -> float:
 	return maxf(0.05, float(data().get("walk_combat_tempo", 0.72)))
 
@@ -123,7 +128,7 @@ static func _registry():
 
 
 static func opening_pool() -> Array[int]:
-	## 开局三选一：奖励池子弹，排除白板（开局袋里已有 6 发）和罪孽/临时/未启用弹。
+	## 开局三选一：奖励池子弹，排除白板（开局袋里已有白板）和罪孽/临时/未启用弹。
 	var pool: Array[int] = []
 	var reg = _registry()
 	if reg == null:

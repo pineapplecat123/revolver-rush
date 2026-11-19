@@ -53,22 +53,25 @@ func _load_full(cs: CombatState) -> void:
 	cs.commit_load_session_if_active()
 
 
+func _flush_fire(cs: CombatState) -> void:
+	# 把未落地弹道结完，让「整轮打光」后的自动重置有机会发生。
+	if cs.has_method("finalize_pending_impact") and cs.has_pending_impacts():
+		var ids: Array = cs._pending_impacts.keys()
+		for impact_id in ids:
+			cs.finalize_pending_impact(int(impact_id))
+	cs.player_fire_gate_remaining = 0.0
+	cs.ensure_bag_refilled_if_empty()
+
+
 func test_sin_total_matches_design_after_every_reset() -> void:
-	## 设计（v0.3.8 起）：重置后整池 = 10 平庸 + 5 罪孽 + 惩罚产生的临时罪孽（袋+膛+弃合计）。
-	## 旧 bug：重置时膛内弹再被整份基线复制一次 → 第 3 次重置时罪孽合计 12（设计 8）。
+	## 设计（v0.3.8 起）：重置后整池 = 基线 + 仍有效的临时弹（袋+膛+弃合计），不复制膛内弹。
+	## v0.4.71：要整轮打光（袋/手/转轮都空）才重置，本测试跟着把弹打完再看计数。
 	var cs := _rush()
 	assert_eq(cs.total_ammo_count(W), 0)
 	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_WHITE_COUNT)
 	var seen := 0
-	for _cycle in 60:
+	for _cycle in 80:
 		_load_full(cs)
-		if cs.bag_reset_count != seen:
-			seen = cs.bag_reset_count
-			var temps_now: int = _total_temp(cs)
-			assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_WHITE_COUNT + temps_now, "第 %d 次重置：平庸基础池 + 现存临时" % seen)
-			assert_eq(_total_ammo(cs), CombatConstants.STARTER_BAG_TOTAL + temps_now, "整池不复制膛内弹")
-			assert_lte(temps_now, cs.load_temp_sins_spawned)
-			assert_eq(cs.penalty_temp_sins_spawned, 0)
 		while cs.can_fire():
 			var fired: Array = cs.fire_tap()
 			if fired.is_empty():
@@ -76,12 +79,21 @@ func test_sin_total_matches_design_after_every_reset() -> void:
 					cs.player_fire_gate_remaining = 0.0
 					continue
 				break
+		_flush_fire(cs)
+		if cs.bag_reset_count != seen:
+			seen = cs.bag_reset_count
+			var temps_now: int = _total_temp(cs)
+			assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_WHITE_COUNT + temps_now, "第 %d 次重置：白板基础池 + 现存临时" % seen)
+			assert_eq(_total_ammo(cs), CombatConstants.STARTER_BAG_TOTAL + temps_now, "整池不复制膛内弹")
+			assert_lte(temps_now, cs.load_temp_sins_spawned)
+			assert_eq(cs.penalty_temp_sins_spawned, 0)
 		if seen >= 5:
 			break
 	assert_gte(seen, 3, "模拟期间至少重置 3 次")
 
 
 func test_reset_with_full_magazine_does_not_duplicate() -> void:
+	## v0.4.71：转轮里还有弹时不得重置；打空后再重置一次，只还基线，不复制膛里多塞的非基线弹。
 	var cs := _rush(3602)
 	cs.bag.clear()
 	cs.bag_temp.clear()
@@ -90,15 +102,20 @@ func test_reset_with_full_magazine_does_not_duplicate() -> void:
 	cs.magazine.clear()
 	for i in 6:
 		cs.magazine.set_slot(i, W if i < 3 else WHITE)
+	assert_false(cs.ensure_bag_refilled_if_empty(), "膛内还有弹时不重置")
+	assert_eq(cs.bag_reset_count, 0)
+	assert_eq(cs.bag.size(), 0)
+	assert_eq(cs.total_ammo_count(W), 3)
+	cs.magazine.clear()
 	assert_true(cs.ensure_bag_refilled_if_empty())
 	assert_eq(cs.bag_reset_count, 1)
-	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL - 3, "基线里的 3 发平庸已在膛，不重复补")
+	assert_eq(cs.bag.size(), CombatConstants.STARTER_BAG_TOTAL)
 	assert_eq(cs.total_ammo_count(WHITE), CombatConstants.STARTER_WHITE_COUNT)
-	assert_eq(cs.total_ammo_count(W), 3, "塞进膛的非基线弹不会被复制进袋")
+	assert_eq(cs.total_ammo_count(W), 0, "塞进膛的非基线弹打出后不进基线，不会被复制")
 
 
 func test_temp_sin_in_magazine_counts_toward_next_reset() -> void:
-	## v0.3.8：膛内临时罪孽不属于基础池 → 重置不扣基础罪孽，也不新增临时；它按自己的寿命走。
+	## v0.3.8 / v0.4.71：膛内还有弹时不重置；打空后，仍在寿命内的临时弹从弃牌带回，且不另造一份。
 	var cs := _rush(3603)
 	cs.bag_reset_count = 1
 	cs.bag.clear()
@@ -107,6 +124,12 @@ func test_temp_sin_in_magazine_counts_toward_next_reset() -> void:
 	cs.discard_temp.clear()
 	cs.magazine.clear()
 	cs.magazine.set_slot(0, WHITE, true)
+	assert_false(cs.ensure_bag_refilled_if_empty(), "膛内还有弹时不重置")
+	assert_eq(cs.bag_reset_count, 1)
+	# 当作打出：临时弹进弃牌，转轮清空。
+	cs.discard.append(WHITE)
+	cs.discard_temp.append(3.0)
+	cs.magazine.clear()
 	assert_true(cs.ensure_bag_refilled_if_empty())
 	assert_eq(cs.bag_reset_count, 2)
 	assert_eq(_total_temp(cs), 1)
