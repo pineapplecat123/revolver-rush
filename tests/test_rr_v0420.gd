@@ -281,7 +281,7 @@ func test_sandbox_ui_controls_are_touch_sized_and_hud_shows() -> void:
 			"button '%s' too small" % (b as Button).text)
 	assert_gt(n_btn, 3)
 	assert_eq(scene.dev_panel.find_children("*", "SpinBox", true, false).size(), 0, "no tiny SpinBox arrows")
-	var hud: Control = scene.get_node_or_null("SandboxStatsHud")
+	var hud: Control = scene.find_child("SandboxStatsHud", true, false)
 	assert_not_null(hud)
 	assert_true(hud.visible)
 	var clear_btn: Button = hud.find_child("StatsClear", true, false)

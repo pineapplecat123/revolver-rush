@@ -6569,15 +6569,17 @@ func _sb_row(parent: Control) -> HBoxContainer:
 	return r
 
 
-# —— v0.4.20 伤害统计 HUD（战场下方，不进布局容器，不推开任何东西）——
+# —— v0.4.20 伤害统计 HUD（v0.4.66 起进入下方面板布局，不再挡住战斗区）——
 
 func _ensure_sandbox_stats_hud() -> void:
 	if _sb_stats_panel != null:
 		return
 	_sb_stats_panel = PanelContainer.new()
 	_sb_stats_panel.name = "SandboxStatsHud"
-	_sb_stats_panel.z_index = 60
-	_sb_stats_panel.mouse_filter = Control.MOUSE_FILTER_PASS
+	# 进下方面板布局，不再浮在战斗区上，也不拦截袋/手/转轮/操作键。
+	_sb_stats_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_sb_stats_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sb_stats_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	var sb := StyleBoxFlat.new()
 	sb.bg_color = Color(0.06, 0.07, 0.1, 0.9)
 	sb.set_border_width_all(2)
@@ -6588,30 +6590,42 @@ func _ensure_sandbox_stats_hud() -> void:
 	sb.content_margin_top = 4
 	sb.content_margin_bottom = 4
 	_sb_stats_panel.add_theme_stylebox_override("panel", sb)
+	var outer := VBoxContainer.new()
+	outer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	outer.add_theme_constant_override("separation", 0)
+	_sb_stats_panel.add_child(outer)
 	var row := HBoxContainer.new()
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_theme_constant_override("separation", 10)
-	_sb_stats_panel.add_child(row)
+	outer.add_child(row)
 	var col := VBoxContainer.new()
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	col.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	col.add_theme_constant_override("separation", 0)
 	row.add_child(col)
 	_sb_stats_main = Label.new()
+	_sb_stats_main.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sb_stats_main.add_theme_font_size_override("font_size", 24)
 	_sb_stats_main.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
 	col.add_child(_sb_stats_main)
 	_sb_stats_sub = Label.new()
+	_sb_stats_sub.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sb_stats_sub.add_theme_font_size_override("font_size", 18)
 	_sb_stats_sub.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
 	col.add_child(_sb_stats_sub)
 	_sb_stats_mod = Label.new()
+	_sb_stats_mod.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_sb_stats_mod.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sb_stats_mod.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_sb_stats_mod.add_theme_font_size_override("font_size", 18)
 	_sb_stats_mod.add_theme_color_override("font_color", Color(0.95, 0.82, 0.55))
-	col.add_child(_sb_stats_mod)
+	# 修正行单独全宽，避免被右侧「清零」挤窄后提前换行撑高。
+	outer.add_child(_sb_stats_mod)
 	var clear := Button.new()
 	clear.name = "StatsClear"
 	clear.text = "清零"
 	clear.focus_mode = Control.FOCUS_NONE
+	clear.mouse_filter = Control.MOUSE_FILTER_STOP
 	clear.custom_minimum_size = Vector2(120, SB_TOUCH_H)
 	clear.add_theme_font_size_override("font_size", SB_FONT)
 	clear.pressed.connect(func():
@@ -6620,36 +6634,68 @@ func _ensure_sandbox_stats_hud() -> void:
 			_refresh()
 	)
 	row.add_child(clear)
-	add_child(_sb_stats_panel)
 	_place_sandbox_stats_hud()
 
 
 func _place_sandbox_stats_hud() -> void:
 	if _sb_stats_panel == null:
 		return
-	var top_panel := get_node_or_null("Margin/RootVBox/TopPanel") as Control
-	var xp := get_node_or_null("Margin/RootVBox/TopPanel/TopSection/XpBar") as Control
-	var r := Rect2(8, 8, 704, 417)
-	if top_panel != null and top_panel.size.y > 200.0:
-		r = top_panel.get_global_rect()
-	var y0: float = r.end.y - SB_STATS_H - 6.0
-	if xp != null and xp.size.y > 0.0:
-		y0 = maxf(y0, xp.get_global_rect().end.y + 2.0)
-	# 控制台打开时，统计条贴在控制台下沿，避免被挡住，也不盖袋。
-	if _dev_open and dev_panel != null and dev_panel.visible:
-		var cr := dev_panel.get_global_rect()
-		y0 = cr.end.y + 4.0
-		r.position.x = cr.position.x
-		r.size.x = cr.size.x
-	var bag_top := 9999.0
-	if bag_panel != null and bag_panel.is_visible_in_tree():
-		bag_top = minf(bag_top, bag_panel.get_global_rect().position.y)
-	if hand_panel != null and hand_panel.is_visible_in_tree():
-		bag_top = minf(bag_top, hand_panel.get_global_rect().position.y)
-	if y0 + SB_STATS_H > bag_top - 6.0:
-		y0 = bag_top - SB_STATS_H - 6.0
-	_sb_stats_panel.position = Vector2(r.position.x + 8.0, maxf(y0, 4.0))
-	_sb_stats_panel.size = Vector2(r.size.x - 16.0, SB_STATS_H)
+	var section := get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as VBoxContainer
+	var action := get_node_or_null("%ActionRow") as Control
+	var parent := _sb_stats_panel.get_parent()
+	if section != null and parent != section:
+		if parent != null:
+			parent.remove_child(_sb_stats_panel)
+		section.add_child(_sb_stats_panel)
+		if action != null:
+			section.move_child(_sb_stats_panel, action.get_index())
+	_sb_stats_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sb_stats_panel.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	# 进容器后不要再写绝对坐标，否则会叠在战斗区上。
+	var hud_on: bool = _sb_stats_panel.visible and state != null and state.sandbox_mode
+	if section != null:
+		section.add_theme_constant_override("separation", 6 if hud_on else 10)
+	_fit_sandbox_stats_hud_height()
+
+func _fit_sandbox_stats_hud_height() -> void:
+	if _sb_stats_panel == null:
+		return
+	var section := get_node_or_null("Margin/RootVBox/BottomPanel/BottomSection") as Control
+	var hint := get_node_or_null("%HintLabel") as Control
+	var action := get_node_or_null("%ActionRow") as Control
+	var section_h: float = section.size.y if section != null and section.size.y > 8.0 else 302.0
+	var hint_h: float = hint.get_combined_minimum_size().y if hint != null and hint.visible else 0.0
+	var hud_on: bool = _sb_stats_panel.visible and state != null and state.sandbox_mode
+	var gap: float = 6.0 if hud_on else 10.0
+	var sep: float = gap * (2.0 if hint_h > 0.0 else 1.0)
+	# 给倒出/装填/开火留出可点高度（沙盒左右分键最小约 72+72+6）。
+	var action_floor: float = 150.0
+	var max_h: float = maxf(72.0, section_h - hint_h - sep - action_floor)
+	var want: float = SB_STATS_H
+	if _sb_stats_mod != null and not _sb_stats_mod.text.is_empty():
+		var font: Font = _sb_stats_mod.get_theme_font("font")
+		var fs: int = _sb_stats_mod.get_theme_font_size("font_size")
+		var text_w: float = _sb_stats_mod.size.x
+		if text_w < 32.0 and section != null:
+			text_w = maxf(section.size.x - 24.0, 200.0)
+		if font != null:
+			var th: float = font.get_multiline_string_size(_sb_stats_mod.text, HORIZONTAL_ALIGNMENT_LEFT, text_w, fs).y
+			# 主行+次行+修正行 + 边框边距。
+			want = maxf(want, 24.0 + 18.0 + th + 20.0)
+	want = minf(want, max_h)
+	_sb_stats_panel.custom_minimum_size = Vector2(0.0, want)
+	if action != null and _sb_stats_panel.visible and state != null and state.sandbox_mode:
+		# 不改 rush 按钮最小高度；只在沙盒统计条占位时略降，避免把下方面板撑出视口。
+		for raw in [btn_manual_load, btn_auto_load, btn_fire]:
+			var btn := raw as Button
+			if btn != null:
+				var m: Vector2 = btn.custom_minimum_size
+				btn.custom_minimum_size = Vector2(m.x, minf(m.y if m.y > 0.0 else 160.0, action_floor))
+		if _sb_fire_split != null and is_instance_valid(_sb_fire_split):
+			var sm: Vector2 = _sb_fire_split.custom_minimum_size
+			_sb_fire_split.custom_minimum_size = Vector2(sm.x, minf(sm.y if sm.y > 0.0 else 160.0, action_floor))
+
+
 
 
 func sandbox_stats_text() -> Dictionary:
@@ -6669,9 +6715,9 @@ func _update_sandbox_stats_hud() -> void:
 	if state == null or not state.sandbox_mode:
 		if _sb_stats_panel != null:
 			_sb_stats_panel.visible = false
+			_place_sandbox_stats_hud()
 		return
 	_ensure_sandbox_stats_hud()
-	_place_sandbox_stats_hud()
 	if _dev_open and dev_panel != null and absf(dev_panel.offset_top - _sandbox_panel_top()) > 1.0:
 		_fit_sandbox_panel()
 	_sb_stats_panel.visible = state.phase != CombatState.Phase.LOST
@@ -6680,6 +6726,7 @@ func _update_sandbox_stats_hud() -> void:
 	_sb_stats_sub.text = str(t["sub"])
 	if _sb_stats_mod != null:
 		_sb_stats_mod.text = str(t.get("mod", "伤害修正：无"))
+	_place_sandbox_stats_hud()
 
 
 func _dev_make_column(title: String) -> Dictionary:
