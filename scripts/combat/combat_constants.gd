@@ -112,6 +112,11 @@ const WALK_IN_SPAWN_OFFSET_CELLS := 1.6
 const WALK_IN_TARGETABLE_SLACK := 0.45
 const ENEMY_SPEED_VARIATION := 0.13
 const ENEMY_AUTO_STEP_SEC := 3.3
+## v0.4.64：仅普通僵尸（含召唤出的）基础移速更慢；超级僵尸和其他敌人仍用 ENEMY_AUTO_STEP_SEC。
+const ZOMBIE_AUTO_STEP_SEC := 4.5
+## 僵尸标签再生：按种类，在现有落格拍结算（含停在玩家面前时）。
+const ZOMBIE_REGEN := 2
+const SUPER_ZOMBIE_REGEN := 5
 ## 走路动画按 1.65 s/格 设计；播放速度 = 实际滑行速度 × 这个值（1× 战斗速度下 = 0.5）。
 const ENEMY_WALK_ANIM_REF_STEP_SEC := 1.65
 ## 地图商店滑行速度保持原样（不跟敌人一起减速）。
@@ -224,3 +229,19 @@ const KILL_GOLD_DROP_AMOUNT := 2
 const KILL_GOLD_BOSS_DROP_CHANCE := 1.0
 const KILL_GOLD_BOSS_DROP_AMOUNT := 8
 
+
+
+static func enemy_auto_step_sec(def_id: int) -> float:
+	## 普通僵尸（含召唤）每格 4.5 秒；其他敌人（含超级僵尸）仍为 3.3 秒。
+	if def_id == ZOMBIE_ENEMY_ID:
+		return ZOMBIE_AUTO_STEP_SEC
+	return ENEMY_AUTO_STEP_SEC
+
+
+static func zombie_regen_amount(def_id: int) -> int:
+	## 仅僵尸标签单位：普通僵尸 2，超级僵尸 5。
+	if def_id == SUPER_ZOMBIE_ENEMY_ID:
+		return SUPER_ZOMBIE_REGEN
+	if def_id == ZOMBIE_ENEMY_ID:
+		return ZOMBIE_REGEN
+	return 0

@@ -434,6 +434,8 @@ var _dot_timer: float = 0.0
 var shop_cell: int = -1
 var shop_spawn_count: int = 0
 var shop_touch_pending: bool = false
+## v0.4.64：商店节点已到，停止遭遇刷怪，等场上清空后再打开商店。
+var shop_drain: bool = false
 var _shop_move_prog: float = 0.0
 var load_temp_sins_spawned: int = 0
 var _pending_tombstone_ghost_shots: Array = []
@@ -558,6 +560,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	shop_cell = -1
 	shop_spawn_count = 0
 	shop_touch_pending = false
+	shop_drain = false
 	_shop_move_prog = 0.0
 	load_temp_sins_spawned = 0
 	hooks.clear()
@@ -600,6 +603,7 @@ func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH
 	enemies.clear()
 	shop_cell = -1
 	shop_touch_pending = false
+	shop_drain = false
 	_shop_move_prog = 0.0
 	_spawn_timer = 99999.0
 	_sandbox_empty_ammo_pools()
@@ -4482,7 +4486,8 @@ func _free_walk_advance(delta_cells: float) -> void:
 		if e.is_dummy or int(e.mobility) <= 0:
 			e.walking = false
 			continue
-		var sp: float = delta_cells * e.speed_mul / float(1 + e.slow_stacks())
+		var step_scale: float = CombatConstants.ENEMY_AUTO_STEP_SEC / maxf(CombatConstants.enemy_auto_step_sec(int(e.def_id)), 0.01)
+		var sp: float = delta_cells * step_scale * e.speed_mul / float(1 + e.slow_stacks())
 		if e.pos_x > stop_x + 0.0001:
 			e.pos_x = maxf(stop_x, e.pos_x - sp)
 			e.walking = true
@@ -5177,8 +5182,12 @@ func _field_cleared() -> bool:
 	## 无波次：场上清空 → 立刻按规则补刷（不进胜利、不刷新任何状态）。永远返回 false。
 	if not alive_enemies().is_empty():
 		return false
-	if spawn_paused:
-		return false  # 沙盒：清场不自动补怪
+	if shop_drain:
+		# 商店排空阶段：清场只开门店，绝不立刻补刷。
+		_try_finish_shop_drain()
+		return false
+	if spawn_paused or shop_touch_pending or shop_hold:
+		return false  # 沙盒 / 即将开店 / 店内：清场不自动补怪
 	if reward_pending or has_corpse_enemies():
 		# v0.3.9：升级三选一期间一律不刷怪（纯暂停）；选完恢复战斗时由 tick_combat_time 补刷。
 		# 还有尸体（pace 飚血未清）时也先不刷：尸体清掉才发经验，避免先刷怪、后弹升级。
@@ -5285,27 +5294,31 @@ func tick_combat_time(delta_sec: float) -> bool:
 	if not spawn_paused:
 		var boss_due: int = int(floor(elapsed_sec / CombatConstants.BOSS_EVERY_SEC))
 		if boss_due > _boss_spawned:
+			# 排空/待开店期间到点只记时钟，不刷、不把这次 Boss 攒到离店后一起涌出。
 			_boss_spawned = boss_due
-			var bn: int = mini(int(ceil(float(boss_due) * CombatConstants.WAVE_SPAWN_COUNT_MULT)), CombatConstants.SPAWN_LANE_CELLS)
-			var made := 0
-			for _i in bn:
-				if _spawn_enemy_at_lane(CombatConstants.SUPER_ZOMBIE_ENEMY_ID):
-					made += 1
-			if made > 0:
-				encounter_kind = EncounterKind.BOSS
-				_log("Boss 来袭：超级僵尸 ×%d（%.0f 秒）。" % [made, elapsed_sec])
-				changed = true
+			if not encounter_spawns_blocked():
+				var bn: int = mini(int(ceil(float(boss_due) * CombatConstants.WAVE_SPAWN_COUNT_MULT)), CombatConstants.SPAWN_LANE_CELLS)
+				var made := 0
+				for _i in bn:
+					if _spawn_enemy_at_lane(CombatConstants.SUPER_ZOMBIE_ENEMY_ID):
+						made += 1
+				if made > 0:
+					encounter_kind = EncounterKind.BOSS
+					_log("Boss 来袭：超级僵尸 ×%d（%.0f 秒）。" % [made, elapsed_sec])
+					changed = true
 		if alive_enemies().is_empty() and not has_corpse_enemies():
 			# 三选一期间清场被推迟的补刷：恢复战斗第一帧补上（Boss 先占刷怪口）
+			# 商店排空阶段这里会改成开门店，而不是补刷。
 			_field_cleared()
 			changed = true
-		_spawn_timer -= delta_sec
-		if _spawn_timer <= 0.0:
-			if alive_enemies().size() < spawn_alive_cap_now() and _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
-				changed = true
-				_spawn_timer = spawn_interval_now()
-			else:
-				_spawn_timer = 0.25  # 满员或刷怪口被占：稍后重试
+		if not encounter_spawns_blocked():
+			_spawn_timer -= delta_sec
+			if _spawn_timer <= 0.0:
+				if alive_enemies().size() < spawn_alive_cap_now() and _spawn_enemy_at_lane(_pick_spawn_enemy_id()):
+					changed = true
+					_spawn_timer = spawn_interval_now()
+				else:
+					_spawn_timer = 0.25  # 满员或刷怪口被占：稍后重试
 	if changed:
 		_emit()
 	return changed
@@ -5393,21 +5406,65 @@ func tick_dot(delta_sec: float) -> bool:
 
 func acknowledge_shop_touch() -> void:
 	shop_touch_pending = false
+	shop_drain = false
+	# 排空期间战斗秒仍在走。若已经过了下一个 45+n×90 节点，把已过点跳掉，避免离店立刻再开店。
+	while shop_spawn_count > 0 and elapsed_sec > CombatConstants.MAP_SHOP_FIRST_SEC + float(shop_spawn_count) * CombatConstants.MAP_SHOP_RESPAWN_SEC:
+		shop_spawn_count += 1
+
+
+func encounter_spawns_blocked() -> bool:
+	## 商店排空/待开/开着时，停止遭遇刷怪（普通补刷、定时刷、到点 Boss），不影响场上已有敌人与超级僵尸召唤。
+	return shop_drain or shop_touch_pending or shop_hold
+
+
+func _shop_milestone_due() -> bool:
+	if shop_spawn_count == 0:
+		return elapsed_sec >= CombatConstants.MAP_SHOP_FIRST_SEC
+	var next_at := CombatConstants.MAP_SHOP_FIRST_SEC + float(shop_spawn_count) * CombatConstants.MAP_SHOP_RESPAWN_SEC
+	return elapsed_sec >= next_at
+
+
+func _shop_cycle_busy() -> bool:
+	return shop_drain or shop_touch_pending or shop_hold or shop_cell >= 0
+
+
+func _shop_field_safe_to_open() -> bool:
+	if phase == Phase.LOST or phase == Phase.WON:
+		return false
+	if reward_pending:
+		return false
+	if not alive_enemies().is_empty():
+		return false
+	if has_corpse_enemies():
+		return false
+	return true
+
+
+func _try_finish_shop_drain() -> bool:
+	## 排空结束：场上安全清空后只开一次店。
+	if not shop_drain:
+		return false
+	if not _shop_field_safe_to_open():
+		return false
+	shop_drain = false
+	shop_touch_pending = true
+	_log("场上已清空，打开地图商店。")
+	hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": shop_cell})
+	return true
 
 
 func tick_map_shop(delta_sec: float) -> bool:
-	## v0.4.0 地图商店骨架：右侧刷出商店实体，随时间向左靠近；碰到玩家（cell<=1）打开商店。
+	## v0.4.64：到既有商店节点（首次 45 秒，之后每 90 秒）先停遭遇刷怪，等场上杀完再开店；离店后恢复刷怪。
+	## 仍保留 shop_cell 滑行（测试或手动放置时），节点本身不再把商店实体刷上场。
 	if map_shop_disabled:
 		return false
 	var changed := false
-	var due_first := elapsed_sec >= CombatConstants.MAP_SHOP_FIRST_SEC and shop_spawn_count == 0
-	var next_at := CombatConstants.MAP_SHOP_FIRST_SEC + float(shop_spawn_count) * CombatConstants.MAP_SHOP_RESPAWN_SEC
-	var due_again := shop_spawn_count > 0 and shop_cell < 0 and not shop_touch_pending and elapsed_sec >= next_at
-	if (due_first or due_again) and shop_cell < 0:
-		shop_cell = CombatConstants.BOARD_SIZE - 1
+	if _shop_milestone_due() and not _shop_cycle_busy():
+		shop_drain = true
 		shop_spawn_count += 1
-		_shop_move_prog = 0.0
-		_log("地图商店出现在格 %d。" % shop_cell)
+		_log("地图商店节点：先停刷遭遇，清场后再开店。")
+		changed = true
+	if shop_drain and _try_finish_shop_drain():
 		changed = true
 	if shop_cell >= 0:
 		_shop_move_prog += delta_sec / CombatConstants.MAP_SHOP_STEP_SEC
@@ -5636,14 +5693,17 @@ func _try_super_zombie_summons() -> void:
 
 
 func _tick_zombie_regen_end_of_enemy_turn() -> void:
-	## 僵尸标签：回合结束回复 5 HP（不超过上限）。
+	## 僵尸标签：现有落格拍回复生命（不超过上限）。普通僵尸 +2，超级僵尸仍 +5。
 	for e in alive_enemies():
 		if not e.has_tag("僵尸"):
+			continue
+		var amt: int = CombatConstants.zombie_regen_amount(int(e.def_id))
+		if amt <= 0:
 			continue
 		if e.hp >= e.max_hp:
 			continue
 		var before: int = e.hp
-		e.hp = mini(e.max_hp, e.hp + 5)
+		e.hp = mini(e.max_hp, e.hp + amt)
 		_log("%s 僵尸再生 +%d（HP %d/%d）。" % [e.name_zh, e.hp - before, e.hp, e.max_hp])
 
 

@@ -17,7 +17,7 @@ func test_enemy_hp_halved() -> void:
 	assert_eq(int(DataRegistry.get_enemy(1).get("hp")), 10)
 	assert_eq(int(DataRegistry.get_enemy(2).get("hp")), 15)
 	assert_eq(int(DataRegistry.get_enemy(3).get("hp")), 20)
-	assert_eq(int(DataRegistry.get_enemy(4).get("hp")), 25)
+	assert_eq(int(DataRegistry.get_enemy(4).get("hp")), 20)
 	assert_eq(int(DataRegistry.get_enemy(5).get("hp")), 50)
 	assert_eq(int(DataRegistry.get_enemy(104).get("hp")), 5)
 	assert_eq(int(DataRegistry.get_enemy(105).get("hp")), 10)

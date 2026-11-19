@@ -127,16 +127,20 @@ func test_dot_ticks_every_half_second_not_on_step() -> void:
 
 
 func test_map_shop_spawns_and_touches_player() -> void:
+	## v0.4.64：到点先排空，场上还有怪时不开店；杀完后才 pending 开店。
 	var cs := _rush(4060)
+	cs.spawn_paused = true
 	cs.elapsed_sec = CombatConstants.MAP_SHOP_FIRST_SEC
+	assert_false(cs.alive_enemies().is_empty())
 	cs.tick_map_shop(0.0)
-	assert_eq(cs.shop_cell, CombatConstants.BOARD_SIZE - 1)
-	# 推到玩家旁
-	cs._shop_move_prog = 0.0
-	while cs.shop_cell > 1 and cs.shop_cell >= 0:
-		cs._shop_move_prog = 1.0
-		cs.tick_map_shop(0.0)
+	assert_true(cs.shop_drain)
+	assert_eq(cs.shop_cell, -1)
+	assert_false(cs.shop_touch_pending)
+	# 直接清场，避免击杀经验弹出升级三选一挡住开店。
+	cs.enemies.clear()
+	cs.tick_map_shop(0.0)
 	assert_true(cs.shop_touch_pending)
+	assert_false(cs.shop_drain)
 	assert_eq(cs.shop_cell, -1)
 
 

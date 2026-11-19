@@ -2528,8 +2528,10 @@ func _update_enemy_animal_motion() -> void:
 		if state.free_walk:
 			moving = e.walking and e.is_alive() and not e.is_dummy
 			rate_mul = e.speed_mul / float(1 + e.slow_stacks())
-		# 走路动画播放速度跟滑行速度同比（v0.4.26 减速 50% 后脚不打滑；v0.4.28 乘个体速度）
-		sk.set_walk_rate(_enemy_glide_cells_per_sec() * CombatConstants.ENEMY_WALK_ANIM_REF_STEP_SEC * rate_mul)
+		# 走路动画播放速度跟该敌人自身滑行速度同比（普通僵尸每格更慢）。
+		var step_sec: float = CombatConstants.enemy_auto_step_sec(int(e.def_id))
+		var cells_ps: float = maxf(_combat_speed, 0.01) / maxf(step_sec, 0.01)
+		sk.set_walk_rate(cells_ps * CombatConstants.ENEMY_WALK_ANIM_REF_STEP_SEC * rate_mul)
 		# 朝向：按连续 x 的变化（行进方向）；不动时保持；攻击时面向玩家（SkeletonEnemy 内处理）
 		var eid: int = e.get_instance_id()
 		var cx: float = state.enemy_continuous_x(e)

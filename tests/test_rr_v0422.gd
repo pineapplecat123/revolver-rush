@@ -134,10 +134,11 @@ func test_ui_fire_gate_ticks_when_enemies_do_not_auto_advance() -> void:
 
 
 func test_map_shop_visual_cell_is_fractional() -> void:
+	## 节点不再自动刷出行走商店；手动放置时滑行插值仍可用。
 	var cs := _rush(42204)
-	cs.elapsed_sec = CombatConstants.MAP_SHOP_FIRST_SEC
-	cs.shop_spawn_count = 0
-	cs.shop_cell = -1
+	cs.shop_cell = CombatConstants.BOARD_SIZE - 1
+	cs.shop_spawn_count = 1
+	cs._shop_move_prog = 0.0
 	cs.tick_map_shop(0.25)
 	assert_gte(cs.shop_cell, 0)
 	var vis: float = cs.shop_visual_cell()

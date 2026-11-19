@@ -157,6 +157,7 @@ func test_spawns_only_in_lane_cells_and_free() -> void:
 
 func test_timer_spawns_over_time() -> void:
 	var cs := _rush()
+	cs.map_shop_disabled = true
 	var n0: int = cs.alive_enemies().size()
 	for e in cs.enemies:
 		e.cell = 3  # 腾出刷怪口
@@ -168,6 +169,7 @@ func test_timer_spawns_over_time() -> void:
 
 func test_boss_at_180s() -> void:
 	var cs := _rush()
+	cs.map_shop_disabled = true
 	cs.enemies.clear()
 	cs.elapsed_sec = CombatConstants.BOSS_EVERY_SEC - 0.1
 	cs.tick_combat_time(0.2)
