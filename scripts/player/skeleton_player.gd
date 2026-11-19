@@ -102,6 +102,9 @@ var suppress_shot_from_hook: bool = false
 var _twirling: bool = false
 ## 预览/复用：原地播走路，不移动角色格子。关了回到待机。
 var _walking: bool = false
+## 走路节奏倍率：闯关战斗慢走、进店快走。AnimationPlayer 的 walk 与腿部叠加共用同一时钟。
+var walk_speed_scale: float = 1.0
+var _walk_time: float = 0.0
 var _twirl_tween: Tween = null
 var _aim_weight: float = 1.0
 var _applied_arm: float = 0.0
@@ -131,7 +134,13 @@ func _ready() -> void:
 func _process(delta: float) -> void:
 	## 动画手动推进 → 再把瞄准偏转叠上去（后坐等动画姿态在下层，瞄准在上层叠加）
 	_unapply_aim()
+	if _walking and not is_dead:
+		_walk_time += delta * maxf(walk_speed_scale, 0.05)
+		if StringName(anim.current_animation) == ANIM_WALK:
+			anim.speed_scale = maxf(walk_speed_scale, 0.05)
 	anim.advance(delta)
+	if _walking and not is_dead:
+		_overlay_walk_legs_if_needed()
 	update_aim(delta)
 
 
@@ -264,7 +273,7 @@ func play_shoot() -> void:
 
 
 func set_walking(on: bool) -> void:
-	## 原地走循环开关。战斗里玩家不会自己走路；供预览和以后接真实移动。不改格子或玩法。
+	## 原地走循环开关。不改格子。开火/转枪时腿部继续走，上半身保留射击层。
 	if is_dead:
 		_walking = false
 		return
@@ -274,8 +283,9 @@ func set_walking(on: bool) -> void:
 		return
 	if on:
 		if cur != ANIM_WALK:
-			anim.play(ANIM_WALK, 0.1)
+			_play_walk_keeping_cadence()
 	elif cur == ANIM_WALK:
+		anim.speed_scale = 1.0
 		anim.play(ANIM_IDLE, 0.1)
 
 
@@ -283,13 +293,64 @@ func is_walking() -> bool:
 	return _walking
 
 
+func set_walk_tempo(scale: float) -> void:
+	walk_speed_scale = maxf(scale, 0.05)
+	if _walking and StringName(anim.current_animation) == ANIM_WALK:
+		anim.speed_scale = walk_speed_scale
+
+
+func walk_cycle_time() -> float:
+	return _walk_time
+
+
+func _play_walk_keeping_cadence() -> void:
+	anim.play(ANIM_WALK, 0.1)
+	anim.speed_scale = maxf(walk_speed_scale, 0.05)
+	var slen: float = WALK_LEN
+	if anim.has_animation(ANIM_WALK):
+		slen = maxf(anim.get_animation(ANIM_WALK).length, 0.001)
+	anim.seek(fposmod(_walk_time, slen), true)
+
+
 func _resume_locomotion() -> void:
 	if is_dead:
 		return
 	if _walking:
-		anim.play(ANIM_WALK, 0.1)
+		_play_walk_keeping_cadence()
 	else:
+		anim.speed_scale = 1.0
 		anim.play(ANIM_IDLE, 0.1)
+
+
+func _overlay_walk_legs_if_needed() -> void:
+	## 射击/转枪/装弹/受击播上半身动画时，仍按走路时钟驱动腿和胯，避免站住开火。
+	var cur := StringName(anim.current_animation)
+	if cur == ANIM_WALK or cur == ANIM_DEATH or cur == ANIM_IDLE:
+		return
+	_apply_walk_legs(_walk_time)
+
+
+func _apply_walk_legs(t: float) -> void:
+	var hip: Bone2D = bones.get("Hip") as Bone2D
+	var th_f: Bone2D = bones.get("ThighF") as Bone2D
+	var sh_f: Bone2D = bones.get("ShinF") as Bone2D
+	var th_b: Bone2D = bones.get("ThighB") as Bone2D
+	var sh_b: Bone2D = bones.get("ShinB") as Bone2D
+	if hip == null or th_f == null or sh_f == null or th_b == null or sh_b == null:
+		return
+	var hip0: Vector2 = REST["Hip"][0]
+	var thigh_f0: float = REST["ThighF"][1]
+	var shin_f0: float = REST["ShinF"][1]
+	var thigh_b0: float = REST["ThighB"][1]
+	var shin_b0: float = REST["ShinB"][1]
+	var wphi: float = walk_phi(t, WALK_LEN)
+	var step: float = sin(wphi)
+	var bob: float = 0.5 - 0.5 * cos(2.0 * wphi)
+	hip.position = hip0 + Vector2(0.0, WALK_HIP_BOB * bob)
+	th_f.rotation = thigh_f0 + WALK_STEP_THIGH * step
+	sh_f.rotation = shin_f0 - WALK_STEP_SHIN * step
+	th_b.rotation = thigh_b0 - WALK_STEP_THIGH * step
+	sh_b.rotation = shin_b0 + WALK_STEP_SHIN * step
 
 
 func play_gun_twirl(duration: float) -> void:

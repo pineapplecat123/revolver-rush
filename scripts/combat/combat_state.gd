@@ -1,5 +1,5 @@
 class_name CombatState
-## 战斗状态机（rush!）：清场后奖励三选一，结算后再下一波。
+## 战斗状态机（rush! / 沙盒 / 闯关）。闯关为独立 9 层模式，不走无限刷怪与定时商店。
 ## 随时装弹；开火一次先随机转轮，再按射速帽打光已装弹。装弹不倾倒已上膛子弹，可在有空仓时随时补弹。
 
 enum Phase {
@@ -45,8 +45,30 @@ var hooks: CombatHooks = CombatHooks.new()
 
 ## 主菜单 → 战斗：true=沙盒开局（combat_ui 读取后清回 false）
 static var boot_sandbox: bool = false
+## 主菜单 → 战斗：true=闯关开局（combat_ui 读取后清回 false）
+static var boot_campaign: bool = false
 ## 沙盒：可自定义枪口/袋/怪；默认暂停连续刷怪与地图商店
 var sandbox_mode: bool = false
+## 闯关模式：独立 9 层，不启用 rush 连续刷怪 / 定时商店 / 定时 Boss。
+var campaign_mode: bool = false
+## CampaignRules.PHASE_* ；非闯关为 INACTIVE。
+var campaign_phase: int = CampaignRules.PHASE_INACTIVE
+var campaign_floor: int = 1
+var campaign_segment: int = 1
+var campaign_wave: int = 1
+var campaign_shops_this_floor: int = 0
+var campaign_offer_choices: Array[int] = []
+var campaign_offer_pending: bool = false
+var campaign_offer_picked_id: int = 0
+var campaign_await_boss_reward: bool = false
+var campaign_walk_left: float = 0.0
+var campaign_scenery_x: float = 0.0
+## 测试用：走路进店/进场时长视为 0，仍走同一套阶段切换。
+var campaign_instant_transitions: bool = false
+var campaign_transition_lock: bool = false
+## 开局自选已消耗（每局一次）。
+var campaign_opening_resolved: bool = false
+var campaign_boss_reward_issued: bool = false
 ## v0.4.30 沙盒：玩家点了「清空弹药袋」后，挡住 ensure_bag_refilled；加弹后解除。
 var sandbox_hold_bag_empty: bool = false
 ## 沙盒袋配置还原后递增，让袋画面全部重生，不复用旧物理球。
@@ -572,6 +594,7 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 	sandbox_hold_bag_empty = false
 	spawn_paused = false
 	map_shop_disabled = false
+	_reset_campaign_flags()
 	reset_enemy_glide()
 	xp = 0
 	level = 1
@@ -611,6 +634,467 @@ func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH
 		sandbox_spawn_default_dummies()
 	damage_stats_reset()
 	_log("沙盒模式：弹药袋为空；刷怪与地图商店已暂停；用控制台给袋/手加减弹药。")
+	_emit()
+
+
+
+func _reset_campaign_flags() -> void:
+	campaign_mode = false
+	campaign_phase = CampaignRules.PHASE_INACTIVE
+	campaign_floor = 1
+	campaign_segment = 1
+	campaign_wave = 1
+	campaign_shops_this_floor = 0
+	campaign_offer_choices.clear()
+	campaign_offer_pending = false
+	campaign_offer_picked_id = 0
+	campaign_await_boss_reward = false
+	campaign_boss_reward_issued = false
+	campaign_walk_left = 0.0
+	campaign_scenery_x = 0.0
+	campaign_instant_transitions = false
+	campaign_transition_lock = false
+	campaign_opening_resolved = false
+	campaign_boss_reward_issued = false
+
+
+func start_campaign(seed_value: int = 0) -> void:
+	## 独立闯关：不沿用 rush 开局袋/选罪/连续刷怪/定时店与 Boss。先共用重置，再改成 6 白板 + 开局三选一。
+	CampaignRules.reload()
+	start_rush(seed_value, FireResolver.ID_WRATH)
+	campaign_mode = true
+	sandbox_mode = false
+	sandbox_hold_bag_empty = false
+	spawn_paused = true
+	map_shop_disabled = true
+	enemies.clear()
+	shop_cell = -1
+	shop_touch_pending = false
+	shop_drain = false
+	shop_hold = false
+	_shop_move_prog = 0.0
+	_spawn_timer = 99999.0
+	_boss_spawned = 999999
+	encounter_kind = EncounterKind.NORMAL
+	selected_sin_ammo_id = 0
+	_clear_all_sin_muzzle(true)
+	bag.clear()
+	bag_temp.clear()
+	bag_envy_copy.clear()
+	hand.clear()
+	hand_temp.clear()
+	hand_envy_copy.clear()
+	hand_uid.clear()
+	discard.clear()
+	discard_temp.clear()
+	if magazine != null:
+		magazine.clear()
+	for _i in CombatConstants.MAGAZINE_SIZE:
+		_bag_append(CombatConstants.WHITE_AMMO_ID, false)
+	_shuffle_bag()
+	_snapshot_combat_bag_baseline()
+	campaign_floor = 1
+	campaign_segment = 1
+	campaign_wave = 1
+	campaign_shops_this_floor = 0
+	campaign_await_boss_reward = false
+	campaign_walk_left = 0.0
+	campaign_scenery_x = 0.0
+	campaign_transition_lock = false
+	campaign_opening_resolved = false
+	campaign_offer_picked_id = 0
+	campaign_offer_choices = CampaignRules.roll_opening_offers(rng)
+	campaign_offer_pending = true
+	campaign_phase = CampaignRules.PHASE_OFFER
+	reward_pending = false
+	pending_levelups = 0
+	_clear_reward_state()
+	_set_phase(Phase.AWAIT_LOAD)
+	_log("闯关：弹药袋白板 ×%d，请从三发子弹中选一加入弹药袋（只加一次）。" % bag.size())
+	_emit()
+
+
+func campaign_progress_text() -> String:
+	if not campaign_mode:
+		return ""
+	var floor_n: String = CampaignRules.floor_name(campaign_floor)
+	var tag: String = CampaignRules.phase_title(campaign_phase)
+	match campaign_phase:
+		CampaignRules.PHASE_OFFER:
+			return "闯关 · 开局自选子弹"
+		CampaignRules.PHASE_ENTER:
+			return "闯关 · 第%d关 %s · 进场" % [campaign_floor, floor_n]
+		CampaignRules.PHASE_COMBAT:
+			var wc: int = CampaignRules.wave_count(campaign_floor, campaign_segment)
+			return "闯关 · 第%d关 %s · 第%d段 · 第%d/%d波" % [campaign_floor, floor_n, campaign_segment, campaign_wave, wc]
+		CampaignRules.PHASE_WALK_SHOP:
+			return "闯关 · 第%d关 %s · 走向商店（%d/3）" % [campaign_floor, floor_n, campaign_shops_this_floor + 1]
+		CampaignRules.PHASE_SHOP:
+			return "闯关 · 第%d关 %s · 商店 %d/3" % [campaign_floor, floor_n, campaign_shops_this_floor]
+		CampaignRules.PHASE_BOSS:
+			return "闯关 · 第%d关 %s · 楼层首领" % [campaign_floor, floor_n]
+		CampaignRules.PHASE_BOSS_REWARD:
+			return "闯关 · 第%d关 %s · 首领奖励" % [campaign_floor, floor_n]
+		CampaignRules.PHASE_WALK_FLOOR:
+			return "闯关 · 前往第%d关" % campaign_floor
+		CampaignRules.PHASE_VICTORY:
+			return "闯关 · 胜利"
+		_:
+			return "闯关 · %s" % tag
+
+
+func campaign_walk_tempo() -> float:
+	if not campaign_mode:
+		return 1.0
+	if campaign_phase == CampaignRules.PHASE_COMBAT or campaign_phase == CampaignRules.PHASE_BOSS:
+		return CampaignRules.walk_combat_tempo()
+	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR]:
+		return CampaignRules.walk_shop_tempo()
+	return CampaignRules.walk_combat_tempo()
+
+
+func campaign_should_walk() -> bool:
+	if not campaign_mode or phase == Phase.LOST or phase == Phase.WON:
+		return false
+	if campaign_offer_pending or campaign_phase == CampaignRules.PHASE_OFFER:
+		return false
+	if campaign_phase == CampaignRules.PHASE_SHOP or campaign_phase == CampaignRules.PHASE_BOSS_REWARD:
+		return false
+	if campaign_phase == CampaignRules.PHASE_VICTORY:
+		return false
+	return campaign_phase != CampaignRules.PHASE_INACTIVE
+
+
+func campaign_field_safe() -> bool:
+	if phase == Phase.LOST or phase == Phase.WON:
+		return false
+	if reward_pending or campaign_offer_pending:
+		return false
+	if not alive_enemies().is_empty():
+		return false
+	if has_corpse_enemies():
+		return false
+	if has_pending_impacts():
+		return false
+	return true
+
+
+func campaign_can_pick_opening() -> bool:
+	return campaign_mode and campaign_offer_pending and not campaign_opening_resolved and phase != Phase.LOST
+
+
+func campaign_pick_opening(index: int) -> bool:
+	if not campaign_can_pick_opening():
+		return false
+	if index < 0 or index >= campaign_offer_choices.size():
+		return false
+	var ammo_id: int = int(campaign_offer_choices[index])
+	_bag_append(ammo_id, false)
+	if not DataRegistry.is_ammo_ephemeral(ammo_id):
+		_combat_bag_baseline.append(ammo_id)
+	campaign_offer_picked_id = ammo_id
+	campaign_offer_pending = false
+	campaign_opening_resolved = true
+	_log("闯关开局：选择 %s 加入弹药袋（只加 1 发，现 %d）。" % [_ammo_name(ammo_id), bag.size()])
+	_begin_campaign_enter()
+	_emit()
+	return true
+
+
+func _campaign_walk_duration(base_sec: float) -> float:
+	if campaign_instant_transitions:
+		return 0.0
+	return maxf(0.0, base_sec)
+
+
+func _begin_campaign_enter() -> void:
+	campaign_phase = CampaignRules.PHASE_ENTER
+	campaign_walk_left = _campaign_walk_duration(CampaignRules.walk_enter_sec())
+	if campaign_walk_left <= 0.0:
+		campaign_transition_lock = false
+		_campaign_start_segment_combat()
+	else:
+		campaign_transition_lock = true
+
+
+func _campaign_start_segment_combat() -> void:
+	campaign_transition_lock = false
+	campaign_wave = 1
+	campaign_phase = CampaignRules.PHASE_COMBAT
+	encounter_kind = EncounterKind.NORMAL
+	_campaign_spawn_current_wave()
+
+
+func _campaign_spawn_current_wave() -> int:
+	var spawns: Array = CampaignRules.wave_spawns(campaign_floor, campaign_segment, campaign_wave)
+	var made := 0
+	for item in spawns:
+		if not (item is Dictionary):
+			continue
+		var eid: int = int(item.get("id", 0))
+		var count: int = maxi(1, int(item.get("count", 1)))
+		var hp_ov: int = int(item.get("hp", 0))
+		for _j in count:
+			if _campaign_spawn_enemy(eid, hp_ov, ""):
+				made += 1
+	if made > 0:
+		_log("闯关：第%d关第%d段第%d波，出现 %d 个敌人。" % [campaign_floor, campaign_segment, campaign_wave, made])
+	_emit()
+	return made
+
+
+func _campaign_spawn_enemy(eid: int, hp_override: int = 0, name_override: String = "") -> bool:
+	var cell: int = _free_spawn_cell()
+	if cell < 0:
+		return false
+	var def: Dictionary = DataRegistry.get_enemy(eid)
+	if def.is_empty():
+		return false
+	var e: EnemyInstance = _make_scaled_enemy(def, cell)
+	if hp_override > 0:
+		e.max_hp = hp_override
+		e.hp = hp_override
+	if not name_override.strip_edges().is_empty():
+		e.name_zh = name_override
+	enemies.append(e)
+	return true
+
+
+func _campaign_start_boss() -> void:
+	campaign_transition_lock = false
+	campaign_phase = CampaignRules.PHASE_BOSS
+	encounter_kind = EncounterKind.BOSS
+	var b: Dictionary = CampaignRules.boss_def(campaign_floor)
+	var eid: int = int(b.get("id", CombatConstants.SUPER_ZOMBIE_ENEMY_ID))
+	var hp_ov: int = int(b.get("hp", 0))
+	var nm: String = str(b.get("name", "")).strip_edges()
+	if not _campaign_spawn_enemy(eid, hp_ov, nm):
+		_log("闯关：第%d关首领未能出场。" % campaign_floor)
+	else:
+		_log("闯关：第%d关首领 %s 出现。" % [campaign_floor, nm if not nm.is_empty() else _enemy_name_fallback(eid)])
+	_emit()
+
+
+func _enemy_name_fallback(eid: int) -> String:
+	var def: Dictionary = DataRegistry.get_enemy(eid)
+	var n: String = str(def.get("name", "")).strip_edges()
+	return n if not n.is_empty() else "首领"
+
+
+func campaign_try_advance() -> void:
+	if not campaign_mode or campaign_transition_lock:
+		return
+	if phase == Phase.LOST or phase == Phase.WON:
+		return
+	if campaign_phase == CampaignRules.PHASE_WALK_SHOP:
+		if campaign_walk_left <= 0.0 and campaign_field_safe():
+			_campaign_finish_walk_to_shop()
+		return
+	if campaign_phase == CampaignRules.PHASE_ENTER and campaign_walk_left <= 0.0:
+		_campaign_start_segment_combat()
+		return
+	if campaign_phase == CampaignRules.PHASE_WALK_FLOOR and campaign_walk_left <= 0.0:
+		_campaign_begin_floor_combat()
+		return
+	if campaign_phase == CampaignRules.PHASE_COMBAT:
+		if not campaign_field_safe():
+			return
+		var wc: int = CampaignRules.wave_count(campaign_floor, campaign_segment)
+		if campaign_wave < wc:
+			campaign_wave += 1
+			_campaign_spawn_current_wave()
+			return
+		_begin_walk_to_shop()
+		return
+	if campaign_phase == CampaignRules.PHASE_BOSS:
+		if not campaign_field_safe():
+			return
+		_begin_campaign_boss_reward()
+
+
+func _begin_walk_to_shop() -> void:
+	if phase == Phase.LOST or phase == Phase.WON:
+		return
+	if not campaign_field_safe():
+		return
+	campaign_transition_lock = true
+	campaign_phase = CampaignRules.PHASE_WALK_SHOP
+	campaign_walk_left = _campaign_walk_duration(CampaignRules.walk_to_shop_sec())
+	_log("闯关：第%d段清空，走向商店。" % campaign_segment)
+	if campaign_walk_left <= 0.0:
+		_campaign_finish_walk_to_shop()
+	_emit()
+
+
+func _campaign_finish_walk_to_shop() -> void:
+	if phase == Phase.LOST or phase == Phase.WON:
+		campaign_transition_lock = false
+		shop_touch_pending = false
+		return
+	if not campaign_field_safe():
+		# 走路结束时若仍不安全（升级选择、残留弹道等），放开锁，安全后再开店。
+		campaign_transition_lock = false
+		return
+	shop_touch_pending = true
+	campaign_phase = CampaignRules.PHASE_SHOP
+	campaign_shops_this_floor += 1
+	campaign_walk_left = 0.0
+	campaign_transition_lock = false
+	_log("闯关：打开商店（本关 %d/3）。" % campaign_shops_this_floor)
+	hooks.emit_hook(&"on_shop_enter", {"cs": self, "shop_cell": -1, "campaign": true})
+	_emit()
+
+
+func campaign_on_shop_left() -> void:
+	if not campaign_mode:
+		return
+	if phase == Phase.LOST or phase == Phase.WON:
+		return
+	if campaign_phase != CampaignRules.PHASE_SHOP and not shop_hold:
+		# 允许测试在 shop_touch_pending 时直接离店
+		if campaign_phase != CampaignRules.PHASE_SHOP:
+			if shop_touch_pending:
+				shop_touch_pending = false
+			if campaign_shops_this_floor <= 0:
+				return
+	shop_touch_pending = false
+	shop_hold = false
+	if campaign_shops_this_floor >= CampaignRules.SEGMENTS_PER_FLOOR:
+		_campaign_start_boss()
+	else:
+		campaign_segment += 1
+		campaign_wave = 1
+		_campaign_start_segment_combat()
+
+
+func campaign_simulate_shop_cycle() -> bool:
+	## 测试用：完成当前走向商店（若有）并视作进店后立刻离开。
+	if not campaign_mode:
+		return false
+	if campaign_phase == CampaignRules.PHASE_WALK_SHOP:
+		campaign_walk_left = 0.0
+		_campaign_finish_walk_to_shop()
+	if campaign_phase != CampaignRules.PHASE_SHOP and not shop_touch_pending:
+		return false
+	shop_touch_pending = false
+	shop_hold = false
+	campaign_on_shop_left()
+	return true
+
+
+func campaign_skip_walk() -> void:
+	if not campaign_mode:
+		return
+	campaign_walk_left = 0.0
+	if campaign_phase == CampaignRules.PHASE_WALK_SHOP:
+		_campaign_finish_walk_to_shop()
+	elif campaign_phase == CampaignRules.PHASE_ENTER:
+		campaign_transition_lock = false
+		_campaign_start_segment_combat()
+	elif campaign_phase == CampaignRules.PHASE_WALK_FLOOR:
+		campaign_transition_lock = false
+		_campaign_begin_floor_combat()
+
+
+func _begin_campaign_boss_reward() -> void:
+	campaign_transition_lock = true
+	campaign_phase = CampaignRules.PHASE_BOSS_REWARD
+	campaign_await_boss_reward = true
+	campaign_boss_reward_issued = false
+	encounter_kind = EncounterKind.NORMAL
+	campaign_transition_lock = false
+	if reward_pending or pending_levelups > 0:
+		_emit()
+		return
+	campaign_boss_reward_issued = true
+	pending_levelups += 1
+	_begin_levelup_reward()
+	_log("闯关：击败第%d关首领，选择奖励。" % campaign_floor)
+	_emit()
+
+
+func campaign_on_reward_finished() -> void:
+	if not campaign_mode:
+		return
+	if not campaign_await_boss_reward and campaign_phase != CampaignRules.PHASE_BOSS_REWARD:
+		campaign_try_advance()
+		return
+	if reward_pending or pending_levelups > 0:
+		return
+	if campaign_await_boss_reward and campaign_phase == CampaignRules.PHASE_BOSS_REWARD:
+		if not campaign_boss_reward_issued:
+			campaign_boss_reward_issued = true
+			pending_levelups += 1
+			_begin_levelup_reward()
+			_log("闯关：击败第%d关首领，选择奖励。" % campaign_floor)
+			return
+		campaign_after_boss_reward_cleared()
+
+
+func _tick_campaign(delta_sec: float) -> bool:
+	if not campaign_mode or phase == Phase.LOST or phase == Phase.WON:
+		return false
+	var changed := false
+	if campaign_should_walk():
+		var tempo: float = campaign_walk_tempo()
+		campaign_scenery_x += delta_sec * tempo * 80.0
+		changed = true
+	if campaign_phase in [CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_WALK_FLOOR]:
+		if campaign_walk_left > 0.0:
+			campaign_walk_left = maxf(0.0, campaign_walk_left - delta_sec)
+			changed = true
+		if campaign_walk_left <= 0.0:
+			if campaign_phase == CampaignRules.PHASE_ENTER:
+				campaign_transition_lock = false
+				_campaign_start_segment_combat()
+				changed = true
+			elif campaign_phase == CampaignRules.PHASE_WALK_SHOP:
+				_campaign_finish_walk_to_shop()
+				changed = true
+			elif campaign_phase == CampaignRules.PHASE_WALK_FLOOR:
+				campaign_transition_lock = false
+				_campaign_begin_floor_combat()
+				changed = true
+	if campaign_phase == CampaignRules.PHASE_COMBAT or campaign_phase == CampaignRules.PHASE_BOSS:
+		campaign_try_advance()
+	if campaign_phase == CampaignRules.PHASE_BOSS_REWARD and campaign_await_boss_reward:
+		if not reward_pending and pending_levelups <= 0 and campaign_field_safe():
+			pending_levelups += 1
+			_begin_levelup_reward()
+			_log("闯关：击败第%d关首领，选择奖励。" % campaign_floor)
+			changed = true
+	return changed
+
+
+func _campaign_begin_floor_combat() -> void:
+	campaign_shops_this_floor = 0
+	campaign_segment = 1
+	campaign_wave = 1
+	_campaign_start_segment_combat()
+
+
+func campaign_after_boss_reward_cleared() -> void:
+	## 首领奖励（含之前排队的升级）全部领完后：第 9 关胜利，否则走向下一关。
+	if not campaign_mode or not campaign_await_boss_reward:
+		return
+	if reward_pending or pending_levelups > 0:
+		return
+	campaign_await_boss_reward = false
+	if campaign_floor >= CampaignRules.floor_count():
+		campaign_phase = CampaignRules.PHASE_VICTORY
+		campaign_transition_lock = false
+		_set_phase(Phase.WON)
+		_log("闯关胜利：已通关第 %d 关。" % campaign_floor)
+		_emit()
+		return
+	campaign_floor += 1
+	campaign_phase = CampaignRules.PHASE_WALK_FLOOR
+	campaign_walk_left = _campaign_walk_duration(CampaignRules.walk_floor_sec())
+	campaign_transition_lock = true
+	_log("闯关：进入第%d关 %s。" % [campaign_floor, CampaignRules.floor_name(campaign_floor)])
+	if campaign_walk_left <= 0.0:
+		campaign_transition_lock = false
+		_campaign_begin_floor_combat()
 	_emit()
 
 
@@ -5117,6 +5601,8 @@ func _remove_dead() -> void:
 			})
 		gain_xp(xp_for_enemy(e))
 	enemies = kept
+	if campaign_mode:
+		campaign_try_advance()
 
 
 # ——— v0.3.8 经验值 ———
@@ -5298,6 +5784,8 @@ func tick_combat_time(delta_sec: float) -> bool:
 	changed = tick_temp_sin_lifetimes(delta_sec) or changed
 	changed = tick_dot(delta_sec) or changed
 	changed = tick_map_shop(delta_sec) or changed
+	if campaign_mode:
+		changed = _tick_campaign(delta_sec) or changed
 	if not spawn_paused:
 		var boss_due: int = int(floor(elapsed_sec / CombatConstants.BOSS_EVERY_SEC))
 		if boss_due > _boss_spawned:
@@ -5435,14 +5923,20 @@ func _shop_cycle_busy() -> bool:
 	return shop_drain or shop_touch_pending or shop_hold or shop_cell >= 0
 
 
+func has_pending_impacts() -> bool:
+	return not _pending_impacts.is_empty() or _volley_pending or _volley_followup_pending
+
+
 func _shop_field_safe_to_open() -> bool:
 	if phase == Phase.LOST or phase == Phase.WON:
 		return false
-	if reward_pending:
+	if reward_pending or campaign_offer_pending:
 		return false
 	if not alive_enemies().is_empty():
 		return false
 	if has_corpse_enemies():
+		return false
+	if has_pending_impacts():
 		return false
 	return true
 
@@ -5822,6 +6316,7 @@ func pick_reward_ammo(index: int) -> bool:
 		_combat_bag_baseline.append(ammo_id)
 	_log("升级奖励：选择 %s 加入弹药袋（袋内 %d，Lv%d）。" % [_ammo_name(ammo_id), bag.size(), level])
 	_finish_one_levelup_reward()
+	campaign_on_reward_finished()
 	_emit()
 	return true
 
@@ -5833,6 +6328,7 @@ func skip_reward_for_gold() -> bool:
 	var extra: int = CombatConstants.REWARD_SKIP_EXTRA_GOLD
 	gold += extra
 	_finish_one_levelup_reward()
+	campaign_on_reward_finished()
 	_log("奖励：放弃三选一，额外金币 +%d（现 %d）。" % [extra, gold])
 	_emit()
 	return true

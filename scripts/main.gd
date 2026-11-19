@@ -1,5 +1,5 @@
 extends Control
-## 主菜单（竖屏）：rush!（唯一模式）/ 更新日志 / 清理缓存 / 退出；底部版本号。
+## 主菜单（竖屏）：闯关 / rush! / 沙盒 / 更新日志 / 清理缓存 / 退出；底部版本号。
 
 const CHANGELOG_PATH := "res://data/changelog.json"
 const COMBAT_SCENE := "res://scenes/combat.tscn"
@@ -38,6 +38,7 @@ func _ready() -> void:
 
 
 func _style_menu() -> void:
+	%BtnCampaign.custom_minimum_size = Vector2(420, 110)
 	%BtnStart.custom_minimum_size = Vector2(420, 110)
 	%BtnSandbox.custom_minimum_size = Vector2(420, 72)
 	%BtnChangelog.custom_minimum_size = Vector2(420, 72)
@@ -115,6 +116,7 @@ func _set_changelog_open(open: bool) -> void:
 	_changelog_open = open
 	%ChangelogDimmer.visible = open
 	%ChangelogPanel.visible = open
+	%BtnCampaign.disabled = open
 	%BtnStart.disabled = open
 	%BtnSandbox.disabled = open
 	%BtnChangelog.disabled = open
@@ -372,6 +374,7 @@ func _codex_ammo_color(ammo_id: int) -> Dictionary:
 func _set_codex_open(open: bool) -> void:
 	%CodexDimmer.visible = open
 	%CodexPanel.visible = open
+	%BtnCampaign.disabled = open
 	%BtnStart.disabled = open
 	%BtnSandbox.disabled = open
 	%BtnChangelog.disabled = open
@@ -509,15 +512,24 @@ func _enter_combat() -> void:
 		get_tree().change_scene_to_file(COMBAT_SCENE)
 
 
+func _on_campaign_pressed() -> void:
+	## 闯关：独立九层，开局 6 白板再三选一颗子弹。
+	CombatState.boot_sandbox = false
+	CombatState.boot_campaign = true
+	await _enter_combat()
+
+
 func _on_start_pressed() -> void:
 	## rush!：直接进战斗（先选罪孽）。
 	CombatState.boot_sandbox = false
+	CombatState.boot_campaign = false
 	await _enter_combat()
 
 
 func _on_sandbox_pressed() -> void:
 	## 沙盒：进战斗后跳过罪孽三选，开沙盒面板。
 	CombatState.boot_sandbox = true
+	CombatState.boot_campaign = false
 	await _enter_combat()
 
 

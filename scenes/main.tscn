@@ -56,12 +56,20 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_font_sizes/font_size = 18
 autowrap_mode = 3
-text = "rush! 连续作战；沙盒可自定义枪口 / 弹药袋 / 木桩与状态时长。"
+text = "闯关九层作战；rush! 连续作战；沙盒可自定义枪口 / 弹药袋 / 木桩与状态时长。"
 horizontal_alignment = 1
 
 [node name="Spacer" type="Control" parent="Center"]
 custom_minimum_size = Vector2(0, 16)
 layout_mode = 2
+
+[node name="BtnCampaign" type="Button" parent="Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(420, 110)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 44
+text = "闯关"
 
 [node name="BtnStart" type="Button" parent="Center"]
 unique_name_in_owner = true
@@ -265,6 +273,7 @@ theme_override_constants/v_separation = 10
 layout_mode = 2
 size_flags_horizontal = 3
 
+[connection signal="pressed" from="Center/BtnCampaign" to="." method="_on_campaign_pressed"]
 [connection signal="pressed" from="Center/BtnStart" to="." method="_on_start_pressed"]
 [connection signal="pressed" from="Center/BtnSandbox" to="." method="_on_sandbox_pressed"]
 [connection signal="pressed" from="Center/BtnChangelog" to="." method="_on_changelog_pressed"]

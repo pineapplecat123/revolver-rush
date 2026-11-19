@@ -404,8 +404,17 @@ func _ready() -> void:
 	state.defer_impacts = true
 	call_deferred("_prewarm_pixelfx")
 	var want_sandbox: bool = CombatState.boot_sandbox
+	var want_campaign: bool = CombatState.boot_campaign
 	CombatState.boot_sandbox = false
-	if want_sandbox:
+	CombatState.boot_campaign = false
+	if want_campaign:
+		btn_next_wave.text = "重新开始闯关"
+		state.start_campaign(0)
+		state.pace_after_fire = true
+		state.defer_impacts = true
+		_ensure_campaign_scenery()
+		_refresh()
+	elif want_sandbox:
 		btn_next_wave.text = "重新开始沙盒"
 		btn_dev.text = "沙盒"
 		var title_n := get_node_or_null("DevPanel/DevMargin/DevVBox/DevHeader/DevTitle") as Label
@@ -1413,6 +1422,7 @@ func _process(delta: float) -> void:
 	_tick_screen_punch(delta)
 	if state == null:
 		return
+	_apply_campaign_presentation()
 	if _shop_open or state.shop_hold:
 		return
 	# 射速帽不绑在「敌人自动走」上。商店/升级/选罪已经在上面或 _enemy_auto_allowed 里停掉。
@@ -1429,8 +1439,11 @@ func _process(delta: float) -> void:
 		_consume_expired_temp_events()
 		_refresh()
 	if state.shop_touch_pending and not _shop_open and not _reward_open and not _sin_pick_open:
-		_open_rush_shop()
-		return
+		if state.campaign_offer_pending:
+			pass
+		elif state._shop_field_safe_to_open():
+			_open_rush_shop()
+			return
 	var alive_before: bool = not state.alive_enemies().is_empty()
 	var steps: int = state.advance_enemy_glide(delta * _enemy_glide_cells_per_sec())
 	if steps > 0 and alive_before:
@@ -3653,6 +3666,7 @@ func _play_roll_spin_visual(logic_steps: int) -> void:
 
 func _on_menu_pressed() -> void:
 	CombatState.boot_sandbox = false
+	CombatState.boot_campaign = false
 	get_tree().change_scene_to_file("res://scenes/main.tscn")
 
 
@@ -3664,9 +3678,16 @@ func _on_next_wave() -> void:
 	## 战败后「重新开始」；沙盒下也可随时重置。
 	if state != null and state.sandbox_mode:
 		CombatState.boot_sandbox = true
+		CombatState.boot_campaign = false
+		get_tree().reload_current_scene()
+		return
+	if state != null and state.campaign_mode:
+		CombatState.boot_campaign = true
+		CombatState.boot_sandbox = false
 		get_tree().reload_current_scene()
 		return
 	if state.phase == CombatState.Phase.LOST:
+		CombatState.boot_campaign = false
 		get_tree().reload_current_scene()
 
 
@@ -3731,9 +3752,94 @@ func _set_reward_open(open: bool) -> void:
 	_update_dimmer()
 
 
+
+var _campaign_scenery: CampaignScenery = null
+
+
+func _ensure_campaign_scenery() -> void:
+	if _campaign_scenery != null and is_instance_valid(_campaign_scenery):
+		return
+	var top: Control = get_node_or_null("Margin/RootVBox/TopPanel") as Control
+	if top == null:
+		return
+	_campaign_scenery = CampaignScenery.new()
+	_campaign_scenery.name = "CampaignScenery"
+	# 必须叠在 TopPanel 背景之上、棋盘单位之下；z_index 为负会画到面板底色后面。
+	_campaign_scenery.z_index = 0
+	_campaign_scenery.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	top.add_child(_campaign_scenery)
+	top.move_child(_campaign_scenery, 0)
+	_layout_campaign_scenery()
+
+
+func _layout_campaign_scenery() -> void:
+	if _campaign_scenery == null or not is_instance_valid(_campaign_scenery):
+		return
+	var top: Control = _campaign_scenery.get_parent() as Control
+	if top == null or board_row == null:
+		return
+	var inv := top.get_global_transform_with_canvas().affine_inverse()
+	_campaign_scenery.position = inv * board_row.global_position
+	_campaign_scenery.size = board_row.size
+
+
+func _apply_campaign_presentation() -> void:
+	if state == null:
+		return
+	if state.campaign_mode:
+		_ensure_campaign_scenery()
+		_layout_campaign_scenery()
+	var want_walk: bool = state.campaign_mode and state.campaign_should_walk() and not _shop_open
+	if _skel_player != null and is_instance_valid(_skel_player):
+		if want_walk:
+			_skel_player.set_walk_tempo(state.campaign_walk_tempo())
+			_skel_player.set_walking(true)
+		elif state.campaign_mode or (not state.sandbox_mode):
+			# 闯关非走路阶段停步；rush 保持原待机。沙盒预览走路不在这里关掉。
+			if state.campaign_mode:
+				_skel_player.set_walking(false)
+	if _campaign_scenery != null and is_instance_valid(_campaign_scenery):
+		_campaign_scenery.set_scroll(state.campaign_scenery_x, state.campaign_mode and want_walk)
+
+
+func _refresh_campaign_opening_panel() -> void:
+	reward_title.text = "闯关开局 · 三选一加入弹药袋（只加一发）"
+	reward_title.add_theme_color_override("font_color", COL_REWARD_TITLE)
+	reward_gold_label.text = "当前袋内白板 ×%d · 必须选一发才能开战" % state.bag.size()
+	reward_gold_label.add_theme_color_override("font_color", COL_GOLD)
+	reward_hint.text = "从下列三发中选一，加入弹药袋一次。不能跳过。"
+	reward_hint.add_theme_color_override("font_color", COL_REWARD_HINT)
+	_style_reward_action_button(btn_reward_skip)
+	_style_reward_action_button(btn_reward_next)
+	btn_reward_skip.visible = false
+	btn_reward_next.visible = false
+	for i in state.campaign_offer_choices.size():
+		var ammo_id: int = state.campaign_offer_choices[i]
+		var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+		var colors := _ammo_colors(ammo_id)
+		var btn := Button.new()
+		btn.custom_minimum_size = Vector2(0, 72)
+		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var nm := str(def.get("name", "未知#%d" % ammo_id))
+		var blurb := DataRegistry.format_ammo_reward_blurb(ammo_id)
+		btn.text = "【%d】%s\n%s" % [i + 1, nm, blurb]
+		var desc := str(def.get("special", ""))
+		if not desc.is_empty():
+			btn.tooltip_text = desc
+		btn.add_theme_font_size_override("font_size", 18)
+		_style_reward_choice_button(btn, colors["bg"])
+		RarityFx.attach(btn, ammo_id, colors["bg"], 8.0)
+		var idx := i
+		btn.pressed.connect(func(): _on_reward_pick(idx))
+		reward_choices.add_child(btn)
+
+
 func _refresh_reward_panel() -> void:
 	for c in reward_choices.get_children():
 		c.queue_free()
+	if state != null and state.campaign_offer_pending:
+		_refresh_campaign_opening_panel()
+		return
 	var pending := state.can_pick_reward()
 	var resolved := false
 	var enc_title := state.encounter_label() if state != null else "战斗"
@@ -4614,7 +4720,7 @@ func _open_rush_shop() -> void:
 func _refresh_rush_shop_panel() -> void:
 	if _shop_panel == null or not _shop.open:
 		return
-	_shop_title.text = "地图商店"
+	_shop_title.text = "闯关商店" if state != null and state.campaign_mode else "地图商店"
 	_shop_gold_label.text = "金币 %d" % _shop.gold
 	_shop_hint.text = "购买：按稀有度定价（普通%d / 精良%d / 稀有%d / 史诗%d）。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。" % [
 		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_COMMON]),
@@ -4773,6 +4879,8 @@ func _on_rush_shop_leave() -> void:
 			payload.get("bag", []), _shop_temps, int(payload.get("gold", state.gold)),
 			payload.get("discard", []), _shop_disc_temps
 		)
+		if state.campaign_mode:
+			state.campaign_on_shop_left()
 	_shop_temps.clear()
 	_shop_disc_temps.clear()
 	_shop_open = false
@@ -4861,11 +4969,18 @@ func _style_reward_choice_button(btn: Button, ammo_bg: Color) -> void:
 
 
 func _on_reward_pick(index: int) -> void:
+	if state != null and state.campaign_offer_pending:
+		if state.campaign_pick_opening(index):
+			_set_reward_open(false)
+			_refresh()
+		return
 	if state.pick_reward_ammo(index):
 		_after_levelup_reward_choice()
 
 
 func _on_reward_skip() -> void:
+	if state != null and state.campaign_offer_pending:
+		return
 	if state.skip_reward_for_gold():
 		_after_levelup_reward_choice()
 
@@ -6784,14 +6899,19 @@ func _cancel_reward_show_delay() -> void:
 
 
 func _open_reward_panel_now() -> void:
-	if state == null or not state.reward_pending or _reward_open:
+	if state == null or _reward_open:
+		return
+	if not state.reward_pending and not state.campaign_offer_pending:
 		return
 	if state.phase == CombatState.Phase.LOST:
 		return
 	_reward_delaying = false
 	_set_reward_open(true)
 	if result_label != null:
-		result_label.text = "升级！Lv%d · 请选择奖励" % state.level
+		if state.campaign_offer_pending:
+			result_label.text = "开局自选：从三发子弹中选一加入弹药袋"
+		else:
+			result_label.text = "升级！Lv%d · 请选择奖励" % state.level
 		result_label.visible = true
 
 
@@ -6929,16 +7049,42 @@ func _refresh() -> void:
 			else:
 				result_label.text = "失败：血量归零"
 			result_label.visible = true
-			# rush!：战败后可直接重开
 			btn_next_wave.visible = true
-			btn_next_wave.text = "重新开始 rush!"
+			if state.campaign_mode:
+				btn_next_wave.text = "重新开始闯关"
+			elif state.sandbox_mode:
+				btn_next_wave.text = "重新开始沙盒"
+			else:
+				btn_next_wave.text = "重新开始 rush!"
 			btn_next_wave.disabled = false
 			if _reward_open:
 				_set_reward_open(false)
+			_apply_campaign_presentation()
+		CombatState.Phase.WON:
+			_cancel_reward_show_delay()
+			if state.campaign_mode:
+				result_label.text = "闯关胜利！"
+				result_label.visible = true
+				btn_next_wave.visible = true
+				btn_next_wave.text = "重新开始闯关"
+				btn_next_wave.disabled = false
+			else:
+				result_label.visible = false
+				btn_next_wave.visible = false
+			if _reward_open:
+				_set_reward_open(false)
+			_apply_campaign_presentation()
 		_:
 			btn_next_wave.visible = false
-			# v0.3.8：经验满 → 暂停并弹三选一（多级排队，逐个弹）
-			if state.reward_pending:
+			if state.campaign_offer_pending:
+				result_label.text = "开局自选：从三发子弹中选一加入弹药袋"
+				result_label.visible = true
+				_cancel_reward_show_delay()
+				if _reward_open:
+					_refresh_reward_panel()
+				else:
+					_open_reward_panel_now()
+			elif state.reward_pending:
 				result_label.text = "升级！Lv%d · 请选择奖励" % state.level
 				result_label.visible = true
 				if _reward_open:
@@ -6950,11 +7096,14 @@ func _refresh() -> void:
 				result_label.visible = false
 				if _reward_open:
 					_set_reward_open(false)
+			_apply_campaign_presentation()
 
 
 func _status_line_text() -> String:
 	## v0.3.8：无波次 → 显示等级 / 经验 / 存活时间（不再显示回合与第 N 波）。
 	var sec: int = int(state.elapsed_sec)
+	if state.campaign_mode:
+		return "Lv%d · XP %d/%d · %s" % [state.level, state.xp, state.xp_needed(), state.campaign_progress_text()]
 	var tag: String = "Boss!" if state.encounter_kind == CombatState.EncounterKind.BOSS else "rush!"
 	return "Lv%d · XP %d/%d · %d:%02d · %s" % [state.level, state.xp, state.xp_needed(), sec / 60, sec % 60, tag]
 
