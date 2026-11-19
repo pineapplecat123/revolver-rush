@@ -3812,10 +3812,14 @@ func finalize_pending_impact(impact_id: int) -> void:
 	if not bool(_paced_shot.get("thunder_done", false)):
 		_resolve_paced_thunder_chain()
 	var total: int = int(_paced_shot.get("resolved_total", 0))
+	var ammo_id: int = int(_paced_shot.get("ammo_id", -1))
 	_fire_total_damage += total
+	# 实际扣血在延后落地时才发生；回味必须在这里按实际伤害挂枪口。
+	# 同步路径在 fire_next_shot，未停车的 pace 路径在 finalize_paced_shot；这里是 CombatUI 的 defer_impacts 路径。
+	_maybe_mount_aftertaste_muzzle(ammo_id, total)
 	if total > 0:
-		_try_envy_copy_on_hit(int(_paced_shot.get("ammo_id", -1)))
-	_maybe_spawn_pebbles_from_stone(int(_paced_shot.get("ammo_id", -1)), total)
+		_try_envy_copy_on_hit(ammo_id)
+	_maybe_spawn_pebbles_from_stone(ammo_id, total)
 	_pending_impacts.erase(impact_id)
 	_paced_shot = saved
 	_remove_dead()
