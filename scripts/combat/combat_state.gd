@@ -49,6 +49,10 @@ static var boot_sandbox: bool = false
 var sandbox_mode: bool = false
 ## v0.4.30 沙盒：玩家点了「清空弹药袋」后，挡住 ensure_bag_refilled；加弹后解除。
 var sandbox_hold_bag_empty: bool = false
+## 沙盒袋配置还原后递增，让袋画面全部重生，不复用旧物理球。
+var sandbox_bag_view_epoch: int = 0
+## 测试可改写，正式运行用 user://（网页导出走 Godot 用户目录 / IndexedDB）。
+static var sandbox_bag_preset_path: String = "user://sandbox_bag_preset.json"
 var spawn_paused: bool = false
 var map_shop_disabled: bool = false
 
@@ -4712,6 +4716,39 @@ func fire_tap(resolve_sync: bool = true) -> Array:
 		return shots
 	if player_fire_gate_remaining > 0.0:
 		return shots
+	# 沙盒手动连射中途切到自动：不重置计划/枪口，从剩余仓接着打。
+	if _volley_session and not _volley_pending and _volley_should_continue():
+		_volley_pending = true
+		_volley_followup_pending = true
+		if resolve_sync:
+			_fire_volley_rest(shots)
+			var guard0: int = CombatConstants.MAX_EXTRA_AUTOFIREs_PER_CHAIN + 2
+			while _pending_gold_autofires > 0 and guard0 > 0 and phase != Phase.WON and phase != Phase.LOST:
+				guard0 -= 1
+				if not begin_gold_extra_load():
+					break
+				if _load_session_active:
+					var lr0: Dictionary = load_next_chamber()
+					if bool(lr0.get("ok", false)) and not bool(lr0.get("done", false)):
+						apply_load_rotate()
+					commit_load_session_if_active()
+				if magazine == null or magazine.is_empty() or not can_fire():
+					break
+				_reset_volley_plan()
+				if not begin_fire():
+					break
+				_fire_tap_one(shots, true)
+				for g0 in _consume_pending_tombstone_ghost_shots():
+					shots.append(g0)
+					_append_echo_twin_from_rec(shots, g0)
+			if auto_enemy_advance:
+				finalize_post_fire()
+			elif _post_fire_enemy_pending:
+				resolve_post_fire_enemy_turn()
+			_arm_player_fire_gate(shots)
+			_volley_session = false
+			_reset_volley_plan()
+		return shots
 	hooks.emit_hook(&"on_fire", {"cs": self})
 	# v0.4.36：懒惰三罪直接禁枪，不再在每次开火后续短锁
 	if not can_fire():
@@ -4795,7 +4832,7 @@ func volley_port_empty() -> bool:
 
 func take_volley_blank_beat() -> bool:
 	## v0.4.29：连射里击发位是空仓 = 正常的一拍：不出弹、不结算，只把转轮转一格（UI 按整拍间隔播）。
-	if not _volley_pending or not volley_port_empty():
+	if (not _volley_pending and not _volley_session) or not volley_port_empty():
 		return false
 	_ensure_volley_plan()
 	_advance_volley_plan(1)
@@ -6262,3 +6299,383 @@ func sandbox_set_spawn_paused(paused: bool) -> void:
 func sandbox_reset(sin_ammo_id: int = -1) -> void:
 	var sid: int = selected_sin_ammo_id if sin_ammo_id < 0 else sin_ammo_id
 	start_sandbox(0, sid)
+
+
+func is_sandbox_sequence_active() -> bool:
+	## 沙盒手动连射进行中（尚未收束本弹夹）：倒出/装弹应锁定，开火钮仍可点。
+	return _volley_session and not _volley_pending and _volley_should_continue()
+
+
+func is_volley_session() -> bool:
+	return _volley_session
+
+
+func begin_auto_continue_from_manual() -> bool:
+	if not _volley_session or not _volley_should_continue():
+		return false
+	_volley_pending = true
+	_volley_followup_pending = true
+	return true
+
+
+func sandbox_bag_preset_busy() -> bool:
+	if phase == Phase.FIRING:
+		return true
+	if _volley_pending or _volley_session:
+		return true
+	return false
+
+
+func sandbox_bag_preset_snapshot() -> Array:
+	_sync_temp_arrays()
+	var items: Array = []
+	for i in bag.size():
+		items.append({
+			"id": int(bag[i]),
+			"temp": is_bag_index_temporary(i),
+			"envy": bool(bag_envy_copy[i]) if i < bag_envy_copy.size() else false,
+		})
+	return items
+
+
+func has_sandbox_bag_preset() -> bool:
+	if not FileAccess.file_exists(sandbox_bag_preset_path):
+		return false
+	var f := FileAccess.open(sandbox_bag_preset_path, FileAccess.READ)
+	if f == null:
+		return false
+	var raw: String = f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(raw)
+	if typeof(parsed) != TYPE_DICTIONARY:
+		return false
+	return bool((parsed as Dictionary).get("saved", false))
+
+
+func save_sandbox_bag_preset() -> Dictionary:
+	var out := {"ok": false, "empty": false, "count": 0, "reason": ""}
+	if sandbox_bag_preset_busy():
+		out["reason"] = "busy"
+		_log("[沙盒] 倒出或射击进行中，无法保存袋中配置")
+		_emit()
+		return out
+	var items: Array = sandbox_bag_preset_snapshot()
+	var payload := {"v": 1, "saved": true, "items": items}
+	var f := FileAccess.open(sandbox_bag_preset_path, FileAccess.WRITE)
+	if f == null:
+		out["reason"] = "io"
+		_log("[沙盒] 无法写入袋中配置")
+		_emit()
+		return out
+	f.store_string(JSON.stringify(payload))
+	f.close()
+	out["ok"] = true
+	out["empty"] = items.is_empty()
+	out["count"] = items.size()
+	if items.is_empty():
+		_log("[沙盒] 已保存当前袋中配置（空袋）")
+	else:
+		_log("[沙盒] 已保存当前袋中配置（%d 发）" % items.size())
+	_emit()
+	return out
+
+
+func restore_sandbox_bag_preset() -> Dictionary:
+	var out := {"ok": false, "empty": false, "count": 0, "reason": "", "had_preset": false}
+	if sandbox_bag_preset_busy():
+		out["reason"] = "busy"
+		_log("[沙盒] 倒出或射击进行中，无法还原袋中配置")
+		_emit()
+		return out
+	if not FileAccess.file_exists(sandbox_bag_preset_path):
+		out["reason"] = "no_preset"
+		_log("[沙盒] 还没有保存过袋中配置")
+		_emit()
+		return out
+	var f := FileAccess.open(sandbox_bag_preset_path, FileAccess.READ)
+	if f == null:
+		out["reason"] = "io"
+		_log("[沙盒] 无法读取袋中配置")
+		_emit()
+		return out
+	var raw: String = f.get_as_text()
+	f.close()
+	var parsed = JSON.parse_string(raw)
+	if typeof(parsed) != TYPE_DICTIONARY or not bool((parsed as Dictionary).get("saved", false)):
+		out["reason"] = "no_preset"
+		_log("[沙盒] 还没有保存过袋中配置")
+		_emit()
+		return out
+	out["had_preset"] = true
+	var items: Array = []
+	var raw_items = (parsed as Dictionary).get("items", [])
+	if typeof(raw_items) == TYPE_ARRAY:
+		items = raw_items
+	# 只替换袋；手/膛/弃/其他状态不动。新袋项无 UID（袋本来就没有）。
+	bag.clear()
+	bag_temp.clear()
+	bag_envy_copy.clear()
+	for it in items:
+		if typeof(it) != TYPE_DICTIONARY:
+			continue
+		var d: Dictionary = it
+		var aid: int = int(d.get("id", 0))
+		if aid <= 0 or DataRegistry.get_ammo(aid).is_empty():
+			continue
+		_bag_append(aid, bool(d.get("temp", false)), bool(d.get("envy", false)))
+	if bag.is_empty():
+		sandbox_hold_bag_empty = true
+	sandbox_bag_view_epoch += 1
+	out["ok"] = true
+	out["empty"] = bag.is_empty()
+	out["count"] = bag.size()
+	if bag.is_empty():
+		_log("[沙盒] 已还原袋中配置（空袋）")
+	else:
+		_log("[沙盒] 已还原袋中配置（%d 发）" % bag.size())
+	_emit()
+	return out
+
+
+func _finish_manual_sequence() -> void:
+	_volley_pending = false
+	_volley_session = false
+	_reset_volley_plan()
+	if not _volley_followup_pending:
+		return
+	_volley_followup_pending = false
+	if phase == Phase.WON or phase == Phase.LOST:
+		return
+	if auto_enemy_advance:
+		finalize_post_fire()
+	elif _post_fire_enemy_pending:
+		resolve_post_fire_enemy_turn()
+	# 手动连发中途不设开火间隔；整夹打完再锁，避免误伤下一次手动第一发测试。
+
+
+func fire_manual_tap() -> Dictionary:
+	## 沙盒「手动开火」：一次只打一发（或空仓走一拍），沿用同一弹夹计划与枪口状态。
+	var out := {"ok": false, "shots": [], "blank": false, "started": false, "finished": false, "reason": "", "start_before": 0, "start_after": 0}
+	if magazine != null:
+		out["start_before"] = magazine.start_index
+	if player_fire_gate_remaining > 0.0:
+		out["reason"] = "gate"
+		if magazine != null:
+			out["start_after"] = magazine.start_index
+		return out
+	if phase == Phase.WON or phase == Phase.LOST:
+		out["reason"] = "ended"
+		if magazine != null:
+			out["start_after"] = magazine.start_index
+		return out
+	if not _volley_session:
+		if not can_fire():
+			out["reason"] = "cannot_fire"
+			if magazine != null:
+				out["start_after"] = magazine.start_index
+			return out
+		commit_load_session_if_active()
+		_reset_volley_plan()
+		_ensure_volley_plan()
+		_volley_session = true
+		_volley_pending = false
+		_volley_followup_pending = true
+		out["started"] = true
+		hooks.emit_hook("on_fire", {"chamber_count": magazine.loaded_count() if magazine else 0})
+		if volley_port_empty():
+			if take_volley_blank_beat():
+				out["blank"] = true
+				out["ok"] = true
+			if not _volley_should_continue():
+				_finish_manual_sequence()
+				out["finished"] = true
+			_emit()
+			if magazine != null:
+				out["start_after"] = magazine.start_index
+			return out
+		if not begin_fire():
+			_finish_manual_sequence()
+			out["reason"] = "begin_fire"
+			out["finished"] = true
+			if magazine != null:
+				out["start_after"] = magazine.start_index
+			return out
+		var shots: Array = []
+		_fire_tap_one(shots, true)
+		for g in _consume_pending_tombstone_ghost_shots():
+			shots.append(g)
+			_append_echo_twin_from_rec(shots, g)
+		out["shots"] = shots
+		out["ok"] = not shots.is_empty()
+		if not _volley_should_continue():
+			_finish_manual_sequence()
+			out["finished"] = true
+		if magazine != null:
+			out["start_after"] = magazine.start_index
+		_emit()
+		return out
+	# 已在同一弹夹中：不转轮、不重置计划。
+	if volley_port_empty():
+		if take_volley_blank_beat():
+			out["blank"] = true
+			out["ok"] = true
+		if not _volley_should_continue():
+			_finish_manual_sequence()
+			out["finished"] = true
+		if magazine != null:
+			out["start_after"] = magazine.start_index
+		_emit()
+		return out
+	if not _volley_should_continue() or not can_fire():
+		_finish_manual_sequence()
+		out["finished"] = true
+		out["reason"] = "done"
+		if magazine != null:
+			out["start_after"] = magazine.start_index
+		return out
+	if not begin_fire():
+		_finish_manual_sequence()
+		out["finished"] = true
+		out["reason"] = "begin_fire"
+		return out
+	var more: Array = []
+	_fire_tap_one(more, true)
+	for g2 in _consume_pending_tombstone_ghost_shots():
+		more.append(g2)
+		_append_echo_twin_from_rec(more, g2)
+	out["shots"] = more
+	out["ok"] = not more.is_empty()
+	if not _volley_should_continue():
+		_finish_manual_sequence()
+		out["finished"] = true
+	_emit()
+	if magazine != null:
+		out["start_after"] = magazine.start_index
+	return out
+
+
+func sandbox_peek_next_shot_ammo_id() -> int:
+	## 只读预览下一发将结算的弹药：火门口有弹用火门口，空仓则看弹序下一发实弹。不转动、不消耗。
+	if magazine == null or magazine.is_empty():
+		return Magazine.EMPTY
+	var port_i: int = magazine.chamber_at_fire_port()
+	var port: int = int(magazine.slots[port_i]) if port_i >= 0 and port_i < magazine.slots.size() else Magazine.EMPTY
+	if port != Magazine.EMPTY:
+		return port
+	if _volley_plan_ready:
+		var i: int = _volley_plan_index
+		while i < _volley_seq_snapshot.size():
+			var aid: int = int(_volley_seq_snapshot[i])
+			if aid != Magazine.EMPTY:
+				return aid
+			i += 1
+	var seq: Array[int] = magazine.volley_sequence()
+	for aid2 in seq:
+		if int(aid2) != Magazine.EMPTY:
+			return int(aid2)
+	return Magazine.EMPTY
+
+
+func _sandbox_next_plan_index() -> int:
+	if not _volley_plan_ready:
+		return -1
+	var i: int = _volley_plan_index
+	while i < _volley_seq_snapshot.size():
+		if int(_volley_seq_snapshot[i]) != Magazine.EMPTY:
+			return i
+		i += 1
+	return -1
+
+
+func sandbox_damage_modifiers() -> Dictionary:
+	## 只读预览当前枪口/计划的伤害修正，不挂、不消耗任何状态。
+	var ammo_id: int = sandbox_peek_next_shot_ammo_id()
+	var has_next: bool = ammo_id != Magazine.EMPTY
+	var is_start: bool = has_next and FireResolver.is_start_type(ammo_id)
+	var ammo_name: String = _ammo_name(ammo_id) if has_next else ""
+	var qishi_pct: int = 0
+	var xuli_mult: float = 1.0
+	var huiwei_flat: int = 0
+	var chuandi_flat: int = 0
+	for b in _volley_muzzle_buffs:
+		if typeof(b) != TYPE_DICTIONARY:
+			continue
+		var kind: String = str(b.get("effect_kind", b.get("kind", "")))
+		var stacks: int = maxi(1, int(b.get("stacks", 1)))
+		if kind == "damage_pct":
+			qishi_pct += 50 * stacks
+		elif kind == "damage_mult":
+			for _i in stacks:
+				xuli_mult *= 1.5
+		elif kind == "damage_flat":
+			huiwei_flat += int(b.get("amount", 0))
+	# 传递加伤在计划里，不在枪口 HUD。用计划值与「无传递」期望的差估算，避免为预览改状态。
+	var plan_i: int = _sandbox_next_plan_index()
+	if has_next and plan_i >= 0 and plan_i < _volley_plan.size():
+		var planned: float = float(_volley_plan[plan_i])
+		var flat_here: int = 0
+		if plan_i < _volley_flat_adds.size():
+			flat_here = int(_volley_flat_adds[plan_i])
+		var prior := 0.0
+		for j in plan_i:
+			if j < _volley_plan.size():
+				prior += float(_volley_plan[j])
+		var effect_id: int = FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, plan_i)
+		var base: float = FireResolver._formula_base_for_shot(ammo_id, effect_id, plan_i + 1, prior, _volley_seq_snapshot, plan_i)
+		var q: float = 1.0
+		var x: float = 1.0
+		if not is_start:
+			if qishi_pct != 0:
+				q = 1.0 + float(qishi_pct) / 100.0
+			x = xuli_mult
+		var expected: float = base * q * x + float(flat_here)
+		var delta: float = planned - expected
+		if delta > 0.05:
+			chuandi_flat = int(round(delta))
+	var parts: Array = []
+	var notes: Array = []
+	if qishi_pct != 0:
+		if has_next and is_start:
+			parts.append("起势+%d%%（对本发「%s」无效）" % [qishi_pct, ammo_name])
+		elif has_next:
+			parts.append("起势+%d%%（下一发「%s」）" % [qishi_pct, ammo_name])
+		else:
+			parts.append("起势+%d%%" % qishi_pct)
+	if not is_equal_approx(xuli_mult, 1.0):
+		var xs: String = ("%.4f" % xuli_mult).rstrip("0").rstrip(".")
+		if has_next and is_start:
+			parts.append("蓄力×%s（对本发「%s」无效，保留到下一颗非开始弹）" % [xs, ammo_name])
+		elif has_next:
+			parts.append("蓄力×%s（下一发「%s」）" % [xs, ammo_name])
+		else:
+			parts.append("蓄力×%s" % xs)
+	if huiwei_flat != 0:
+		if has_next:
+			parts.append("回味%+d（本弹夹剩余，含「%s」）" % [huiwei_flat, ammo_name])
+		else:
+			parts.append("回味%+d（本弹夹剩余）" % huiwei_flat)
+	if chuandi_flat != 0:
+		if has_next:
+			parts.append("传递+%d（下一发「%s」）" % [chuandi_flat, ammo_name])
+		else:
+			parts.append("传递+%d" % chuandi_flat)
+	var text: String
+	if parts.is_empty():
+		text = "伤害修正：无"
+	else:
+		text = "伤害修正：" + "  ".join(parts)
+	return {
+		"text": text,
+		"ammo_id": ammo_id,
+		"ammo_name": ammo_name,
+		"is_start": is_start,
+		"qishi_pct": qishi_pct,
+		"xuli_mult": xuli_mult,
+		"huiwei_flat": huiwei_flat,
+		"chuandi_flat": chuandi_flat,
+		"has_next": has_next,
+	}
+
+
+func sandbox_damage_modifiers_text() -> String:
+	return str(sandbox_damage_modifiers().get("text", "伤害修正：无"))

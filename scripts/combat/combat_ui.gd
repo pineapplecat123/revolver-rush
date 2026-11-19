@@ -212,7 +212,7 @@ const SB_FONT := 24
 const SB_FONT_SMALL := 21
 const SB_GAP := 8
 const SB_TAP_MAX_PX := 14.0  ## 超过此位移视为滚动，松手不再加减弹药
-const SB_STATS_H := 82.0
+const SB_STATS_H := 118.0
 const SB_CONSOLE_FRAC := 0.33  ## 控制台约占屏高三分之一
 var _sandbox_tab: int = 0  ## 兼容旧调用，已无页签
 var _sb_count_nodes: Dictionary = {}  ## ammo_id -> {bag, hand, bag_plus, bag_minus, hand_plus, hand_minus}
@@ -220,6 +220,14 @@ var _ghost_gather_from: Array = []  ## v0.4.20 开火前袋内幽灵屏幕位置
 var _sb_stats_panel: PanelContainer = null
 var _sb_stats_main: Label = null
 var _sb_stats_sub: Label = null
+var _sb_stats_mod: Label = null
+var _sb_fire_split: VBoxContainer = null
+var _sb_btn_manual_fire: Button = null
+var _sb_btn_auto_fire: Button = null
+var _sb_bag_view_epoch: int = -1
+var _sb_preset_status: Label = null
+var _sb_btn_save_preset: Button = null
+var _sb_btn_restore_preset: Button = null
 var _speed_slider: HSlider = null
 var _speed_value_label: Label = null
 var _muzzle_panel: PanelContainer = null  ## 透明命中层（悬停/长按）
@@ -695,6 +703,7 @@ func _ensure_action_buttons() -> void:
 		var fp := f.duplicate() as StyleBoxFlat
 		fp.bg_color = Color(0.3, 0.1, 0.08, 1.0)
 		btn_fire.add_theme_stylebox_override("pressed", fp)
+	_ensure_sandbox_fire_split()
 
 
 func _style_square_action_button(btn: Button) -> void:
@@ -1502,9 +1511,16 @@ func is_shooting() -> bool:
 	return state != null and state.is_volley_pending()
 
 
+func is_magazine_interaction_locked() -> bool:
+	## 沙盒手动连射尚未收束时也锁定倒出/装弹，避免弹夹快照与计划脱节。
+	if is_shooting():
+		return true
+	return state != null and state.is_sandbox_sequence_active()
+
+
 func _on_manual_load() -> void:
 	## feat/gameplay-redo：按钮改为「倒出」——袋→手（最多 6）；手非空则先退回袋再抽。
-	if is_shooting():
+	if is_magazine_interaction_locked():
 		return
 	_snap_fire_disk()
 	if _busy():
@@ -1524,7 +1540,7 @@ func _on_manual_load() -> void:
 
 func _on_auto_load() -> void:
 	## 按开始/中间/结束标签把手指空仓装上。
-	if is_shooting():
+	if is_magazine_interaction_locked():
 		return
 	_snap_fire_disk()
 	if _busy():
@@ -5500,6 +5516,11 @@ func _refresh_bag_list() -> void:
 	var mag_n: int = state.magazine.loaded_count() if state.magazine != null else 0
 	var disc_n: int = state.discard.size()
 	var total_n: int = bag_n + mag_n + disc_n
+	if state != null and state.sandbox_bag_view_epoch != _sb_bag_view_epoch:
+		_sb_bag_view_epoch = state.sandbox_bag_view_epoch
+		if _bag_physics != null and is_instance_valid(_bag_physics):
+			_bag_physics.clear_balls()
+		_bag_inv_fingerprint = ""
 	if bag_header_label != null:
 		bag_header_label.visible = false
 	_clear_bag_area_chrome()
@@ -6186,6 +6207,7 @@ func _rebuild_sandbox_tool_body() -> void:
 		c.free()
 	inner.add_theme_constant_override("separation", SB_GAP)
 	_sb_count_nodes.clear()
+	_ensure_sandbox_bag_preset_btns(inner)
 	if state == null:
 		return
 	var ids: Array[int] = state.sandbox_enabled_ammo_ids()
@@ -6563,6 +6585,11 @@ func _ensure_sandbox_stats_hud() -> void:
 	_sb_stats_sub.add_theme_font_size_override("font_size", 18)
 	_sb_stats_sub.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
 	col.add_child(_sb_stats_sub)
+	_sb_stats_mod = Label.new()
+	_sb_stats_mod.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sb_stats_mod.add_theme_font_size_override("font_size", 18)
+	_sb_stats_mod.add_theme_color_override("font_color", Color(0.95, 0.82, 0.55))
+	col.add_child(_sb_stats_mod)
 	var clear := Button.new()
 	clear.name = "StatsClear"
 	clear.text = "清零"
@@ -6608,11 +6635,15 @@ func _place_sandbox_stats_hud() -> void:
 
 
 func sandbox_stats_text() -> Dictionary:
-	## UI/测试：两行文案。
+	## UI/测试：DPS 两行 + 实时伤害修正（倍率与固定加伤分开写，不把固定加伤叫成倍率）。
 	var w: int = int(CombatConstants.SANDBOX_DPS_WINDOW_SEC)
+	var mod: String = "伤害修正：无"
+	if state != null:
+		mod = state.sandbox_damage_modifiers_text()
 	return {
 		"main": "DPS(近%d秒) %.1f   单次最大 %d" % [w, state.damage_stats_dps(), state.damage_stats_recent_max_hit()],
 		"sub": "总伤害 %d · 历史单次最大 %d · 结算 %d 次" % [state.dmg_stats_total, state.dmg_stats_peak_hit, state.dmg_stats_hits],
+		"mod": mod,
 	}
 
 
@@ -6629,6 +6660,8 @@ func _update_sandbox_stats_hud() -> void:
 	var t := sandbox_stats_text()
 	_sb_stats_main.text = str(t["main"])
 	_sb_stats_sub.text = str(t["sub"])
+	if _sb_stats_mod != null:
+		_sb_stats_mod.text = str(t.get("mod", "伤害修正：无"))
 
 
 func _dev_make_column(title: String) -> Dictionary:
@@ -6789,10 +6822,12 @@ func _refresh() -> void:
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 动画/射击中才锁按钮；手装会话进行中不锁，以便继续手装或中途开火
 	var busy := _busy() or state.is_busy_firing()
-	btn_manual_load.disabled = busy or is_shooting() or not state.can_dump_to_hand()
+	btn_manual_load.disabled = busy or is_magazine_interaction_locked() or not state.can_dump_to_hand()
 	if btn_auto_load != null:
-		btn_auto_load.disabled = busy or is_shooting() or not state.can_auto_load_from_hand()
+		btn_auto_load.disabled = busy or is_magazine_interaction_locked() or not state.can_auto_load_from_hand()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
+	_refresh_sandbox_fire_buttons()
+	_refresh_sandbox_preset_buttons()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
 	if not _wheel_animating:
@@ -7218,10 +7253,12 @@ func _refresh_hud_only() -> void:
 	turn_label.add_theme_color_override("font_color", COL_TURN)
 	# 与 _refresh 一致：手装会话本身不锁 手装/开火
 	var busy := _busy() or state.is_busy_firing()
-	btn_manual_load.disabled = busy or is_shooting() or not state.can_dump_to_hand()
+	btn_manual_load.disabled = busy or is_magazine_interaction_locked() or not state.can_dump_to_hand()
 	if btn_auto_load != null:
-		btn_auto_load.disabled = busy or is_shooting() or not state.can_auto_load_from_hand()
+		btn_auto_load.disabled = busy or is_magazine_interaction_locked() or not state.can_auto_load_from_hand()
 	btn_fire.disabled = _fire_blocked() or not state.can_fire()
+	_refresh_sandbox_fire_buttons()
+	_refresh_sandbox_preset_buttons()
 	btn_next_wave.disabled = state.phase != CombatState.Phase.LOST
 	_refresh_board()
 	_refresh_bag_list()
@@ -7535,3 +7572,344 @@ func _clear_pour_flyers() -> void:
 	if layer != null:
 		for c in layer.get_children():
 			c.queue_free()
+
+
+func _paint_sandbox_fire_button(btn: Button) -> void:
+	if btn == null:
+		return
+	_style_square_action_button(btn)
+	var fire_normal := StyleBoxFlat.new()
+	fire_normal.bg_color = Color(0.42, 0.14, 0.12, 0.98)
+	fire_normal.set_border_width_all(2)
+	fire_normal.border_color = Color(1.0, 0.55, 0.45, 0.95)
+	fire_normal.set_corner_radius_all(10)
+	fire_normal.content_margin_left = 6
+	fire_normal.content_margin_right = 6
+	fire_normal.content_margin_top = 6
+	fire_normal.content_margin_bottom = 6
+	btn.add_theme_stylebox_override("normal", fire_normal)
+	var fh := fire_normal.duplicate() as StyleBoxFlat
+	fh.bg_color = Color(0.55, 0.2, 0.16, 1.0)
+	btn.add_theme_stylebox_override("hover", fh)
+	btn.add_theme_stylebox_override("focus", fh)
+	var fp := fire_normal.duplicate() as StyleBoxFlat
+	fp.bg_color = Color(0.3, 0.1, 0.08, 1.0)
+	btn.add_theme_stylebox_override("pressed", fp)
+	var fd := fire_normal.duplicate() as StyleBoxFlat
+	fd.bg_color = Color(0.2, 0.1, 0.1, 0.9)
+	fd.border_color = Color(0.5, 0.3, 0.28, 0.65)
+	btn.add_theme_stylebox_override("disabled", fd)
+
+
+func _ensure_sandbox_fire_split() -> void:
+	if btn_fire == null:
+		return
+	var parent: Node = btn_fire.get_parent()
+	if parent == null:
+		return
+	if _sb_fire_split == null or not is_instance_valid(_sb_fire_split):
+		_sb_fire_split = VBoxContainer.new()
+		_sb_fire_split.name = "SandboxFireSplit"
+		_sb_fire_split.add_theme_constant_override("separation", 6)
+		_sb_fire_split.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_sb_fire_split.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		parent.add_child(_sb_fire_split)
+		parent.move_child(_sb_fire_split, btn_fire.get_index())
+		_sb_btn_manual_fire = Button.new()
+		_sb_btn_manual_fire.name = "BtnSandboxManualFire"
+		_sb_btn_manual_fire.text = "手动开火"
+		_sb_btn_manual_fire.focus_mode = Control.FOCUS_NONE
+		_sb_btn_manual_fire.clip_text = false
+		_sb_btn_manual_fire.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_sb_btn_manual_fire.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_sb_btn_manual_fire.custom_minimum_size = Vector2(0, 72)
+		_sb_btn_manual_fire.add_theme_font_size_override("font_size", 32)
+		_paint_sandbox_fire_button(_sb_btn_manual_fire)
+		_sb_btn_manual_fire.pressed.connect(_on_sandbox_manual_fire)
+		_sb_fire_split.add_child(_sb_btn_manual_fire)
+		_sb_btn_auto_fire = Button.new()
+		_sb_btn_auto_fire.name = "BtnSandboxAutoFire"
+		_sb_btn_auto_fire.text = "自动开火"
+		_sb_btn_auto_fire.focus_mode = Control.FOCUS_NONE
+		_sb_btn_auto_fire.clip_text = false
+		_sb_btn_auto_fire.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_sb_btn_auto_fire.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		_sb_btn_auto_fire.custom_minimum_size = Vector2(0, 72)
+		_sb_btn_auto_fire.add_theme_font_size_override("font_size", 32)
+		_paint_sandbox_fire_button(_sb_btn_auto_fire)
+		_sb_btn_auto_fire.pressed.connect(_on_sandbox_auto_fire)
+		_sb_fire_split.add_child(_sb_btn_auto_fire)
+	_refresh_sandbox_fire_buttons()
+
+
+func _refresh_sandbox_fire_buttons() -> void:
+	var sb: bool = state != null and state.sandbox_mode
+	if btn_fire != null:
+		btn_fire.visible = not sb
+	if _sb_fire_split == null or not is_instance_valid(_sb_fire_split):
+		if sb:
+			_ensure_sandbox_fire_split()
+		return
+	_sb_fire_split.visible = sb
+	if not sb:
+		return
+	if btn_fire != null:
+		_sb_fire_split.custom_minimum_size = btn_fire.custom_minimum_size
+	var blocked: bool = _fire_blocked() or _volley_ui_running
+	if state != null and state.is_volley_pending():
+		blocked = true
+	var can: bool = state != null and state.can_fire()
+	if state != null and state.player_fire_gate_remaining > 0.0 and not state.is_sandbox_sequence_active():
+		can = false
+	if _sb_btn_manual_fire != null:
+		_sb_btn_manual_fire.disabled = blocked or not can
+	if _sb_btn_auto_fire != null:
+		_sb_btn_auto_fire.disabled = blocked or not can
+
+
+func _on_sandbox_manual_fire() -> void:
+	if _fire_blocked() or _volley_ui_running:
+		return
+	if state == null or state.is_volley_pending():
+		return
+	if not state.can_fire() and not state.is_sandbox_sequence_active():
+		return
+	if state.player_fire_gate_remaining > 0.0 and not state.is_sandbox_sequence_active():
+		return
+	state.commit_unused_hand_for_fire()
+	_volley_ui_running = true
+	_run_manual_shot_press()
+
+
+func _on_sandbox_auto_fire() -> void:
+	if _fire_blocked() or _volley_ui_running:
+		return
+	if state == null:
+		return
+	if state.is_volley_pending():
+		return
+	if state.is_sandbox_sequence_active():
+		if not state.begin_auto_continue_from_manual():
+			return
+		_volley_ui_running = true
+		_run_auto_continue_from_manual()
+		return
+	_on_fire()
+
+
+func _run_auto_continue_from_manual() -> void:
+	## 手动连射中途切自动：不预转、不重置计划，从剩余仓接着打。
+	_display_hold.clear()
+	_snap_disk_to_logic()
+	_refresh()
+	await _run_volley_autofire(true)
+	_display_hold.clear()
+	_volley_ui_running = false
+	_snap_disk_to_logic()
+	_refresh()
+
+
+func _run_manual_shot_press() -> void:
+	## 一次只打一发或空仓走一拍；新弹夹才预转，已开始的弹夹不重置枪口。
+	_display_hold.clear()
+	_snap_disk_to_logic()
+	_refresh()
+	var new_seq: bool = state == null or not state.is_volley_session()
+	var spin_steps := 0
+	if (
+		new_seq
+		and state != null
+		and state.magazine != null
+		and state.magazine.loaded_count() > 1
+		and state.can_fire()
+	):
+		spin_steps = state.spin_cylinder_for_volley()
+	var merge_run: int = 0
+	if state != null and state.can_fire():
+		merge_run = state.peek_pebble_merge_run()
+	if merge_run >= 2:
+		if spin_steps > 0:
+			await _play_roll_spin_visual(spin_steps)
+		await _play_pebble_merge_sequence(merge_run)
+		await _present_manual_resolved(_resolve_manual_fire_logic())
+	else:
+		var pack: Dictionary = _resolve_manual_fire_logic()
+		for rec in pack.get("shots", []):
+			if is_chamber_shot(rec):
+				_display_hold[int(rec["slot"])] = int(rec.get("ammo_id", -1))
+		_refresh_mag_contents()
+		if spin_steps > 0:
+			await _play_roll_spin_visual(spin_steps)
+		await _present_manual_resolved(pack)
+	_display_hold.clear()
+	_volley_ui_running = false
+	_snap_disk_to_logic()
+	_refresh()
+
+
+func _resolve_manual_fire_logic() -> Dictionary:
+	if state == null:
+		_refresh()
+		return {}
+	if not state.can_fire() and not state.is_sandbox_sequence_active() and not state.is_volley_session():
+		_refresh()
+		return {}
+	if state.player_fire_gate_remaining > 0.0 and not state.is_sandbox_sequence_active() and not state.is_volley_session():
+		return {}
+	_snap_fire_disk()
+	_pending_hit_vfx.clear()
+	_defer_hit_vfx = true
+	_ghost_gather_from = _capture_bag_ghost_globals()
+	var hp_before: Dictionary = _snapshot_enemy_hp()
+	var rec: Dictionary = state.fire_manual_tap()
+	_hold_hp_changes(hp_before)
+	_defer_hit_vfx = false
+	var hit_events: Array = _pending_hit_vfx.duplicate()
+	_pending_hit_vfx.clear()
+	var shots: Array = rec.get("shots", [])
+	var start_before: int = int(rec.get("start_before", 0))
+	if not shots.is_empty():
+		start_before = int(shots[0].get("start_before", start_before))
+	return {
+		"shots": shots,
+		"events": hit_events,
+		"visual_before": _wheel_visual_steps,
+		"start_before": start_before,
+		"blank": bool(rec.get("blank", false)),
+		"finished": bool(rec.get("finished", false)),
+		"ok": bool(rec.get("ok", false)),
+	}
+
+
+func _present_manual_resolved(pack: Dictionary) -> void:
+	if pack.is_empty():
+		return
+	if bool(pack.get("blank", false)):
+		await _present_blank_visual(int(pack.get("start_before", 0)))
+		_refresh_hud_only()
+		return
+	await _present_resolved_fire_async(pack)
+
+
+func _present_blank_visual(start_before: int) -> void:
+	## 逻辑已走过空仓一拍；只播「对准该空仓、停留、转一格」，不再次 take。
+	if state == null or state.magazine == null:
+		return
+	var n := CombatConstants.MAGAZINE_SIZE
+	var slot: int = posmod(start_before + CombatConstants.FIRE_PORT_OFFSET_STEPS, n)
+	_set_disk_mod(float(posmod(start_before, n)))
+	if ring_slot_from_disk() != slot:
+		_set_disk_mod(float(posmod(slot - CombatConstants.FIRE_PORT_OFFSET_STEPS, n)))
+	blank_audit.append({"ring": ring_slot_from_disk(), "slot": slot, "ms": Time.get_ticks_msec(), "manual": true})
+	if blank_audit.size() > 200:
+		blank_audit.pop_front()
+	await _pwait(_paced(VOLLEY_FIRE_HOLD_SEC, _volley_stepping))
+	var rot_sec: float = CombatState.volley_rotate_sec()
+	_last_fire_rot_sec = rot_sec
+	_wheel_animating = true
+	await _animate_disk_to(_wheel_visual_steps + 1.0, _paced(rot_sec, _volley_stepping))
+	_refresh_mag_contents()
+
+
+func _sandbox_preset_action_blocked() -> bool:
+	return _busy() or is_magazine_interaction_locked() or (state != null and state.sandbox_bag_preset_busy())
+
+
+func _ensure_sandbox_bag_preset_btns(parent: Control) -> void:
+	## 放进控制台滚动区顶部，避免再垫高面板挡住弹药袋。
+	var box := parent.get_node_or_null("SandboxBagPresetBox") as VBoxContainer
+	if box == null:
+		box = VBoxContainer.new()
+		box.name = "SandboxBagPresetBox"
+		box.add_theme_constant_override("separation", SB_GAP)
+		box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		parent.add_child(box)
+		parent.move_child(box, 0)
+		_sb_btn_save_preset = Button.new()
+		_sb_btn_save_preset.name = "SandboxSaveBagPreset"
+		_sb_btn_save_preset.text = "保存当前袋中配置"
+		_sb_btn_save_preset.focus_mode = Control.FOCUS_NONE
+		_sb_btn_save_preset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_sb_btn_save_preset.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
+		_sb_btn_save_preset.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
+		_sb_btn_save_preset.pressed.connect(_on_sandbox_save_bag_preset)
+		box.add_child(_sb_btn_save_preset)
+		_sb_btn_restore_preset = Button.new()
+		_sb_btn_restore_preset.name = "SandboxRestoreBagPreset"
+		_sb_btn_restore_preset.text = "一键还原袋中配置"
+		_sb_btn_restore_preset.focus_mode = Control.FOCUS_NONE
+		_sb_btn_restore_preset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_sb_btn_restore_preset.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
+		_sb_btn_restore_preset.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
+		_sb_btn_restore_preset.pressed.connect(_on_sandbox_restore_bag_preset)
+		box.add_child(_sb_btn_restore_preset)
+		_sb_preset_status = Label.new()
+		_sb_preset_status.name = "SandboxBagPresetStatus"
+		_sb_preset_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_sb_preset_status.add_theme_font_size_override("font_size", SB_FONT_SMALL)
+		_sb_preset_status.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+		box.add_child(_sb_preset_status)
+	else:
+		if _sb_btn_save_preset == null:
+			_sb_btn_save_preset = box.get_node_or_null("SandboxSaveBagPreset") as Button
+		if _sb_btn_restore_preset == null:
+			_sb_btn_restore_preset = box.get_node_or_null("SandboxRestoreBagPreset") as Button
+		if _sb_preset_status == null:
+			_sb_preset_status = box.get_node_or_null("SandboxBagPresetStatus") as Label
+	_refresh_sandbox_preset_buttons()
+
+
+func _refresh_sandbox_preset_buttons() -> void:
+	if _sb_btn_save_preset == null and _sb_btn_restore_preset == null:
+		return
+	var blocked: bool = _sandbox_preset_action_blocked()
+	if _sb_btn_save_preset != null:
+		_sb_btn_save_preset.disabled = blocked or state == null or not state.sandbox_mode
+	if _sb_btn_restore_preset != null:
+		var no_preset: bool = state == null or not state.has_sandbox_bag_preset()
+		_sb_btn_restore_preset.disabled = blocked or no_preset or not state.sandbox_mode
+		if no_preset and not blocked and _sb_preset_status != null and (_sb_preset_status.text == "" or _sb_preset_status.text.begins_with("还没有")):
+			_sb_preset_status.text = "还没有保存过袋中配置"
+	if _sb_preset_status != null and state != null and state.has_sandbox_bag_preset() and _sb_preset_status.text.begins_with("还没有"):
+		_sb_preset_status.text = ""
+
+
+func _on_sandbox_save_bag_preset() -> void:
+	if state == null or _sandbox_preset_action_blocked():
+		return
+	var r: Dictionary = state.save_sandbox_bag_preset()
+	if _sb_preset_status != null:
+		if bool(r.get("ok", false)):
+			if bool(r.get("empty", false)):
+				_sb_preset_status.text = "已保存当前袋中配置（空袋）"
+			else:
+				_sb_preset_status.text = "已保存当前袋中配置（%d 发）" % int(r.get("count", 0))
+		elif str(r.get("reason", "")) == "busy":
+			_sb_preset_status.text = "倒出或射击进行中，无法保存"
+		else:
+			_sb_preset_status.text = "保存袋中配置失败"
+	_refresh()
+
+
+func _on_sandbox_restore_bag_preset() -> void:
+	if state == null or _sandbox_preset_action_blocked():
+		return
+	if not state.has_sandbox_bag_preset():
+		if _sb_preset_status != null:
+			_sb_preset_status.text = "还没有保存过袋中配置"
+		_refresh_sandbox_preset_buttons()
+		return
+	var r: Dictionary = state.restore_sandbox_bag_preset()
+	if _sb_preset_status != null:
+		if bool(r.get("ok", false)):
+			if bool(r.get("empty", false)):
+				_sb_preset_status.text = "已还原袋中配置（空袋）"
+			else:
+				_sb_preset_status.text = "已还原袋中配置（%d 发）" % int(r.get("count", 0))
+		elif str(r.get("reason", "")) == "no_preset":
+			_sb_preset_status.text = "还没有保存过袋中配置"
+		elif str(r.get("reason", "")) == "busy":
+			_sb_preset_status.text = "倒出或射击进行中，无法还原"
+		else:
+			_sb_preset_status.text = "还原袋中配置失败"
+	_refresh()
