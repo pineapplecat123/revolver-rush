@@ -6271,11 +6271,7 @@ func _ensure_sandbox_clear_bag_btn(vbox: VBoxContainer, scroll: ScrollContainer)
 			vbox.move_child(btn, scroll.get_index())
 		else:
 			vbox.add_child(btn)
-		btn.pressed.connect(func():
-			if state != null:
-				state.dev_clear_bag()
-				_refresh()
-		)
+		_sb_bind_scroll_drag(btn, Callable(self, "_on_sandbox_clear_bag"))
 	btn.text = "清空弹药袋"
 	btn.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
 	btn.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
@@ -6369,17 +6365,36 @@ func _sb_build_ammo_row(parent: Control, ammo_id: int) -> void:
 
 
 func _sb_find_scroll(node: Node) -> ScrollContainer:
+	## 先沿父节点找滚动区；钉在滚动区上方的按钮（清空袋等）再在同一控制台里找列表。
 	var n: Node = node
 	while n != null:
 		if n is ScrollContainer:
 			return n
 		n = n.get_parent()
+	n = node
+	while n != null:
+		if n is VBoxContainer:
+			var named := n.find_child("DevScroll", true, false) as ScrollContainer
+			if named != null:
+				return named
+			for c in n.get_children():
+				if c is ScrollContainer:
+					return c as ScrollContainer
+		n = n.get_parent()
+	if dev_panel != null:
+		return dev_panel.find_child("DevScroll", true, false) as ScrollContainer
 	return null
 
 
 func _sb_bind_scroll_drag(ctrl: Control, on_tap: Callable = Callable()) -> void:
+	ctrl.set_meta("_sb_scroll_tap", on_tap)
+	if bool(ctrl.get_meta("_sb_scroll_bound", false)):
+		return
+	ctrl.set_meta("_sb_scroll_bound", true)
+	# 禁用钮在 Godot 4 仍会发 gui_input 信号（只是自身不再处理按下），这样灰掉的还原也不会变成拖不动的死区。
 	ctrl.gui_input.connect(func(event: InputEvent):
-		_sb_on_scroll_gui_input(ctrl, event, on_tap)
+		var tap = ctrl.get_meta("_sb_scroll_tap")
+		_sb_on_scroll_gui_input(ctrl, event, tap if tap is Callable else Callable())
 	)
 
 
@@ -7832,7 +7847,7 @@ func _ensure_sandbox_bag_preset_btns(parent: Control) -> void:
 		_sb_btn_save_preset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_sb_btn_save_preset.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
 		_sb_btn_save_preset.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
-		_sb_btn_save_preset.pressed.connect(_on_sandbox_save_bag_preset)
+		_sb_bind_scroll_drag(_sb_btn_save_preset, Callable(self, "_on_sandbox_save_bag_preset"))
 		box.add_child(_sb_btn_save_preset)
 		_sb_btn_restore_preset = Button.new()
 		_sb_btn_restore_preset.name = "SandboxRestoreBagPreset"
@@ -7841,14 +7856,17 @@ func _ensure_sandbox_bag_preset_btns(parent: Control) -> void:
 		_sb_btn_restore_preset.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_sb_btn_restore_preset.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
 		_sb_btn_restore_preset.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
-		_sb_btn_restore_preset.pressed.connect(_on_sandbox_restore_bag_preset)
+		_sb_bind_scroll_drag(_sb_btn_restore_preset, Callable(self, "_on_sandbox_restore_bag_preset"))
 		box.add_child(_sb_btn_restore_preset)
 		_sb_preset_status = Label.new()
 		_sb_preset_status.name = "SandboxBagPresetStatus"
 		_sb_preset_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		_sb_preset_status.add_theme_font_size_override("font_size", SB_FONT_SMALL)
 		_sb_preset_status.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))
+		_sb_preset_status.mouse_filter = Control.MOUSE_FILTER_STOP
+		_sb_bind_scroll_drag(_sb_preset_status)
 		box.add_child(_sb_preset_status)
+		_sb_bind_scroll_drag(box)
 	else:
 		if _sb_btn_save_preset == null:
 			_sb_btn_save_preset = box.get_node_or_null("SandboxSaveBagPreset") as Button
@@ -7872,6 +7890,13 @@ func _refresh_sandbox_preset_buttons() -> void:
 			_sb_preset_status.text = "还没有保存过袋中配置"
 	if _sb_preset_status != null and state != null and state.has_sandbox_bag_preset() and _sb_preset_status.text.begins_with("还没有"):
 		_sb_preset_status.text = ""
+
+
+func _on_sandbox_clear_bag() -> void:
+	if state == null or state.bag.is_empty():
+		return
+	state.dev_clear_bag()
+	_refresh()
 
 
 func _on_sandbox_save_bag_preset() -> void:

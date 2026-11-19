@@ -77,7 +77,17 @@ func test_sandbox_clear_bag_button_empties_sack_only() -> void:
 		assert_eq(scene._bag_physics.ball_count(), 4)
 	var hand_n: int = scene.state.hand.size()
 	var mag_n: int = scene.state.magazine.loaded_count()
-	clear.pressed.emit()
+	# 清空钮与子弹行一样走「轻点 / 拖动滚动」手势，不再用 pressed 信号。
+	var down := InputEventMouseButton.new()
+	down.button_index = MOUSE_BUTTON_LEFT
+	down.pressed = true
+	down.position = Vector2(8, 8)
+	var up := InputEventMouseButton.new()
+	up.button_index = MOUSE_BUTTON_LEFT
+	up.pressed = false
+	up.position = Vector2(8, 8)
+	clear.gui_input.emit(down)
+	clear.gui_input.emit(up)
 	await wait_process_frames(2)
 	assert_eq(scene.state.bag.size(), 0)
 	assert_true(scene.state.sandbox_hold_bag_empty)
