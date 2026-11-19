@@ -34,6 +34,8 @@ const ID_BAIBAN := CombatConstants.BAIBAN_AMMO_ID
 const ID_DIESHI := CombatConstants.DIESHI_AMMO_ID
 const ID_BAOCHUAN := CombatConstants.BAOCHUAN_AMMO_ID
 const ID_CHUANDI := CombatConstants.CHUANDI_AMMO_ID
+const ID_MOFANG := CombatConstants.MOFANG_AMMO_ID
+const ID_HUIWEI := CombatConstants.HUIWEI_AMMO_ID
 const XULI_MULT := 1.5
 const QISHI_BONUS := 0.5
 const DIZENG_BASE := 2.0
@@ -91,7 +93,9 @@ static func base_damage_for(ammo_id: int, _order: Array[int], _index: int) -> in
 			return 2
 		ID_QISHI, ID_XULI, ID_ZHONGSHEN, ID_CHONGFU_KAISHI:
 			return 0
-		ID_DIZENG, ID_WEIZHONG, ID_XIANWEI, ID_BAIBAN, ID_DIESHI, ID_BAOCHUAN, ID_CHUANDI:
+		ID_HUIWEI:
+			return 2
+		ID_DIZENG, ID_WEIZHONG, ID_XIANWEI, ID_BAIBAN, ID_DIESHI, ID_BAOCHUAN, ID_CHUANDI, ID_MOFANG:
 			return 3
 		_:
 			var def: Dictionary = DataRegistry.get_ammo(ammo_id)
@@ -134,7 +138,7 @@ static func load_type_rank(ammo_id: int) -> int:
 	return 3
 
 
-static func compute_volley_damages(order: Array[int]) -> Array[float]:
+static func compute_volley_damages(order: Array[int], flat_at: Array = []) -> Array[float]:
 	## 按连射顺序算每格「计算伤害」（空仓为 0）。起势加法叠层，蓄力连乘挂起，
 	## 递增按 1 起槽位（空仓也占格）伤害=2+槽位×0.75，尾重按同一套槽位×0.5/×2，
 	## 终审为此前计算伤害之和的一半。
@@ -142,6 +146,8 @@ static func compute_volley_damages(order: Array[int]) -> Array[float]:
 	## 「开始」类型子弹互不影响：起势加成与蓄力倍率都不作用在开始弹上；
 	## 蓄力倍率穿过开始弹与空仓，由下一发非开始弹消耗。
 	## 重复开始弹按上一颗开始弹的效果计算（没有则无效果）。
+	## 模仿弹取紧邻前一格的技能效果，仍用自己的基础伤害；前一格空仓则无效果，不跳空仓、不绕圈。
+	## flat_at 为可选的按槽位固定加值（回味弹等枪口状态在计划重算时写入），加在倍率与传递之后。
 	var qishi := 0
 	var xuli := 1.0
 	var prior := 0.0
@@ -149,14 +155,13 @@ static func compute_volley_damages(order: Array[int]) -> Array[float]:
 	var carry := 0.0
 	var out: Array[float] = []
 	for ammo_id in order:
+		var index: int = slot
 		slot += 1
 		if ammo_id == Magazine.EMPTY:
 			out.append(0.0)
 			continue
-		var effect_id: int = copied_start_effect_id(order, slot - 1) if ammo_id == ID_CHONGFU_KAISHI else ammo_id
-		var base := _formula_base(effect_id if effect_id > 0 else ammo_id, slot, prior, order, slot - 1)
-		if ammo_id == ID_CHONGFU_KAISHI and effect_id <= 0:
-			base = 0.0
+		var effect_id: int = resolve_shot_effect_id(order, index)
+		var base := _formula_base_for_shot(ammo_id, effect_id, slot, prior, order, index)
 		var start := is_start_type(ammo_id)
 		var qishi_mult: float = 1.0 if start else (1.0 + QISHI_BONUS * float(qishi))
 		var pending: float = 1.0 if start else xuli
@@ -174,6 +179,8 @@ static func compute_volley_damages(order: Array[int]) -> Array[float]:
 			var extra: int = round_damage(dmg) - int(CHUANDI_BASE)
 			if extra > 0:
 				carry = float(extra)
+		if index < flat_at.size():
+			dmg += float(flat_at[index])
 		prior += dmg
 		out.append(dmg)
 	return out
@@ -197,9 +204,59 @@ static func copied_start_effect_id(order: Array[int], index: int) -> int:
 	while i >= 0:
 		var aid: int = int(order[i])
 		if aid != Magazine.EMPTY and is_start_type(aid):
-			return copied_start_effect_id(order, i)
+			return resolve_shot_effect_id(order, i)
 		i -= 1
 	return 0
+
+
+static func copied_adjacent_effect_id(order: Array[int], index: int) -> int:
+	## 模仿弹：只看紧邻的前一个弹夹槽位。前一格空仓或没有前一格则 0，不跳空仓、不绕圈。
+	## 若前一格也是模仿弹，沿用重复开始弹的连续解析：再往前走模仿链，直到非模仿或空/没有。
+	if index < 0 or index >= order.size():
+		return 0
+	if int(order[index]) != ID_MOFANG:
+		return resolve_shot_effect_id(order, index)
+	if index <= 0:
+		return 0
+	var prev: int = int(order[index - 1])
+	if prev == Magazine.EMPTY:
+		return 0
+	return resolve_shot_effect_id(order, index - 1)
+
+
+static func resolve_shot_effect_id(order: Array[int], index: int) -> int:
+	## 本发实际采用的技能效果 id；没有可复制的效果时为 0。
+	if index < 0 or index >= order.size():
+		return 0
+	var ammo_id: int = int(order[index])
+	if ammo_id == Magazine.EMPTY:
+		return 0
+	if ammo_id == ID_CHONGFU_KAISHI:
+		return copied_start_effect_id(order, index)
+	if ammo_id == ID_MOFANG:
+		return copied_adjacent_effect_id(order, index)
+	return ammo_id
+
+
+static func effect_replaces_own_base(effect_id: int) -> bool:
+	## 这些技能本身就是伤害公式，模仿弹获得后按公式结算，而不是先抄对方的基础伤害数字。
+	match effect_id:
+		ID_DIZENG, ID_WEIZHONG, ID_ZHONGSHEN, ID_XIANWEI, ID_DIESHI:
+			return true
+		_:
+			return false
+
+
+static func _formula_base_for_shot(ammo_id: int, effect_id: int, slot: int, prior_computed: float, order: Array[int], index: int) -> float:
+	if ammo_id == ID_MOFANG:
+		if effect_id > 0 and effect_replaces_own_base(effect_id):
+			return _formula_base(effect_id, slot, prior_computed, order, index)
+		return float(base_damage_for(ID_MOFANG, order, index))
+	if ammo_id == ID_CHONGFU_KAISHI:
+		if effect_id <= 0:
+			return 0.0
+		return _formula_base(effect_id, slot, prior_computed, order, index)
+	return _formula_base(ammo_id, slot, prior_computed, order, index)
 
 
 static func _same_type_streak(order: Array[int], index: int) -> int:

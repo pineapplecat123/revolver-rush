@@ -414,6 +414,7 @@ var _volley_plan_ready: bool = false
 var _volley_plan: Array[float] = []
 var _volley_seq_snapshot: Array[int] = []
 var _volley_plan_index: int = 0
+var _volley_flat_adds: Array[int] = []
 ## v0.4.29：enemy_damaged 发出瞬间被打的那只（发完清空）+ 这一下是否致死
 var last_damaged_enemy: EnemyInstance = null
 var last_damage_lethal: bool = false
@@ -2898,7 +2899,7 @@ func _fire_virtual_ammo_shot(ammo_id: int, shot_temp: float = 0.0, to_discard: b
 	last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 	_mount_sin_muzzle_from(flags)
 	var base_dmg: int = FireResolver.base_damage_for(ammo_id, [ammo_id], 0)
-	var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(ammo_id, base_dmg)
+	var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(_shot_effect_ammo_id(ammo_id), base_dmg)
 	var gas := _muzzle_gas or bool(flags["gas"])
 	var fire := _muzzle_fire or bool(flags["fire"])
 	var water := _muzzle_water or bool(flags["water"])
@@ -3141,6 +3142,7 @@ func _reset_volley_plan() -> void:
 	_volley_plan.clear()
 	_volley_seq_snapshot.clear()
 	_volley_plan_index = 0
+	_volley_flat_adds.clear()
 	_volley_muzzle_buffs.clear()
 
 
@@ -3167,6 +3169,7 @@ func volley_muzzle_buffs() -> Array:
 	return _volley_muzzle_buffs
 
 
+
 func _remaining_loaded_in_plan() -> int:
 	var n := 0
 	var i := _volley_plan_index
@@ -3175,6 +3178,64 @@ func _remaining_loaded_in_plan() -> int:
 			n += 1
 		i += 1
 	return n
+
+
+func _huiwei_buff_amount() -> int:
+	for b in _volley_muzzle_buffs:
+		if str(b.get("id", "")) == "huiwei":
+			return int(b.get("amount", 0))
+	return 0
+
+
+func _recompute_volley_plan_flats() -> void:
+	if not _volley_plan_ready:
+		return
+	_volley_plan = FireResolver.compute_volley_damages(_volley_seq_snapshot, _volley_flat_adds)
+
+
+func _maybe_mount_aftertaste_muzzle(ammo_id: int, dealt: int) -> void:
+	## 回味弹（或模仿到回味）：按本发实际扣血挂固定加伤枪口，持续本弹夹剩余子弹。
+	## 0 伤害或没有后续子弹则不挂，避免空状态。
+	var source_id: int = _shot_effect_ammo_id(ammo_id)
+	if source_id != CombatConstants.HUIWEI_AMMO_ID:
+		return
+	if dealt <= 0:
+		return
+	var rem: int = _remaining_loaded_in_plan()
+	if rem <= 0:
+		return
+	if _volley_flat_adds.size() != _volley_seq_snapshot.size():
+		_volley_flat_adds.resize(_volley_seq_snapshot.size())
+	for i in range(_volley_plan_index, _volley_flat_adds.size()):
+		_volley_flat_adds[i] = int(_volley_flat_adds[i]) + dealt
+	_recompute_volley_plan_flats()
+	var existing := -1
+	for i in _volley_muzzle_buffs.size():
+		if str(_volley_muzzle_buffs[i].get("id", "")) == "huiwei":
+			existing = i
+			break
+	var amount: int = dealt
+	var stacks := 1
+	if existing >= 0:
+		amount = int(_volley_muzzle_buffs[existing].get("amount", 0)) + dealt
+		stacks = int(_volley_muzzle_buffs[existing].get("stacks", 1)) + 1
+		_volley_muzzle_buffs.remove_at(existing)
+	var def: Dictionary = DataRegistry.muzzle_status_of(CombatConstants.HUIWEI_AMMO_ID)
+	if def.is_empty():
+		def = {
+			"id": "huiwei",
+			"label": "回味",
+			"duration_type": "rest_of_volley",
+			"effect_kind": "damage_flat",
+		}
+	var entry: Dictionary = def.duplicate(true)
+	entry["id"] = "huiwei"
+	entry["ammo_id"] = ammo_id
+	entry["stacks"] = stacks
+	entry["amount"] = amount
+	entry["remaining"] = rem
+	entry["total"] = rem
+	_volley_muzzle_buffs.append(entry)
 
 
 func _capture_applying_buffs(ammo_id: int) -> void:
@@ -3193,13 +3254,13 @@ func _capture_applying_buffs(ammo_id: int) -> void:
 
 
 func _shot_effect_ammo_id(ammo_id: int) -> int:
-	## 重复开始弹在开火时改用上一颗开始弹的效果；没有可复制的则返回 0（无效果）。
-	if ammo_id != CombatConstants.CHONGFU_KAISHI_AMMO_ID:
+	## 重复开始弹 / 模仿弹在开火时改用解析后的技能效果；没有可复制的则返回 0（无效果）。
+	if ammo_id != CombatConstants.CHONGFU_KAISHI_AMMO_ID and ammo_id != CombatConstants.MOFANG_AMMO_ID:
 		return ammo_id
 	var idx: int = _volley_plan_index - 1
 	if idx < 0 or idx >= _volley_seq_snapshot.size():
 		return 0
-	var copied: int = FireResolver.copied_start_effect_id(_volley_seq_snapshot, idx)
+	var copied: int = FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, idx)
 	return copied if copied > 0 else 0
 
 
@@ -3224,6 +3285,9 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	var source_id: int = _shot_effect_ammo_id(ammo_id)
 	var def: Dictionary = DataRegistry.muzzle_status_of(source_id) if source_id > 0 else {}
 	if def.is_empty():
+		return
+	# 回味等固定加值枪口要等本发实际扣血后再挂，这里不提前挂空状态。
+	if str(def.get("effect_kind", "")) == "damage_flat":
 		return
 	var kind := str(def.get("id", ammo_id))
 	var stacks := 1
@@ -3457,7 +3521,7 @@ func fire_next_shot() -> bool:
 	last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 	# 罪孽层：本发先入枪口，本发伤害即享受新层
 	_mount_sin_muzzle_from(flags)
-	var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(ammo_id, base_dmg)
+	var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(_shot_effect_ammo_id(ammo_id), base_dmg)
 	var gas := _muzzle_gas or bool(flags["gas"])
 	var fire := _muzzle_fire or bool(flags["fire"])
 	var water := _muzzle_water or bool(flags["water"])
@@ -3523,6 +3587,7 @@ func fire_next_shot() -> bool:
 
 	var dealt_total := _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 	_fire_total_damage += dealt_total
+	_maybe_mount_aftertaste_muzzle(ammo_id, dealt_total)
 	if dealt_total > 0:
 		_try_envy_copy_on_hit(ammo_id)
 	_maybe_spawn_pebbles_from_stone(ammo_id, dealt_total)
@@ -3685,6 +3750,7 @@ func finalize_paced_shot() -> void:
 		last_shot_dealt = first_dealt
 		total += echo_total
 	_fire_total_damage += total
+	_maybe_mount_aftertaste_muzzle(int(_paced_shot.get("ammo_id", -1)), total)
 	if total > 0:
 		_try_envy_copy_on_hit(int(_paced_shot.get("ammo_id", -1)))
 	_maybe_spawn_pebbles_from_stone(int(_paced_shot.get("ammo_id", -1)), total)
@@ -4564,7 +4630,7 @@ func _auto_load_and_fire_once() -> bool:
 		var flags := FireResolver.inherits_from(ammo_id)
 		last_shot_muzzle_outline_ids = _muzzle_outline_ammo_ids_for_shot()
 		_mount_sin_muzzle_from(flags)
-		var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(ammo_id, base_dmg)
+		var pierce := _muzzle_pierce or bool(flags["pierce"]) or FireResolver.shot_self_pierce(_shot_effect_ammo_id(ammo_id), base_dmg)
 		var gas := _muzzle_gas or bool(flags["gas"])
 		var fire := _muzzle_fire or bool(flags["fire"])
 		var water := _muzzle_water or bool(flags["water"])
@@ -4586,6 +4652,7 @@ func _auto_load_and_fire_once() -> bool:
 		_mount_muzzle_from(flags)
 		var dealt_auto: int = _apply_shot_with_optional_echo(ammo_id, base_dmg, pierce, gas, fire, water, thunder)
 		_fire_total_damage += dealt_auto
+		_maybe_mount_aftertaste_muzzle(ammo_id, dealt_auto)
 		_maybe_spawn_pebbles_from_stone(ammo_id, dealt_auto)
 		if ammo_id == FireResolver.ID_TOMBSTONE:
 			_pending_tombstone_ghost_shots.append_array(_apply_tombstone_on_fire())

@@ -34,7 +34,7 @@ func test_pingyong_replaced_by_single_baiban() -> void:
 	assert_eq(ids.count(BAIBAN), 1, "只有一条白板定义")
 	assert_false("平庸子弹" in names)
 	assert_true("白板弹" in names)
-	assert_eq(DataRegistry.all_ammo().size(), 13)
+	assert_eq(DataRegistry.all_ammo().size(), 15)
 	var def: Dictionary = DataRegistry.get_ammo(BAIBAN)
 	assert_eq(str(def.get("name")), "白板弹")
 	assert_eq(int(def.get("base_damage")), 3)

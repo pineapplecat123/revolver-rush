@@ -237,6 +237,14 @@ static func format_muzzle_status_effect(entry: Dictionary) -> String:
 		for _i in stacks:
 			mul *= per if per > 0.0 else 1.0
 		return "下一发×%s" % _format_muzzle_mult(mul)
+	if kind == "damage_flat":
+		var amt: int = int(entry.get("amount", 0))
+		if amt == 0:
+			amt = int(round(per * float(stacks)))
+		return "伤害+%d" % amt
+	if kind == "speed_pct":
+		var pct: int = int(round(per * 100.0 * float(stacks)))
+		return "开火节奏+%d%%" % pct
 	var custom := str(entry.get("effect", "")).strip_edges()
 	if not custom.is_empty():
 		return custom

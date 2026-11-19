@@ -158,27 +158,17 @@ func test_new_ammo_in_registry_and_reward_pool() -> void:
 	assert_true(DataRegistry.is_ammo_reward_eligible(DIESHI))
 	assert_true(DataRegistry.is_ammo_reward_eligible(BAOCHUAN))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CHUANDI))
-	assert_eq(DataRegistry.all_ammo().size(), 13)
+	assert_eq(DataRegistry.all_ammo().size(), 15)
 
 
 func test_editor_marks_ingested_and_blocks_ambiguous() -> void:
 	var raw := FileAccess.get_file_as_string("res://companion/bullet-editor/data.json")
 	assert_true("叠势弹" in raw)
 	assert_true('"in_game": true' in raw)
-	# 未入库仍保留记录，但不进游戏表
 	assert_true("模仿弹" in raw)
 	assert_true("回味弹" in raw)
 	var found_copy := false
-	var found_aftertaste := false
 	for item in DataRegistry.all_ammo():
-		var n := str(item.get("name", ""))
-		assert_ne(n, "模仿弹")
-		assert_ne(n, "回味弹")
-		if n == "随机复制弹":
+		if str(item.get("name", "")) == "随机复制弹":
 			found_copy = true
 	assert_true(found_copy)
-	# 直接读编辑器记录核对着色状态
-	# data.json 由测试用字符串确认阻挡项仍是未入库：模仿/回味的 in_game 为 false
-	assert_false("模仿弹" in FileAccess.get_file_as_string("res://data/ammo.json"))
-	assert_false("回味弹" in FileAccess.get_file_as_string("res://data/ammo.json"))
-	assert_eq(found_aftertaste, false)
