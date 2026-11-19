@@ -412,7 +412,6 @@ func _ready() -> void:
 		state.start_campaign(0)
 		state.pace_after_fire = true
 		state.defer_impacts = true
-		_ensure_campaign_scenery()
 		_refresh()
 	elif want_sandbox:
 		btn_next_wave.text = "重新开始沙盒"
@@ -1423,6 +1422,7 @@ func _process(delta: float) -> void:
 	if state == null:
 		return
 	_apply_campaign_presentation()
+	_tick_campaign_ground_stains(delta)
 	if _shop_open or state.shop_hold:
 		return
 	# 射速帽不绑在「敌人自动走」上。商店/升级/选罪已经在上面或 _enemy_auto_allowed 里停掉。
@@ -3516,10 +3516,38 @@ func _spawn_blood_stain(at_g: Vector2, src_col: Color, amount_t: float) -> void:
 		at_g.x + randf_range(-3.0, 3.0) - w * 0.5,
 		_board_ground_global_y() - h * 0.55 + randf_range(-1.0, 1.5)
 	)
+	_blood_stains.append(stain)
 	var fade: float = BLOOD_STAIN_FADE_SEC * randf_range(0.85, 1.25)
 	var tw := create_tween()
 	tw.tween_property(stain, "modulate:a", 0.0, fade).set_delay(fade * 0.15)
-	tw.tween_callback(stain.queue_free)
+	tw.tween_callback(_release_blood_stain.bind(stain))
+
+
+func _release_blood_stain(stain: Variant) -> void:
+	var i: int = _blood_stains.find(stain)
+	if i >= 0:
+		_blood_stains.remove_at(i)
+	if stain != null and is_instance_valid(stain):
+		stain.queue_free()
+
+
+func _tick_campaign_ground_stains(dt: float) -> void:
+	## 地上血迹跟着闯关走路横移；出画回收。漂移为 0 时（rush/沙盒/暂停）不改位置。
+	if _blood_stains.is_empty():
+		return
+	var dx: float = _campaign_debris_drift * dt
+	var keep: Array = []
+	for stain in _blood_stains:
+		var n: ColorRect = stain as ColorRect
+		if n == null or not is_instance_valid(n):
+			continue
+		if dx != 0.0:
+			n.global_position.x += dx
+		if n.global_position.x + n.size.x < -80.0:
+			n.queue_free()
+			continue
+		keep.append(n)
+	_blood_stains = keep
 
 
 func _prewarm_pixelfx() -> void:
@@ -3753,43 +3781,22 @@ func _set_reward_open(open: bool) -> void:
 
 
 
-var _campaign_scenery: CampaignScenery = null
-
-
-func _ensure_campaign_scenery() -> void:
-	if _campaign_scenery != null and is_instance_valid(_campaign_scenery):
-		return
-	var top: Control = get_node_or_null("Margin/RootVBox/TopPanel") as Control
-	if top == null:
-		return
-	_campaign_scenery = CampaignScenery.new()
-	_campaign_scenery.name = "CampaignScenery"
-	# 必须叠在 TopPanel 背景之上、棋盘单位之下；z_index 为负会画到面板底色后面。
-	_campaign_scenery.z_index = 0
-	_campaign_scenery.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	top.add_child(_campaign_scenery)
-	top.move_child(_campaign_scenery, 0)
-	_layout_campaign_scenery()
-
-
-func _layout_campaign_scenery() -> void:
-	if _campaign_scenery == null or not is_instance_valid(_campaign_scenery):
-		return
-	var top: Control = _campaign_scenery.get_parent() as Control
-	if top == null or board_row == null:
-		return
-	var inv := top.get_global_transform_with_canvas().affine_inverse()
-	_campaign_scenery.position = inv * board_row.global_position
-	_campaign_scenery.size = board_row.size
+var _blood_stains: Array = []  # 地面血迹，闯关走路时随碎块一起向左移
+var _campaign_debris_drift: float = 0.0
 
 
 func _apply_campaign_presentation() -> void:
 	if state == null:
 		return
-	if state.campaign_mode:
-		_ensure_campaign_scenery()
-		_layout_campaign_scenery()
-	var want_walk: bool = state.campaign_mode and state.campaign_should_walk() and not _shop_open
+	# 闯关只用原来的静止战斗底，不再挂滚动景物。
+	var want_walk: bool = (
+		state.campaign_mode
+		and state.campaign_should_walk()
+		and not _shop_open
+		and not _reward_open
+		and not state.reward_pending
+		and not state.campaign_offer_pending
+	)
 	if _skel_player != null and is_instance_valid(_skel_player):
 		if want_walk:
 			_skel_player.set_walk_tempo(state.campaign_walk_tempo())
@@ -3798,8 +3805,12 @@ func _apply_campaign_presentation() -> void:
 			# 闯关非走路阶段停步；rush 保持原待机。沙盒预览走路不在这里关掉。
 			if state.campaign_mode:
 				_skel_player.set_walking(false)
-	if _campaign_scenery != null and is_instance_valid(_campaign_scenery):
-		_campaign_scenery.set_scroll(state.campaign_scenery_x, state.campaign_mode and want_walk)
+	var drift: float = 0.0
+	if want_walk:
+		drift = state.campaign_world_drift_px_per_sec()
+	_campaign_debris_drift = drift
+	if _gore_layer != null and is_instance_valid(_gore_layer):
+		_gore_layer.set_world_drift(drift)
 
 
 func _refresh_campaign_opening_panel() -> void:

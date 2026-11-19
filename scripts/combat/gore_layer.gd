@@ -13,6 +13,9 @@ const MAX_AIR_SEC := 3.2
 
 var ground_y: float = 0.0
 var _pieces: Array = []  # {node, vel, spin, rest_t, bounces}
+## 闯关走路时世界相对小猫向左移的速度（像素/秒，负值向左）。rush/沙盒保持 0。
+var world_drift_px_per_sec: float = 0.0
+const OFFSCREEN_PAD := 80.0
 ## v0.4.28 碎块在空中拖血迹（木桩拖木屑）：小血滴每 TRAIL_EVERY 秒掉一颗，淡出缩小；全场上限。
 const TRAIL_EVERY := 0.022
 const TRAIL_LIFE := 0.5
@@ -58,6 +61,21 @@ func trail_count() -> int:
 	return _drops.size()
 
 
+func set_world_drift(px_per_sec: float) -> void:
+	world_drift_px_per_sec = px_per_sec
+
+
+func _drift_dx(dt: float) -> float:
+	return world_drift_px_per_sec * dt
+
+
+func _offscreen_x(x: float) -> bool:
+	var vw: float = get_viewport_rect().size.x
+	if vw <= 1.0:
+		vw = 720.0
+	return x < -OFFSCREEN_PAD or x > vw + OFFSCREEN_PAD
+
+
 func _emit_drop(at: Vector2, col: Color, vel: Vector2) -> void:
 	while _drops.size() >= TRAIL_MAX:
 		var old: Dictionary = _drops.pop_front()
@@ -92,8 +110,14 @@ func _tick_drops(dt: float) -> void:
 		v.y += 380.0 * dt
 		d["vel"] = v
 		n.position += v * dt
+		var dx: float = _drift_dx(dt)
+		if dx != 0.0:
+			n.position.x += dx
 		n.modulate.a = 1.0 - k
 		n.scale = Vector2.ONE * (1.0 - 0.6 * k)
+		if _offscreen_x(n.global_position.x):
+			n.queue_free()
+			continue
 		keep.append(d)
 	_drops = keep
 
@@ -114,6 +138,12 @@ func _process(delta: float) -> void:
 		if float(p["rest_t"]) >= 0.0:
 			p["rest_t"] = float(p["rest_t"]) + dt
 			var t: float = float(p["rest_t"])
+			var dx: float = _drift_dx(dt)
+			if dx != 0.0:
+				node.global_position.x += dx
+			if _offscreen_x(node.global_position.x):
+				node.queue_free()
+				continue
 			if t > REST_SEC:
 				node.modulate.a = clampf(1.0 - (t - REST_SEC) / FADE_SEC, 0.0, 1.0)
 				if t > REST_SEC + FADE_SEC:
@@ -151,6 +181,10 @@ func _process(delta: float) -> void:
 				v = Vector2.ZERO
 				p["spin"] = 0.0
 				p["rest_t"] = 0.0
+		# 空中碎块也跟世界横移，落地才能和地上碎块对得上；弹道速度本身不改。
+		var dx: float = _drift_dx(dt)
+		if dx != 0.0:
+			pos.x += dx
 		node.global_position = pos
 		p["vel"] = v
 		keep.append(p)

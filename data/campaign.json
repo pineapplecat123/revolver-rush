@@ -6,6 +6,7 @@
   "walk_to_shop_sec": 1.6,
   "walk_enter_sec": 1.0,
   "walk_floor_sec": 1.2,
+  "walk_world_drift_px": 80.0,
   "floors": [
     {
       "id": 1,

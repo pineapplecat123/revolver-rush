@@ -59,6 +59,11 @@ static func walk_floor_sec() -> float:
 	return maxf(0.0, float(data().get("walk_floor_sec", 1.2)))
 
 
+static func walk_world_drift_px() -> float:
+	## 走路时地上碎块每秒移动像素（再乘当前走路节奏；方向由 CombatState 取负号向左）。
+	return maxf(0.0, float(data().get("walk_world_drift_px", 80.0)))
+
+
 static func floor_count() -> int:
 	var floors: Array = data().get("floors", [])
 	return floors.size()

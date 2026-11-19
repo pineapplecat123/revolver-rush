@@ -62,7 +62,6 @@ var campaign_offer_pending: bool = false
 var campaign_offer_picked_id: int = 0
 var campaign_await_boss_reward: bool = false
 var campaign_walk_left: float = 0.0
-var campaign_scenery_x: float = 0.0
 ## 测试用：走路进店/进场时长视为 0，仍走同一套阶段切换。
 var campaign_instant_transitions: bool = false
 var campaign_transition_lock: bool = false
@@ -651,7 +650,6 @@ func _reset_campaign_flags() -> void:
 	campaign_await_boss_reward = false
 	campaign_boss_reward_issued = false
 	campaign_walk_left = 0.0
-	campaign_scenery_x = 0.0
 	campaign_instant_transitions = false
 	campaign_transition_lock = false
 	campaign_opening_resolved = false
@@ -699,7 +697,6 @@ func start_campaign(seed_value: int = 0) -> void:
 	campaign_shops_this_floor = 0
 	campaign_await_boss_reward = false
 	campaign_walk_left = 0.0
-	campaign_scenery_x = 0.0
 	campaign_transition_lock = false
 	campaign_opening_resolved = false
 	campaign_offer_picked_id = 0
@@ -751,6 +748,20 @@ func campaign_walk_tempo() -> float:
 	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR]:
 		return CampaignRules.walk_shop_tempo()
 	return CampaignRules.walk_combat_tempo()
+
+
+func campaign_world_drift_px_per_sec() -> float:
+	## 闯关走路时，地上碎块/血迹相对小猫向左移（表示猫在往前走）。背景本身不滚。
+	## 非走路、选奖励、开店、死亡/胜利时为 0。rush/沙盒不会走到这里的非零值。
+	if not campaign_mode or not campaign_should_walk():
+		return 0.0
+	if reward_pending or campaign_offer_pending:
+		return 0.0
+	if shop_hold or shop_touch_pending:
+		return 0.0
+	if phase == Phase.LOST or phase == Phase.WON:
+		return 0.0
+	return -campaign_walk_tempo() * CampaignRules.walk_world_drift_px()
 
 
 func campaign_should_walk() -> bool:
@@ -1035,10 +1046,6 @@ func _tick_campaign(delta_sec: float) -> bool:
 	if not campaign_mode or phase == Phase.LOST or phase == Phase.WON:
 		return false
 	var changed := false
-	if campaign_should_walk():
-		var tempo: float = campaign_walk_tempo()
-		campaign_scenery_x += delta_sec * tempo * 80.0
-		changed = true
 	if campaign_phase in [CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_WALK_FLOOR]:
 		if campaign_walk_left > 0.0:
 			campaign_walk_left = maxf(0.0, campaign_walk_left - delta_sec)
