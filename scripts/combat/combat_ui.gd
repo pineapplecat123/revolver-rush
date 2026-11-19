@@ -1387,6 +1387,8 @@ func _process(delta: float) -> void:
 	_apply_campaign_presentation()
 	_tick_campaign_ground_stains(delta)
 	_sync_campaign_backdrop()
+	if _campaign_backdrop != null and is_instance_valid(_campaign_backdrop):
+		_campaign_backdrop.advance(delta, _campaign_debris_drift)
 	_sync_shop_house()
 	if _shop_open or state.shop_hold:
 		return
@@ -3755,7 +3757,7 @@ var _campaign_debris_drift: float = 0.0
 func _apply_campaign_presentation() -> void:
 	if state == null:
 		return
-	# 巷景背景静止；地上碎块仍随走路后退。商店小屋按序列单独横移，不是滚动背景。
+	# 巷景多层视差与碎块共用 drift：近景同速、中远更慢；停步时冻结。店铺房屋仍按序列贴地横移，不跟背景一起被带走。
 	var house_walk: bool = state.shop_house_is_walking() and not _shop_open
 	var want_walk: bool = (
 		not _shop_open
@@ -7180,6 +7182,8 @@ func _sync_campaign_backdrop() -> void:
 
 
 func _ensure_shop_house() -> void:
+	# 房子从右缘外进来、从左缘离开，由战斗视口自然裁切，不穿到窗外。
+	clip_contents = true
 	if _shop_house != null and is_instance_valid(_shop_house):
 		return
 	_shop_house = ShopHouseScript.new()
@@ -7237,8 +7241,9 @@ func _sync_shop_house() -> void:
 	var host: CanvasItem = unit if unit != null else self
 	var inv: Transform2D = host.get_global_transform().affine_inverse()
 	var local_p: Vector2 = inv * Vector2(left_g, gy_g)
-	_shop_house.set_house_visible(true)
+	# 先贴地再显示，避免一帧画在原点上造成「凭空出现」。
 	_shop_house.set_grounded(local_p.x, local_p.y)
+	_shop_house.set_house_visible(true)
 	_shop_house.set_lit(_shop_open or state.shop_house_seq == CombatState.SHOP_HOUSE_INSIDE)
 	var occ: String = state.shop_house_occlusion_at(cat_x)
 	_apply_shop_house_occlusion(occ)

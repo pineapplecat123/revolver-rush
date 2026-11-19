@@ -28,8 +28,8 @@ func _force_walk_to_shop(cs: CombatState) -> void:
 	cs.campaign_try_advance()
 
 
-func test_version_is_0_4_73() -> void:
-	assert_eq(GameVersion.STRING, "0.4.73")
+func test_version_is_0_4_74() -> void:
+	assert_eq(GameVersion.STRING, "0.4.74")
 
 
 func test_campaign_shop_opens_only_after_entering_door() -> void:

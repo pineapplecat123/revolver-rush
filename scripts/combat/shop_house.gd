@@ -7,10 +7,14 @@ const WIDTH := 360.0
 const HEIGHT := 236.0
 const ENTRANCE_X := 62.0
 const EXIT_X := 304.0
-const ENTRANCE_W := 46.0
-const EXIT_W := 40.0
+## 两扇门同一套几何：宽、高、门框、门槛。禁止再把侧门做成窄门。
+const DOOR_W := 46.0
 const DOOR_H := 118.0
-const EXIT_DOOR_H := 108.0
+const DOOR_FRAME := 5.0
+const THRESHOLD_H := 3.0
+const ENTRANCE_W := DOOR_W
+const EXIT_W := DOOR_W
+const EXIT_DOOR_H := DOOR_H
 ## 控件左上角相对「左下角贴地原点」的偏移，给屋顶和檐留空。
 const DRAW_OX := 10.0
 const DRAW_OY := HEIGHT + 40.0
@@ -77,7 +81,8 @@ func house_origin_global() -> Vector2:
 
 func set_grounded(left_x: float, ground_y: float) -> void:
 	# 传入的是墙层父节点（UnitBody）坐标系里，左下角贴走道顶边的坐标。
-	var pos := Vector2(floorf(left_x) + 0.5, floorf(ground_y) + 0.5)
+	# Y 与走道顶边用同一值，不用 floor+0.5，避免半像素把勒脚抬离地面。
+	var pos := Vector2(floorf(left_x) + 0.5, ground_y)
 	for layer in [_back, _front]:
 		if layer == null:
 			continue
@@ -101,6 +106,18 @@ func entrance_center_x() -> float:
 
 func exit_center_x() -> float:
 	return house_origin_global().x + EXIT_X
+
+
+func entrance_inner_rect_global() -> Rect2:
+	## 入口门洞内侧（不含门框），屏幕/全局坐标。
+	var o := house_origin_global()
+	return Rect2(o.x + ENTRANCE_X - DOOR_W * 0.5, o.y - DOOR_H, DOOR_W, DOOR_H)
+
+
+func exit_inner_rect_global() -> Rect2:
+	## 出口门洞内侧，与入口同一宽高。
+	var o := house_origin_global()
+	return Rect2(o.x + EXIT_X - DOOR_W * 0.5, o.y - DOOR_H, DOOR_W, DOOR_H)
 
 
 func occlusion_at(cat_x: float) -> String:
@@ -144,8 +161,8 @@ func _draw_back(ci: CanvasItem) -> void:
 	if lit_inside:
 		ci.draw_rect(Rect2(80, -90, 200, 70), Color(0.45, 0.38, 0.24, 0.07))
 	# 门洞凹槽（比门口更黑，有深度）
-	_draw_door_recess(ci, ENTRANCE_X, ENTRANCE_W, DOOR_H, true)
-	_draw_door_recess(ci, EXIT_X, EXIT_W, EXIT_DOOR_H, false)
+	_draw_door_recess(ci, ENTRANCE_X, DOOR_W, DOOR_H, true)
+	_draw_door_recess(ci, EXIT_X, DOOR_W, DOOR_H, false)
 
 
 func _draw_door_recess(ci: CanvasItem, cx: float, dw: float, dh: float, is_entry: bool) -> void:
@@ -169,58 +186,65 @@ func _draw_front(ci: CanvasItem) -> void:
 	# 烟囱/通风管
 	ci.draw_rect(Rect2(WIDTH - 54, -HEIGHT - 34, 16, 22), Color(0.11, 0.12, 0.14, 1.0))
 	# 左右墙体，中间开两个门洞
-	var in_l: float = ENTRANCE_X - ENTRANCE_W * 0.5
-	var in_r: float = ENTRANCE_X + ENTRANCE_W * 0.5
-	var out_l: float = EXIT_X - EXIT_W * 0.5
-	var out_r: float = EXIT_X + EXIT_W * 0.5
+	var in_l: float = ENTRANCE_X - DOOR_W * 0.5
+	var in_r: float = ENTRANCE_X + DOOR_W * 0.5
+	var out_l: float = EXIT_X - DOOR_W * 0.5
+	var out_r: float = EXIT_X + DOOR_W * 0.5
+	var fw: float = DOOR_FRAME
 	# 左段墙（入口左侧）
 	ci.draw_rect(Rect2(0, -HEIGHT, in_l, HEIGHT), facade)
 	# 两门之间的墙
 	ci.draw_rect(Rect2(in_r, -HEIGHT, out_l - in_r, HEIGHT), facade)
 	# 右段墙
 	ci.draw_rect(Rect2(out_r, -HEIGHT, WIDTH - out_r, HEIGHT), facade_dark)
-	# 入口上方过梁
-	ci.draw_rect(Rect2(in_l - 6, -HEIGHT, ENTRANCE_W + 12, HEIGHT - DOOR_H), facade)
-	# 出口上方过梁
-	ci.draw_rect(Rect2(out_l - 5, -HEIGHT, EXIT_W + 10, HEIGHT - EXIT_DOOR_H), facade_dark)
+	# 两门上方过梁：同一厚度
+	ci.draw_rect(Rect2(in_l - fw - 1.0, -HEIGHT, DOOR_W + fw * 2.0 + 2.0, HEIGHT - DOOR_H), facade)
+	ci.draw_rect(Rect2(out_l - fw - 1.0, -HEIGHT, DOOR_W + fw * 2.0 + 2.0, HEIGHT - DOOR_H), facade_dark)
 	# 墙板竖缝
 	var sx: float = 12.0
 	while sx < WIDTH - 8.0:
 		if not _in_door_x(sx, 0.0):
 			ci.draw_line(Vector2(sx, -HEIGHT + 8), Vector2(sx, -4), Color(0.07, 0.08, 0.10, 0.55), 1.0)
 		sx += 16.0
-	# 入口门框：略暖的木色，更像店门
-	var frame_in := Color(0.18, 0.14, 0.11, 1.0)
-	ci.draw_rect(Rect2(in_l - 5, -DOOR_H - 6, ENTRANCE_W + 10, 6), frame_in)
-	ci.draw_rect(Rect2(in_l - 5, -DOOR_H, 5, DOOR_H), frame_in)
-	ci.draw_rect(Rect2(in_r, -DOOR_H, 5, DOOR_H), frame_in)
+	# 两扇门同一门框比例；入口略暖、出口略冷，只区别颜色
+	_draw_door_frame(ci, in_l, in_r, Color(0.18, 0.14, 0.11, 1.0))
+	_draw_door_frame(ci, out_l, out_r, Color(0.11, 0.13, 0.15, 1.0))
 	# 小匾，克制、不描金边
 	ci.draw_rect(Rect2(ENTRANCE_X - 16, -DOOR_H - 28, 32, 16), Color(0.12, 0.10, 0.09, 0.95))
 	# 入口旁一盏小灯
 	ci.draw_rect(Rect2(in_r + 8, -DOOR_H - 10, 3, 10), Color(0.08, 0.08, 0.09, 1.0))
 	ci.draw_circle(Vector2(in_r + 9.5, -DOOR_H - 12), 3.5, Color(0.82, 0.72, 0.48, 0.55))
 	ci.draw_circle(Vector2(in_r + 9.5, -DOOR_H - 12), 14.0, Color(0.7, 0.58, 0.32, 0.07))
-	# 出口门框：更冷、更窄，像侧门/后门
-	var frame_out := Color(0.11, 0.13, 0.15, 1.0)
-	ci.draw_rect(Rect2(out_l - 4, -EXIT_DOOR_H - 4, EXIT_W + 8, 4), frame_out)
-	ci.draw_rect(Rect2(out_l - 4, -EXIT_DOOR_H, 4, EXIT_DOOR_H), frame_out)
-	ci.draw_rect(Rect2(out_r, -EXIT_DOOR_H, 4, EXIT_DOOR_H), frame_out)
-	# 侧门一根横档，区别于店门
-	ci.draw_rect(Rect2(out_l + 6, -EXIT_DOOR_H * 0.45, EXIT_W - 12, 3), Color(0.16, 0.18, 0.20, 0.8))
 	# 上层窗户
 	_window(ci, 120, -HEIGHT + 36, lit_inside)
 	_window(ci, 168, -HEIGHT + 36, lit_inside)
 	_window(ci, 216, -HEIGHT + 36, false)
 	# 右上一段雨棚/铁皮
 	ci.draw_rect(Rect2(WIDTH - 130, -HEIGHT + 8, 118, 10), rust)
-	# 勒脚
-	ci.draw_rect(Rect2(0, -6, WIDTH, 6), Color(0.07, 0.08, 0.09, 1.0))
+	# 勒脚只画在实墙下，并向下咬住走道，避免门洞一条黑缝盖住猫脚。
+	var plinth := Color(0.11, 0.13, 0.16, 1.0)
+	var ov: float = THRESHOLD_H
+	ci.draw_rect(Rect2(0, -2, in_l, 2.0 + ov), plinth)
+	ci.draw_rect(Rect2(in_r, -2, out_l - in_r, 2.0 + ov), plinth)
+	ci.draw_rect(Rect2(out_r, -2, WIDTH - out_r, 2.0 + ov), plinth)
+	# 门槛压在走道顶上，不向上伸进门洞；两门同高
+	var sill := Color(0.22, 0.23, 0.26, 1.0)
+	ci.draw_rect(Rect2(in_l, 0, DOOR_W, ov), sill)
+	ci.draw_rect(Rect2(out_l, 0, DOOR_W, ov), sill)
+
+
+func _draw_door_frame(ci: CanvasItem, door_l: float, door_r: float, col: Color) -> void:
+	var fw: float = DOOR_FRAME
+	var lintel: float = DOOR_FRAME + 1.0
+	ci.draw_rect(Rect2(door_l - fw, -DOOR_H - lintel, DOOR_W + fw * 2.0, lintel), col)
+	ci.draw_rect(Rect2(door_l - fw, -DOOR_H, fw, DOOR_H), col)
+	ci.draw_rect(Rect2(door_r, -DOOR_H, fw, DOOR_H), col)
 
 
 func _in_door_x(x: float, _pad: float) -> bool:
-	if x > ENTRANCE_X - ENTRANCE_W * 0.5 and x < ENTRANCE_X + ENTRANCE_W * 0.5:
+	if x > ENTRANCE_X - DOOR_W * 0.5 and x < ENTRANCE_X + DOOR_W * 0.5:
 		return true
-	if x > EXIT_X - EXIT_W * 0.5 and x < EXIT_X + EXIT_W * 0.5:
+	if x > EXIT_X - DOOR_W * 0.5 and x < EXIT_X + DOOR_W * 0.5:
 		return true
 	return false
 

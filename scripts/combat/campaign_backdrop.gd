@@ -1,11 +1,20 @@
 class_name CampaignBackdrop
 extends Node2D
-## 静止巷景/屋面：雾蓝、远处楼层、晾衣绳、前景走道。不滚动。
+## 多层视差巷景：近处走道与地上碎块同速左移，中景较慢，远楼最慢。无缝平铺。
+## 天空和下方托底不滚。店铺房屋不画在这里，避免把门带走。
+
+const DEPTH_FAR := 0.22
+const DEPTH_MID := 0.48
+const DEPTH_NEAR := 1.0
+const TILE := 360.0
+const PLANK := 18.0
 
 var view_size: Vector2 = Vector2(720, 1280)
 var ground_y: float = 520.0
 var board_left: float = 20.0
 var board_right: float = 700.0
+## 近景层位移（像素）。drift 为负时减小，表示世界向左退。
+var scroll: float = 0.0
 
 
 func configure(vs: Vector2, gy: float, bleft: float, bright: float) -> void:
@@ -16,22 +25,41 @@ func configure(vs: Vector2, gy: float, bleft: float, bright: float) -> void:
 	queue_redraw()
 
 
+func advance(dt: float, drift_px_per_sec: float) -> void:
+	if dt == 0.0 or drift_px_per_sec == 0.0:
+		return
+	scroll += drift_px_per_sec * dt
+	queue_redraw()
+
+
+func shift_for(depth: float) -> float:
+	return scroll * depth
+
+
 func _draw() -> void:
 	var w: float = maxf(view_size.x, 8.0)
 	var h: float = maxf(view_size.y, 8.0)
 	var gy: float = ground_y if ground_y > 40.0 else h * 0.38
-	# 天空：上暗下雾亮，中间略青
 	_fill_sky(w, h, gy)
-	# 远景楼群（中景发亮的雾窗）
-	_far_buildings(w, gy)
-	# 左右近处建筑体块
-	_side_masses(w, h, gy)
-	# 雾纱
+	_each_tile(DEPTH_FAR, func(ox: float): _far_buildings_tile(ox, gy))
+	_each_tile(DEPTH_MID, func(ox: float): _mid_tile(ox, w, h, gy))
 	_fog_veils(w, gy)
-	# 电线与衣物（静止）
-	_wires_and_laundry(w, gy)
-	# 前景走道与栏杆
+	_each_tile(DEPTH_MID, func(ox: float): _wires_tile(ox, gy))
 	_walkway(w, gy)
+	# 压住走道以下，避免楼体画进转轮区（不参与滚动）
+	if h > gy + 80.0:
+		draw_rect(Rect2(0.0, gy + 28.0, w, h - gy), Color(0.05, 0.06, 0.08, 1.0))
+
+
+func _each_tile(depth: float, cb: Callable) -> void:
+	var sh: float = shift_for(depth)
+	var x: float = fposmod(sh, TILE)
+	if x > 0.0:
+		x -= TILE
+	var limit: float = view_size.x + 1.0
+	while x < limit:
+		cb.call(x)
+		x += TILE
 
 
 func _fill_sky(w: float, h: float, gy: float) -> void:
@@ -50,49 +78,38 @@ func _fill_sky(w: float, h: float, gy: float) -> void:
 		else:
 			col = mid.lerp(low, (t - 0.55) / 0.45)
 		draw_rect(Rect2(0.0, y0, w, y1 - y0), col)
-	# 下半屏保持深底，给中/下 UI 托底
 	draw_rect(Rect2(0.0, sky_h, w, h - sky_h + 2.0), Color(0.05, 0.06, 0.08, 1.0))
-	# 中央一道更亮的雾窗
 	var mist := Color(0.45, 0.54, 0.62, 0.28)
 	draw_rect(Rect2(w * 0.22, gy * 0.12, w * 0.56, gy * 0.7), mist)
-	# 远处一抹天光
 	draw_rect(Rect2(w * 0.28, gy * 0.16, w * 0.44, 14.0), Color(0.62, 0.70, 0.76, 0.16))
 
 
-func _far_buildings(w: float, gy: float) -> void:
-	var base := Color(0.10, 0.14, 0.18, 0.85)
+func _far_buildings_tile(ox: float, gy: float) -> void:
 	var far := Color(0.16, 0.22, 0.27, 0.35)
-	# 中央远处两栋瘦楼
-	_building_block(w * 0.38, gy * 0.22, 54.0, gy - gy * 0.22, far, 0.35)
-	_building_block(w * 0.52, gy * 0.16, 70.0, gy - gy * 0.16, far.darkened(0.1), 0.3)
-	_building_block(w * 0.30, gy * 0.28, 48.0, gy - gy * 0.28, base, 0.22)
+	var base := Color(0.10, 0.14, 0.18, 0.85)
+	_building_block(ox + 40.0, gy * 0.28, 48.0, gy - gy * 0.28, base, 0.22)
+	_building_block(ox + 110.0, gy * 0.22, 54.0, gy - gy * 0.22, far, 0.35)
+	_building_block(ox + 180.0, gy * 0.16, 70.0, gy - gy * 0.16, far.darkened(0.1), 0.3)
+	_building_block(ox + 270.0, gy * 0.24, 52.0, gy - gy * 0.24, far.darkened(0.05), 0.28)
 
 
-func _side_masses(w: float, h: float, gy: float) -> void:
-	# 左侧近景：几乎剪影的楼墙
+func _mid_tile(ox: float, _w: float, _h: float, gy: float) -> void:
 	var left := Color(0.055, 0.07, 0.09, 1.0)
-	_building_block(-30.0, 0.0, w * 0.22, gy + 8.0, left, 0.55)
-	_building_block(w * 0.08, gy * 0.08, 36.0, gy * 0.55, left.lightened(0.04), 0.4)
-	# 右侧远处楼与屋面体块（商店到来前的巷口结构，不代替商店）
 	var right := Color(0.07, 0.09, 0.12, 1.0)
-	_building_block(w * 0.72, gy * 0.05, w * 0.36, gy + 16.0, right, 0.42)
-	_building_block(w * 0.80, gy * 0.22, 90.0, gy * 0.5, right.lightened(0.05), 0.28)
-	# 右下一点棚架暗示
-	draw_rect(Rect2(w * 0.78, gy - 70.0, 86.0, 70.0), Color(0.09, 0.11, 0.14, 0.7))
-	# 暖色路灯（克制）
-	var lx: float = w * 0.835
+	_building_block(ox - 10.0, 0.0, 86.0, gy + 8.0, left, 0.55)
+	_building_block(ox + 48.0, gy * 0.08, 36.0, gy * 0.55, left.lightened(0.04), 0.4)
+	_building_block(ox + 210.0, gy * 0.05, 130.0, gy + 16.0, right, 0.42)
+	_building_block(ox + 250.0, gy * 0.22, 90.0, gy * 0.5, right.lightened(0.05), 0.28)
+	draw_rect(Rect2(ox + 240.0, gy - 70.0, 86.0, 70.0), Color(0.09, 0.11, 0.14, 0.7))
+	var lx: float = ox + 268.0
 	var ly: float = gy * 0.42
 	draw_rect(Rect2(lx, ly, 3.0, gy - ly - 8.0), Color(0.08, 0.09, 0.10, 0.9))
 	draw_circle(Vector2(lx + 1.5, ly), 5.0, Color(0.85, 0.78, 0.58, 0.35))
 	draw_circle(Vector2(lx + 1.5, ly), 18.0, Color(0.7, 0.62, 0.4, 0.07))
-	# 压住下半屏，避免楼体画进转轮区
-	if h > gy + 80.0:
-		draw_rect(Rect2(0.0, gy + 28.0, w, h - gy), Color(0.05, 0.06, 0.08, 1.0))
 
 
 func _building_block(x: float, y: float, bw: float, bh: float, col: Color, window_lit: float) -> void:
 	draw_rect(Rect2(x, y, bw, bh), col)
-	# 窗点：稀疏、冷光
 	var wy: float = y + 16.0
 	while wy < y + bh - 20.0:
 		var wx: float = x + 8.0
@@ -109,25 +126,33 @@ func _fog_veils(w: float, gy: float) -> void:
 	draw_rect(Rect2(0.0, gy - 36.0, w, 48.0), Color(0.10, 0.13, 0.16, 0.28))
 
 
-func _wires_and_laundry(w: float, gy: float) -> void:
+func _wires_tile(ox: float, gy: float) -> void:
 	var y0: float = gy * 0.28
-	var pts_a := PackedVector2Array([Vector2(w * 0.16, y0 + 8.0), Vector2(w * 0.38, y0 + 28.0), Vector2(w * 0.62, y0 + 22.0), Vector2(w * 0.84, y0 + 6.0)])
-	var pts_b := PackedVector2Array([Vector2(w * 0.18, y0 + 36.0), Vector2(w * 0.40, y0 + 58.0), Vector2(w * 0.66, y0 + 50.0), Vector2(w * 0.86, y0 + 30.0)])
-	var pts_c := PackedVector2Array([Vector2(w * 0.20, y0 + 62.0), Vector2(w * 0.44, y0 + 82.0), Vector2(w * 0.68, y0 + 74.0), Vector2(w * 0.86, y0 + 54.0)])
+	var pts_a := PackedVector2Array([
+		Vector2(ox + 10.0, y0 + 8.0), Vector2(ox + 110.0, y0 + 28.0),
+		Vector2(ox + 230.0, y0 + 22.0), Vector2(ox + 350.0, y0 + 6.0)
+	])
+	var pts_b := PackedVector2Array([
+		Vector2(ox + 16.0, y0 + 36.0), Vector2(ox + 120.0, y0 + 58.0),
+		Vector2(ox + 250.0, y0 + 50.0), Vector2(ox + 352.0, y0 + 30.0)
+	])
+	var pts_c := PackedVector2Array([
+		Vector2(ox + 22.0, y0 + 62.0), Vector2(ox + 140.0, y0 + 82.0),
+		Vector2(ox + 260.0, y0 + 74.0), Vector2(ox + 352.0, y0 + 54.0)
+	])
 	var wire := Color(0.08, 0.09, 0.11, 0.7)
 	_polyline(pts_a, wire)
 	_polyline(pts_b, wire)
 	_polyline(pts_c, wire)
-	# 几件静衣
 	var clothes: Array = [
-		[0.34, y0 + 28.0, 10.0, 22.0, Color(0.12, 0.14, 0.18, 0.7)],
-		[0.46, y0 + 26.0, 8.0, 18.0, Color(0.16, 0.18, 0.22, 0.55)],
-		[0.58, y0 + 24.0, 11.0, 26.0, Color(0.10, 0.11, 0.14, 0.75)],
-		[0.41, y0 + 58.0, 9.0, 20.0, Color(0.14, 0.16, 0.2, 0.6)],
-		[0.63, y0 + 52.0, 8.0, 16.0, Color(0.11, 0.13, 0.16, 0.65)],
+		[78.0, y0 + 28.0, 10.0, 22.0, Color(0.12, 0.14, 0.18, 0.7)],
+		[150.0, y0 + 26.0, 8.0, 18.0, Color(0.16, 0.18, 0.22, 0.55)],
+		[220.0, y0 + 24.0, 11.0, 26.0, Color(0.10, 0.11, 0.14, 0.75)],
+		[120.0, y0 + 58.0, 9.0, 20.0, Color(0.14, 0.16, 0.2, 0.6)],
+		[248.0, y0 + 52.0, 8.0, 16.0, Color(0.11, 0.13, 0.16, 0.65)],
 	]
 	for c in clothes:
-		draw_rect(Rect2(w * float(c[0]), float(c[1]), float(c[2]), float(c[3])), c[4])
+		draw_rect(Rect2(ox + float(c[0]), float(c[1]), float(c[2]), float(c[3])), c[4])
 
 
 func _polyline(pts: PackedVector2Array, col: Color) -> void:
@@ -138,25 +163,31 @@ func _polyline(pts: PackedVector2Array, col: Color) -> void:
 
 
 func _walkway(w: float, gy: float) -> void:
-	var left: float = minf(board_left, 8.0)
-	var right: float = maxf(board_right, w - 8.0)
-	# 厚实走道，湿冷木板/屋面感
 	var deck := Color(0.18, 0.19, 0.21, 1.0)
 	var seam := Color(0.10, 0.11, 0.13, 0.7)
 	var deck_h := 22.0
 	draw_rect(Rect2(0.0, gy, w, deck_h), deck)
 	draw_rect(Rect2(0.0, gy, w, 2.0), Color(0.28, 0.30, 0.32, 0.7))
-	var x: float = left
-	while x < right:
+	# 板缝随近景滚动，周期 18px，与 TILE 对齐
+	var sh: float = shift_for(DEPTH_NEAR)
+	var x: float = fposmod(sh, PLANK)
+	if x > 0.0:
+		x -= PLANK
+	while x < w:
 		draw_line(Vector2(x, gy + 1.0), Vector2(x, gy + deck_h - 1.0), seam, 1.0)
-		x += 18.0
-	# 栏杆：左右各一段，中间留战斗位
+		x += PLANK
+	# 栏杆留在战斗位两侧，不随走道滚，避免把小猫的站位框走掉
 	var rail := Color(0.08, 0.09, 0.10, 0.85)
 	draw_line(Vector2(4.0, gy - 26.0), Vector2(maxf(board_left - 4.0, 40.0), gy - 26.0), rail, 2.0, true)
 	draw_line(Vector2(minf(board_right + 4.0, w - 80.0), gy - 26.0), Vector2(w - 4.0, gy - 26.0), rail, 2.0, true)
-	# 柱
 	for px in [10.0, 40.0, w - 48.0, w - 16.0]:
 		draw_line(Vector2(px, gy - 26.0), Vector2(px, gy), rail, 2.0, true)
-	# 走道上一点碎屑（静止，不是会漂移的战斗碎块）
-	draw_rect(Rect2(w * 0.42, gy + 6.0, 10.0, 3.0), Color(0.12, 0.12, 0.13, 0.8))
-	draw_rect(Rect2(w * 0.61, gy + 9.0, 7.0, 2.0), Color(0.13, 0.13, 0.14, 0.7))
+	# 走道碎屑随近景滚
+	var near0: float = fposmod(sh, TILE)
+	if near0 > 0.0:
+		near0 -= TILE
+	var tx: float = near0
+	while tx < w + TILE:
+		draw_rect(Rect2(tx + 150.0, gy + 6.0, 10.0, 3.0), Color(0.12, 0.12, 0.13, 0.8))
+		draw_rect(Rect2(tx + 220.0, gy + 9.0, 7.0, 2.0), Color(0.13, 0.13, 0.14, 0.7))
+		tx += TILE

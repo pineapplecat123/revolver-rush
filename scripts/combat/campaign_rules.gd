@@ -53,12 +53,41 @@ static func walk_shop_tempo() -> float:
 	return maxf(0.05, float(data().get("walk_shop_tempo", 1.85)))
 
 
+static func shop_walk_speed_px() -> float:
+	return walk_shop_tempo() * walk_world_drift_px()
+
+
+static func shop_house_view_width() -> float:
+	## 设计布局宽度；房屋从这一侧的右缘外进场，由视口裁切。
+	return 720.0
+
+
+static func shop_house_visual_pad() -> float:
+	## 屋顶/烟囱伸出左缘以外的余量，保证整栋楼先完全在画面右外。
+	return 16.0
+
+
+static func shop_house_approach_travel_px() -> float:
+	## 从右缘外到入口对准小猫的路程（与近景 drift 同速，所以时长=路程/速度）。
+	return shop_house_view_width() + shop_house_visual_pad() + shop_house_entrance_x()
+
+
+static func shop_house_exit_travel_px() -> float:
+	## 出门后整栋从左侧完全离开画面。
+	return shop_house_width() + shop_house_visual_pad() + shop_house_clear_pad()
+
+
 static func walk_to_shop_sec() -> float:
-	return maxf(0.0, float(data().get("walk_to_shop_sec", 1.6)))
+	## 以「从右屏外走进门口」的路程为准，配置值只做下限，不缩短到会凭空出现。
+	var need: float = shop_house_approach_travel_px() / maxf(shop_walk_speed_px(), 0.01)
+	var cfg: float = maxf(0.0, float(data().get("walk_to_shop_sec", 0.0)))
+	return maxf(need, cfg)
 
 
 static func walk_from_shop_sec() -> float:
-	return maxf(0.0, float(data().get("walk_from_shop_sec", 2.55)))
+	var need: float = shop_house_exit_travel_px() / maxf(shop_walk_speed_px(), 0.01)
+	var cfg: float = maxf(0.0, float(data().get("walk_from_shop_sec", 0.0)))
+	return maxf(need, cfg)
 
 
 static func shop_house_width() -> float:
@@ -69,22 +98,46 @@ static func shop_house_height() -> float:
 	return 236.0
 
 
+static func shop_house_door_w() -> float:
+	## 两扇门同一宽度。
+	return 46.0
+
+
+static func shop_house_door_h() -> float:
+	## 两扇门同一高度（含门槛以上的门洞）。
+	return 118.0
+
+
+static func shop_house_door_frame() -> float:
+	## 两扇门同一门框厚度。
+	return 5.0
+
+
+static func shop_house_threshold() -> float:
+	## 门槛压住走道顶边的高度，两门相同。
+	return 3.0
+
+
 static func shop_house_entrance_x() -> float:
 	## 入口门洞中心相对房屋左缘。
 	return 62.0
 
 
 static func shop_house_exit_x() -> float:
-	## 另一扇门（侧门/后门）中心相对房屋左缘。
+	## 另一扇门中心相对房屋左缘（尺寸与入口相同，只是位置不同）。
 	return 304.0
 
 
+static func shop_house_door_half_w() -> float:
+	return shop_house_door_w() * 0.5
+
+
 static func shop_house_entrance_half_w() -> float:
-	return 23.0
+	return shop_house_door_half_w()
 
 
 static func shop_house_exit_half_w() -> float:
-	return 20.0
+	return shop_house_door_half_w()
 
 
 static func shop_house_clear_pad() -> float:

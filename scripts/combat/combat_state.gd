@@ -763,17 +763,19 @@ func campaign_walk_tempo() -> float:
 
 
 func campaign_world_drift_px_per_sec() -> float:
-	## 闯关走路时，地上碎块/血迹相对小猫向左移（表示猫在往前走）。背景本身不滚。
-	## 非走路、选奖励、开店、死亡/胜利时为 0。rush/沙盒不会走到这里的非零值。
-	if not campaign_mode or not campaign_should_walk():
-		return 0.0
+	## 走路时近景/碎块向左移：战斗慢走、进出店快走。选奖励、开店停步、死亡/胜利为 0。
+	## 店铺房屋自身的位移已按同一速度写好，走道与房子对齐，不会把门带走。
 	if reward_pending or campaign_offer_pending:
 		return 0.0
 	if shop_hold or shop_touch_pending:
 		return 0.0
 	if phase == Phase.LOST or phase == Phase.WON:
 		return 0.0
-	return -campaign_walk_tempo() * CampaignRules.walk_world_drift_px()
+	if shop_house_is_walking():
+		return -CampaignRules.walk_shop_tempo() * CampaignRules.walk_world_drift_px()
+	if campaign_mode and campaign_should_walk():
+		return -campaign_walk_tempo() * CampaignRules.walk_world_drift_px()
+	return 0.0
 
 
 func campaign_should_walk() -> bool:
@@ -5971,11 +5973,11 @@ func shop_house_progress() -> float:
 
 
 func shop_house_approach_distance() -> float:
-	return CampaignRules.walk_to_shop_sec() * CampaignRules.walk_shop_tempo() * CampaignRules.walk_world_drift_px()
+	return CampaignRules.shop_house_approach_travel_px()
 
 
 func shop_house_exit_travel() -> float:
-	return CampaignRules.shop_house_width() + CampaignRules.shop_house_clear_pad() - CampaignRules.shop_house_entrance_x()
+	return CampaignRules.shop_house_exit_travel_px()
 
 
 func shop_house_left_at(cat_x: float) -> float:
