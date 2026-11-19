@@ -114,7 +114,7 @@ const ENEMY_SPEED_VARIATION := 0.13
 const ENEMY_AUTO_STEP_SEC := 3.3
 ## v0.4.64：仅普通僵尸（含召唤出的）基础移速更慢；超级僵尸和其他敌人仍用 ENEMY_AUTO_STEP_SEC。
 const ZOMBIE_AUTO_STEP_SEC := 4.5
-## 僵尸标签再生：按种类，在现有落格拍结算（含停在玩家面前时）。
+## 普通僵尸：每自己走完一格再生 2（停在玩家面前不回）。超级僵尸：仍按现有落格拍再生 5。
 const ZOMBIE_REGEN := 2
 const SUPER_ZOMBIE_REGEN := 5
 ## 走路动画按 1.65 s/格 设计；播放速度 = 实际滑行速度 × 这个值（1× 战斗速度下 = 0.5）。

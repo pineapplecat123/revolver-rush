@@ -92,6 +92,7 @@ func test_summoned_zombie_uses_ordinary_hp() -> void:
 
 
 func test_regen_amounts_on_cell_tick() -> void:
+	## v0.4.65：普通僵尸不再走全局落格拍；超级僵尸仍每拍 +5。
 	var cs := _rush(46402)
 	cs.spawn_paused = true
 	cs.enemies.clear()
@@ -100,11 +101,11 @@ func test_regen_amounts_on_cell_tick() -> void:
 	z.hp = 10
 	s.hp = 40
 	cs._tick_zombie_regen_end_of_enemy_turn()
-	assert_eq(z.hp, 12, "普通僵尸每拍 +2")
+	assert_eq(z.hp, 10, "普通僵尸不再吃全局落格拍再生")
 	assert_eq(s.hp, 45, "超级僵尸每拍仍 +5")
-	z.hp = 19
+	s.hp = 49
 	cs._tick_zombie_regen_end_of_enemy_turn()
-	assert_eq(z.hp, 20, "再生不超过上限")
+	assert_eq(s.hp, 50, "超级僵尸再生不超过上限")
 
 
 func test_ordinary_zombie_walks_slower_in_free_walk() -> void:

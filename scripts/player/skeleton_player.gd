@@ -2,7 +2,7 @@ class_name SkeletonPlayer
 extends Node2D
 ## v0.4.21 骨骼动画玩家（纯表现，不碰任何玩法/数值）。
 ## Skeleton2D + Bone2D 搭的站立 Q 版小橘猫（大头二头身半、猫耳胡须大眼、三节尾巴、肉垫爪握大左轮），原点 = 脚底中心，面朝右。
-## 动画：idle（上半身上下点头，脚站住）/ shoot（后坐+枪口焰，可连点打断）/ reload（装弹）/ hurt（受击）/ death（倒地）。
+## 动画：idle（上半身上下点头，脚站住）/ walk（原地走循环，不改玩法位移）/ shoot（后坐+枪口焰，可连点打断）/ reload（装弹）/ hurt（受击）/ death（倒地）。
 ## 用法：bind_state(cs) 后自动订阅 —— on_shot→shoot，on_chamber_loaded→reload，
 ##       player_damaged→hurt，phase_changed(LOST)→death，离开 LOST→revive。
 
@@ -13,6 +13,7 @@ const ANIM_RELOAD := &"reload"
 const ANIM_HURT := &"hurt"
 const ANIM_DEATH := &"death"
 const ANIM_TWIRL := &"twirl"
+const ANIM_WALK := &"walk"
 const ANIM_RESET := &"RESET"
 ## v0.4.48 待机晃动：约 105 BPM，四拍一循环；枪比身子稍晚跟上。
 const IDLE_BPM := 105.0
@@ -28,6 +29,14 @@ const IDLE_DIP_Y := 3.8
 const IDLE_RISE_Y := -2.2
 const IDLE_DIP_IN := 0.42
 const IDLE_DIP_OUT := 1.15
+## v0.4.65：原地走路循环。两步一圈；头和手臂沿用待机的短滞后并限制位移，始终连在身上。
+const WALK_LEN := 0.56
+const WALK_STEP_THIGH := 0.42
+const WALK_STEP_SHIN := 0.30
+const WALK_HIP_BOB := 2.6
+const WALK_TORSO_X := 1.4
+const WALK_TORSO_Y := 1.6
+const WALK_FOLLOW_MAX := IDLE_FOLLOW_MAX
 
 ## 配色：橘猫（暖橘毛 + 奶油肚皮/口鼻 + 深褐描边），红色小领巾，在深蓝底上很醒目
 const COL_FUR := Color(1.0, 0.64, 0.28)
@@ -91,6 +100,8 @@ var _aim_override = null  ## set_aim_target() 手动指定（测试/演示）
 ## v0.4.32：战斗 UI 出膛帧自己 play_shoot；预转期间 hook 的 on_shot 不要抢播。
 var suppress_shot_from_hook: bool = false
 var _twirling: bool = false
+## 预览/复用：原地播走路，不移动角色格子。关了回到待机。
+var _walking: bool = false
 var _twirl_tween: Tween = null
 var _aim_weight: float = 1.0
 var _applied_arm: float = 0.0
@@ -252,6 +263,35 @@ func play_shoot() -> void:
 		anim.play(ANIM_SHOOT, 0.03)
 
 
+func set_walking(on: bool) -> void:
+	## 原地走循环开关。战斗里玩家不会自己走路；供预览和以后接真实移动。不改格子或玩法。
+	if is_dead:
+		_walking = false
+		return
+	_walking = on
+	var cur := StringName(anim.current_animation)
+	if cur == ANIM_SHOOT or cur == ANIM_RELOAD or cur == ANIM_HURT or cur == ANIM_TWIRL or cur == ANIM_DEATH:
+		return
+	if on:
+		if cur != ANIM_WALK:
+			anim.play(ANIM_WALK, 0.1)
+	elif cur == ANIM_WALK:
+		anim.play(ANIM_IDLE, 0.1)
+
+
+func is_walking() -> bool:
+	return _walking
+
+
+func _resume_locomotion() -> void:
+	if is_dead:
+		return
+	if _walking:
+		anim.play(ANIM_WALK, 0.1)
+	else:
+		anim.play(ANIM_IDLE, 0.1)
+
+
 func play_gun_twirl(duration: float) -> void:
 	## v0.4.32：连射预转时花式转枪一整圈，时长对齐转轮动画；结束后回瞄准。
 	if is_dead:
@@ -285,7 +325,7 @@ func _on_gun_twirl_finished(gun: Node2D) -> void:
 	_twirling = false
 	# 动画可能已先播完离开 twirl（测试里 advance 不会推 tween），只要没切到其它动作就回待机。
 	if not is_dead and anim.current_animation != ANIM_SHOOT and anim.current_animation != ANIM_RELOAD and anim.current_animation != ANIM_HURT and anim.current_animation != ANIM_DEATH:
-		anim.play(ANIM_IDLE, 0.08)
+		_resume_locomotion()
 
 
 func play_reload() -> void:
@@ -319,7 +359,7 @@ func revive() -> void:
 	is_dead = false
 	anim.play(ANIM_RESET)
 	anim.advance(0.0)
-	anim.play(ANIM_IDLE)
+	_resume_locomotion()
 
 
 # ---------------------------------------------------------------- 信号
@@ -354,9 +394,9 @@ func _on_phase_changed(p: int) -> void:
 
 func _on_anim_finished(n: StringName) -> void:
 	if n == ANIM_SHOOT or n == ANIM_RELOAD or n == ANIM_HURT:
-		anim.play(ANIM_IDLE, 0.1)
+		_resume_locomotion()
 	elif n == ANIM_TWIRL and not _twirling:
-		anim.play(ANIM_IDLE, 0.08)
+		_resume_locomotion()
 
 
 # ---------------------------------------------------------------- 搭骨架
@@ -798,6 +838,24 @@ static func idle_follow_local(t: float, length: float, lag: float) -> Vector2:
 	return d
 
 
+static func walk_phi(t: float, length: float) -> float:
+	return fposmod(TAU * t / maxf(length, 0.001), TAU)
+
+
+static func walk_torso_offset(t: float, length: float) -> Vector2:
+	## 两步一圈：身子轻轻前移并随步伐上下颠。
+	var phi: float = walk_phi(t, length)
+	var bob: float = 0.5 - 0.5 * cos(2.0 * phi)
+	return Vector2(WALK_TORSO_X * sin(phi) * 0.35, WALK_TORSO_Y * bob)
+
+
+static func walk_follow_local(t: float, length: float, lag: float) -> Vector2:
+	var d: Vector2 = walk_torso_offset(t - lag, length) - walk_torso_offset(t, length)
+	if d.length() > WALK_FOLLOW_MAX:
+		return d.limit_length(WALK_FOLLOW_MAX)
+	return d
+
+
 func _build_animations() -> void:
 
 	anim = AnimationPlayer.new()
@@ -922,6 +980,81 @@ func _build_animations() -> void:
 		[0.0, e1], [blink_t, e1], [blink_t + 0.05, Vector2(1, 0.12)], [blink_t + 0.12, e1], [idle_len, e1]
 	])
 	lib.add_animation(ANIM_IDLE, idle)
+
+	# walk：原地两步循环。腿交错迈，胯轻颠；头和持枪手臂沿用待机短滞后，始终贴在身上。
+	var walk_len := WALK_LEN
+	var thigh_f0: float = REST["ThighF"][1]
+	var shin_f0: float = REST["ShinF"][1]
+	var thigh_b0: float = REST["ThighB"][1]
+	var shin_b0: float = REST["ShinB"][1]
+	var nk := 24
+	var w_hip: Array = []
+	var w_torso_p: Array = []
+	var w_torso_r: Array = []
+	var w_head_p: Array = []
+	var w_armf_p: Array = []
+	var w_armb_p: Array = []
+	var w_head_r: Array = []
+	var w_arm_f: Array = []
+	var w_fa_f: Array = []
+	var w_hand_f: Array = []
+	var w_arm_b: Array = []
+	var w_th_f: Array = []
+	var w_sh_f: Array = []
+	var w_th_b: Array = []
+	var w_sh_b: Array = []
+	for ki in nk + 1:
+		var wt: float = walk_len * float(ki) / float(nk)
+		var wphi: float = walk_phi(wt, walk_len)
+		var step: float = sin(wphi)
+		var bob: float = 0.5 - 0.5 * cos(2.0 * wphi)
+		w_hip.append([wt, hip0 + Vector2(0.0, WALK_HIP_BOB * bob)])
+		w_torso_p.append([wt, torso0 + walk_torso_offset(wt, walk_len)])
+		w_torso_r.append([wt, 0.04 * sin(wphi)])
+		w_head_p.append([wt, head0 + walk_follow_local(wt, walk_len, IDLE_HEAD_LAG)])
+		w_armf_p.append([wt, armf0 + walk_follow_local(wt, walk_len, IDLE_ARM_LAG)])
+		w_armb_p.append([wt, armb0 + walk_follow_local(wt, walk_len, IDLE_ARM_LAG)])
+		w_head_r.append([wt, 0.04 * step])
+		w_arm_f.append([wt, 0.10 + 0.10 * step])
+		w_fa_f.append([wt, -0.10 - 0.06 * step])
+		w_hand_f.append([wt, 0.04 * step])
+		w_arm_b.append([wt, 1.35 - 0.22 * step])
+		w_th_f.append([wt, thigh_f0 + WALK_STEP_THIGH * step])
+		w_sh_f.append([wt, shin_f0 - WALK_STEP_SHIN * step])
+		w_th_b.append([wt, thigh_b0 - WALK_STEP_THIGH * step])
+		w_sh_b.append([wt, shin_b0 + WALK_STEP_SHIN * step])
+	var walk := _make_anim(walk_len, {
+		hip_p: w_hip,
+		("%s:position" % _bone_path("Torso")): w_torso_p,
+		("%s:position" % _bone_path("Head")): w_head_p,
+		("%s:position" % _bone_path("UpperArmF")): w_armf_p,
+		("%s:position" % _bone_path("UpperArmB")): w_armb_p,
+		_r("Torso"): w_torso_r,
+		_r("Head"): _lag_loop_keys(w_head_r, IDLE_HEAD_LAG, walk_len),
+		_r("UpperArmF"): _lag_loop_keys(w_arm_f, IDLE_ARM_LAG, walk_len),
+		_r("ForearmF"): _lag_loop_keys(w_fa_f, IDLE_ARM_LAG + 0.02, walk_len),
+		_r("HandF"): _lag_loop_keys(w_hand_f, IDLE_ARM_LAG + 0.03, walk_len),
+		_r("UpperArmB"): _lag_loop_keys(w_arm_b, IDLE_ARM_LAG, walk_len),
+		_r("ThighF"): w_th_f,
+		_r("ShinF"): w_sh_f,
+		_r("ThighB"): w_th_b,
+		_r("ShinB"): w_sh_b,
+		_r("Tail1"): [
+			[0.0, t1r], [0.25 * walk_len, t1r + 0.18], [0.5 * walk_len, t1r], [0.75 * walk_len, t1r - 0.16], [walk_len, t1r],
+		],
+		_r("Tail2"): [
+			[0.0, t2r], [0.25 * walk_len, t2r + 0.28], [0.5 * walk_len, t2r], [0.75 * walk_len, t2r - 0.24], [walk_len, t2r],
+		],
+		_r("Tail3"): [
+			[0.0, t3r], [0.25 * walk_len, t3r + 0.36], [0.5 * walk_len, t3r], [0.75 * walk_len, t3r - 0.32], [walk_len, t3r],
+		],
+	}, true, false, false)
+	_flash_track(walk, -1.0, -1.0)
+	_cyl_track(walk, [[0.0, cyl0]])
+	_vis_track(walk, eyes, [[0.0, true]])
+	_vis_track(walk, xeyes, [[0.0, false]])
+	_eyes_track(walk, [[0.0, e1], [walk_len, e1]])
+	lib.add_animation(ANIM_WALK, walk)
 
 	# shoot：0.18s 后坐——大枪把小爪往上顶、身子后仰、脑袋一缩、尾巴一甩；枪口焰 0~0.05s
 	var shoot := _make_anim(0.18, {

@@ -4496,7 +4496,9 @@ func _free_walk_advance(delta_cells: float) -> void:
 			e.walking = false
 		var nc: int = clampi(int(round(e.pos_x)), CombatConstants.PLAYER_CELL + 1, CombatConstants.BOARD_SIZE - 1)
 		if nc != e.cell:
+			var prev_cell: int = e.cell
 			e.cell = nc
+			_maybe_regen_ordinary_zombie_on_cell(e, prev_cell, nc)
 
 
 func tick_enemy_auto_step(do_move: bool = true) -> bool:
@@ -5692,19 +5694,35 @@ func _try_super_zombie_summons() -> void:
 		_log("%s 召唤僵尸于面前格 %d。" % [boss.name_zh, front])
 
 
+func _maybe_regen_ordinary_zombie_on_cell(e: EnemyInstance, prev_cell: int, new_cell: int) -> void:
+	## 普通僵尸（含召唤）只在自己实际走完一格时回复；停在玩家面前不回。
+	if e == null or not e.is_alive():
+		return
+	if int(e.def_id) != CombatConstants.ZOMBIE_ENEMY_ID:
+		return
+	if new_cell >= prev_cell:
+		return
+	# 一帧可能跨过多格（加速/大步进），每走过的一格都回 2 点。
+	for _i in (prev_cell - new_cell):
+		_apply_zombie_regen(e, CombatConstants.ZOMBIE_REGEN)
+
+
+func _apply_zombie_regen(e: EnemyInstance, amt: int) -> void:
+	if e == null or not e.is_alive() or amt <= 0:
+		return
+	if e.hp >= e.max_hp:
+		return
+	var before: int = e.hp
+	e.hp = mini(e.max_hp, e.hp + amt)
+	_log("%s 僵尸再生 +%d（HP %d/%d）。" % [e.name_zh, e.hp - before, e.hp, e.max_hp])
+
+
 func _tick_zombie_regen_end_of_enemy_turn() -> void:
-	## 僵尸标签：现有落格拍回复生命（不超过上限）。普通僵尸 +2，超级僵尸仍 +5。
+	## 超级僵尸仍按现有落格拍回复 +5（含停在玩家面前）。普通僵尸改走自己的走格。
 	for e in alive_enemies():
-		if not e.has_tag("僵尸"):
+		if int(e.def_id) != CombatConstants.SUPER_ZOMBIE_ENEMY_ID:
 			continue
-		var amt: int = CombatConstants.zombie_regen_amount(int(e.def_id))
-		if amt <= 0:
-			continue
-		if e.hp >= e.max_hp:
-			continue
-		var before: int = e.hp
-		e.hp = mini(e.max_hp, e.hp + amt)
-		_log("%s 僵尸再生 +%d（HP %d/%d）。" % [e.name_zh, e.hp - before, e.hp, e.max_hp])
+		_apply_zombie_regen(e, CombatConstants.SUPER_ZOMBIE_REGEN)
 
 
 func _move_enemy(e: EnemyInstance) -> void:
@@ -5720,11 +5738,13 @@ func _move_enemy_steps(e: EnemyInstance, steps: int) -> void:
 			break
 		if occ.has(next_cell) and not free_walk:
 			break
+		var prev_cell: int = e.cell
 		occ.erase(e.cell)
 		e.cell = next_cell
 		occ[e.cell] = e
 		if free_walk:
 			e.pos_x = float(e.cell)
+		_maybe_regen_ordinary_zombie_on_cell(e, prev_cell, next_cell)
 	_log("%s 移动至格 %d。" % [e.name_zh, e.cell])
 
 

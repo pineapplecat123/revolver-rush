@@ -228,6 +228,7 @@ var _sb_bag_view_epoch: int = -1
 var _sb_preset_status: Label = null
 var _sb_btn_save_preset: Button = null
 var _sb_btn_restore_preset: Button = null
+var _sb_btn_walk_preview: Button = null
 var _speed_slider: HSlider = null
 var _speed_value_label: Label = null
 var _muzzle_panel: PanelContainer = null  ## 透明命中层（悬停/长按）
@@ -7868,6 +7869,14 @@ func _ensure_sandbox_bag_preset_btns(parent: Control) -> void:
 		_sb_preset_status.mouse_filter = Control.MOUSE_FILTER_STOP
 		_sb_bind_scroll_drag(_sb_preset_status)
 		box.add_child(_sb_preset_status)
+		_sb_btn_walk_preview = Button.new()
+		_sb_btn_walk_preview.name = "SandboxWalkPreview"
+		_sb_btn_walk_preview.focus_mode = Control.FOCUS_NONE
+		_sb_btn_walk_preview.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_sb_btn_walk_preview.custom_minimum_size = Vector2(0, SB_AMMO_BTN_H)
+		_sb_btn_walk_preview.add_theme_font_size_override("font_size", SB_AMMO_BTN_FONT)
+		_sb_bind_scroll_drag(_sb_btn_walk_preview, Callable(self, "_on_sandbox_walk_preview"))
+		box.add_child(_sb_btn_walk_preview)
 		_sb_bind_scroll_drag(box)
 	else:
 		if _sb_btn_save_preset == null:
@@ -7876,7 +7885,10 @@ func _ensure_sandbox_bag_preset_btns(parent: Control) -> void:
 			_sb_btn_restore_preset = box.get_node_or_null("SandboxRestoreBagPreset") as Button
 		if _sb_preset_status == null:
 			_sb_preset_status = box.get_node_or_null("SandboxBagPresetStatus") as Label
+		if _sb_btn_walk_preview == null:
+			_sb_btn_walk_preview = box.get_node_or_null("SandboxWalkPreview") as Button
 	_refresh_sandbox_preset_buttons()
+	_refresh_sandbox_walk_preview_button()
 
 
 func _refresh_sandbox_preset_buttons() -> void:
@@ -7940,3 +7952,18 @@ func _on_sandbox_restore_bag_preset() -> void:
 		else:
 			_sb_preset_status.text = "还原袋中配置失败"
 	_refresh()
+
+func _refresh_sandbox_walk_preview_button() -> void:
+	if _sb_btn_walk_preview == null:
+		return
+	var walking: bool = _skel_player != null and is_instance_valid(_skel_player) and _skel_player.is_walking()
+	_sb_btn_walk_preview.text = "停止走路预览" if walking else "预览走路动画"
+	_sb_btn_walk_preview.disabled = _skel_player == null
+
+
+func _on_sandbox_walk_preview() -> void:
+	## 只在原地切换走路/待机，不移动玩家、不加玩法位移。收起控制台即可看见小猫。
+	if _skel_player == null or not is_instance_valid(_skel_player):
+		return
+	_skel_player.set_walking(not _skel_player.is_walking())
+	_refresh_sandbox_walk_preview_button()
