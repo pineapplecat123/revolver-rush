@@ -6,7 +6,8 @@ rows that already exist — it never invents a new ammo id, and never deletes
 one. Rows that exist only in the editor (no matching ammo.json name) are skipped.
 
 Copied when present:
-  name, effect -> special, school, rarity (mapped to common/rare/...),
+  name, effect -> special, game_description -> game_description,
+  school, rarity (mapped to common/rare/...),
   type tag (开始/中间/结束, other tags such as 清算 are kept),
   damage -> base_damage only when the ammo uses fixed numeric damage,
   muzzle_color, bullet_color (#RRGGBB).
@@ -67,6 +68,11 @@ def apply_editor_row(ammo: dict, editor: dict) -> list[str]:
     if effect and ammo.get("special") != effect:
         ammo["special"] = effect
         changes.append("special")
+    if "game_description" in editor:
+        gd = str(editor.get("game_description") or "")
+        if ammo.get("game_description") != gd:
+            ammo["game_description"] = gd
+            changes.append("game_description")
     school = str(editor.get("school") or "").strip()
     if school and ammo.get("school") != school:
         ammo["school"] = school

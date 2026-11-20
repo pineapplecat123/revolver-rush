@@ -163,7 +163,29 @@ func is_enemy_enabled(enemy_id: int) -> bool:
 	return bool(get_enemy(enemy_id).get("enabled_in_combat", false))
 
 
-## 袋内悬停/长按详情：名称 / 基础伤害 / 短摘要 / 完整效果（无效弹用本地常量）。
+## 游戏内子弹描述性文本（图鉴、详情、提示、奖励、商店等共用）。名称仍走 ammo_display_name。
+## 新子弹默认「普通的一个子弹...」；缺字段时回退到 blurb / special，不改机制数值。
+const DEFAULT_AMMO_GAME_DESCRIPTION := "普通的一个子弹..."
+
+
+func ammo_game_description(ammo_id: int) -> String:
+	if ammo_id == CombatConstants.INVALID_AMMO_ID:
+		return str(CombatConstants.INVALID_AMMO_SPECIAL)
+	var def: Dictionary = get_ammo(ammo_id)
+	if def.is_empty():
+		return ""
+	if def.has("game_description"):
+		return str(def.get("game_description", "")).strip_edges()
+	var blurb := str(def.get("blurb", "")).strip_edges()
+	if blurb != "":
+		return blurb
+	var special := str(def.get("special", "")).strip_edges()
+	if special != "" and special != "无":
+		return special
+	return ""
+
+
+## 袋内悬停/长按详情：名称 / 基础伤害 / 由游戏内描述提供的效果说明（无效弹用本地常量）。
 func format_ammo_detail_text(ammo_id: int) -> String:
 	if ammo_id == CombatConstants.INVALID_AMMO_ID:
 		return "名称：%s\n基础伤害：0\n效果：\n%s" % [
@@ -181,24 +203,21 @@ func format_ammo_detail_text(ammo_id: int) -> String:
 		dmg_s = "（公式/%s，见表效果）" % mode
 	else:
 		dmg_s = "%s（%s）" % [str(dmg), mode if mode != "" else "fixed"]
-	var special := str(def.get("special", "无"))
-	var blurb := str(def.get("blurb", "")).strip_edges()
 	var tags = def.get("tags", [])
 	var tag_s := "、".join(tags) if tags is Array and tags.size() > 0 else "无"
 	var school := str(def.get("school", "")).strip_edges()
+	var desc := ammo_game_description(ammo_id)
 	var lines: PackedStringArray = PackedStringArray()
 	lines.append("名称：%s" % nm)
 	lines.append("基础伤害：%s" % dmg_s)
 	if school != "":
 		lines.append("流派：%s" % school)
 	lines.append("标签：%s" % tag_s)
-	if blurb != "":
-		lines.append("摘要：%s" % blurb)
 	lines.append("效果：")
-	lines.append(special if special != "" else "无")
+	lines.append(desc if desc != "" else "无")
 	return "\n".join(lines)
 
-## 奖励三选一用短摘要：优先 ammo.json 的 blurb；否则从 special 截断。旁注勿整段。
+## 奖励三选一用短摘要：取游戏内描述并截断。旁注勿整段。伤X 仍来自数值字段。
 func format_ammo_reward_blurb(ammo_id: int, max_chars: int = 28) -> String:
 	if ammo_id == CombatConstants.INVALID_AMMO_ID:
 		return "伤0 · 占袋无效弹"
@@ -206,9 +225,10 @@ func format_ammo_reward_blurb(ammo_id: int, max_chars: int = 28) -> String:
 	if def.is_empty():
 		return "未知弹药"
 	var dmg = def.get("base_damage", null)
-	var blurb := str(def.get("blurb", "")).strip_edges()
+	var blurb := ammo_game_description(ammo_id)
 	if blurb.is_empty():
-		blurb = str(def.get("special", "")).strip_edges()
+		blurb = "常规"
+	else:
 		for sep in ["。", "；", "，", ".", ";", ","]:
 			var idx := blurb.find(sep)
 			if idx >= 0 and idx <= max_chars + 4:
@@ -216,10 +236,8 @@ func format_ammo_reward_blurb(ammo_id: int, max_chars: int = 28) -> String:
 				break
 		if blurb.length() > max_chars:
 			blurb = blurb.substr(0, max_chars) + "…"
-		if blurb.is_empty() or blurb == "无" or blurb.begins_with("无，") or blurb.begins_with("无特殊"):
+		if blurb == "无" or blurb.begins_with("无，") or blurb.begins_with("无特殊"):
 			blurb = "常规"
-	elif blurb.length() > max_chars:
-		blurb = blurb.substr(0, max_chars) + "…"
 	if dmg == null:
 		return blurb
 	return "伤%s · %s" % [str(dmg), blurb]

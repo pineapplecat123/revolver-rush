@@ -3,9 +3,11 @@
 
 Upsert by id for both inbox files and env BULLET_JSON (workflow_dispatch):
   new id     -> append a row (in_game=false, created_at and updated_at set)
-  existing id -> update name/type/damage/rarity/school/effect/notes
+  existing id -> update name/type/damage/rarity/school/effect/notes/game_description
                  and muzzle_color/bullet_color when the payload includes them;
-                 omitted colors leave the existing values in place.
+                 omitted colors or game_description leave the existing values in place.
+                 missing game_description on a new row becomes '普通的一个子弹...';
+                 existing rows without the field keep their 效果说明, not the new default.
                  in_game is always set false; created_at and id are kept;
                  updated_at is bumped.
 Client-supplied in_game / created_at / updated_at are ignored.
@@ -26,7 +28,8 @@ BASE = ROOT / "companion" / "bullet-editor"
 DATA = BASE / "data.json"
 INBOX = BASE / "inbox"
 TZ = timezone(timedelta(hours=8))
-TEXT_FIELDS = {"name": 40, "type": 20, "damage": 20, "rarity": 20, "school": 20, "effect": 1000, "notes": 1000}
+DEFAULT_GAME_DESCRIPTION = "普通的一个子弹..."
+TEXT_FIELDS = {"name": 40, "type": 20, "damage": 20, "rarity": 20, "school": 20, "effect": 1000, "game_description": 2000, "notes": 1000}
 COLOR_FIELDS = ("muzzle_color", "bullet_color")
 COLOR_RE = re.compile(r"^#?[0-9A-Fa-f]{6}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -58,7 +61,11 @@ def clean_record(rec, fallback_id: str = ""):
     rid = str(rec.get("id") or fallback_id)
     if not ID_RE.match(rid):
         raise ValueError(f"bad id {rid!r}")
-    clean = {k: str(rec.get(k) if rec.get(k) is not None else "").strip()[:n] for k, n in TEXT_FIELDS.items()}
+    clean = {}
+    for k, n in TEXT_FIELDS.items():
+        if k == "game_description" and "game_description" not in rec:
+            continue
+        clean[k] = str(rec.get(k) if rec.get(k) is not None else "").strip()[:n]
     if not clean["name"]:
         raise ValueError("missing name")
     for key in COLOR_FIELDS:
@@ -76,6 +83,9 @@ def clean_record(rec, fallback_id: str = ""):
 def upsert(rid: str, clean: dict, bullets: list, by_id: dict, ts: str) -> None:
     if rid in by_id:
         row = by_id[rid]
+        if "game_description" not in clean and "game_description" not in row:
+            # 旧行：沿用当前效果说明，不用新子弹默认文案。
+            row["game_description"] = str(row.get("effect") or "")
         row.update(clean)
         row["in_game"] = False
         row["updated_at"] = ts
@@ -83,6 +93,8 @@ def upsert(rid: str, clean: dict, bullets: list, by_id: dict, ts: str) -> None:
         return
     if len(bullets) >= MAX_ROWS:
         raise ValueError("too many rows")
+    if "game_description" not in clean or clean.get("game_description") == "":
+        clean["game_description"] = DEFAULT_GAME_DESCRIPTION
     row = {"id": rid, **clean, "in_game": False, "created_at": ts, "updated_at": ts}
     bullets.append(row)
     by_id[rid] = row

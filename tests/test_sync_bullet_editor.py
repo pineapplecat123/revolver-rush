@@ -65,5 +65,34 @@ class SyncHelpersTest(unittest.TestCase):
         self.assertEqual(ammo["tags"], ["开始", "清算"])
 
 
+    def test_apply_copies_game_description_and_skips_when_absent(self):
+        ammo = {
+            "id": 40,
+            "name": "加伤弹",
+            "special": "旧效果",
+            "game_description": "旧游戏内描述",
+            "base_damage": 0,
+        }
+        editor = {
+            "name": "加伤弹",
+            "effect": "新效果",
+            "game_description": "新的游戏内描述\n第二行",
+            "notes": "策划备注不应写入 ammo",
+        }
+        changes = mod.apply_editor_row(ammo, editor)
+        self.assertIn("game_description", changes)
+        self.assertIn("special", changes)
+        self.assertEqual(ammo["game_description"], "新的游戏内描述\n第二行")
+        self.assertEqual(ammo["special"], "新效果")
+        self.assertNotIn("notes", ammo)
+
+        # omitted key does not wipe or replace with the new-bullet default
+        ammo2 = {"id": 41, "name": "倍伤弹", "special": "效果", "game_description": "保留"}
+        changes2 = mod.apply_editor_row(ammo2, {"name": "倍伤弹", "effect": "效果2"})
+        self.assertNotIn("game_description", changes2)
+        self.assertEqual(ammo2["game_description"], "保留")
+        self.assertEqual(ammo2["special"], "效果2")
+
+
 if __name__ == "__main__":
     unittest.main()

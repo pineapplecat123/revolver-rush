@@ -24,7 +24,8 @@
         "duration_type": "rest_of_volley",
         "effect_kind": "damage_pct",
         "effect_per_stack": 0.5
-      }
+      },
+      "game_description": "射击后，给枪口挂上「起势」状态：本弹夹剩余非「开始」子弹伤害+50％，多个本子弹加法叠加。开始类型子弹不受本状态影响。"
     },
     {
       "id": 41,
@@ -49,7 +50,8 @@
         "duration_type": "until_consumed",
         "effect_kind": "damage_mult",
         "effect_per_stack": 1.5
-      }
+      },
+      "game_description": "射击后，给枪口挂上「蓄力」状态：下一颗非「开始」子弹伤害×1.5，该发打出后消耗。多个本子弹效果连乘叠加，例如两颗连在一起，下一颗非开始子弹伤害×2.25。空仓与开始类型子弹不消耗该状态。"
     },
     {
       "id": 42,
@@ -67,7 +69,8 @@
       "in_reward_pool": true,
       "blurb": "按开火槽位越后越高：2+槽位×0.75",
       "bullet_color": "#F2CC38",
-      "muzzle_color": "#F2CC38"
+      "muzzle_color": "#F2CC38",
+      "game_description": "在弹夹槽位越靠后伤害越高，计算公式为伤害=2+（槽位×0.75），再四舍五入。例如第6格就是2+(6×0.75)=6.5，四舍五入为7。槽位按本轮连射开火顺序计算，空仓也占一格。"
     },
     {
       "id": 43,
@@ -85,7 +88,8 @@
       "in_reward_pool": true,
       "blurb": "伤害等于本轮已开火总伤害的一半",
       "bullet_color": "#DB3D38",
-      "muzzle_color": "#DB3D38"
+      "muzzle_color": "#DB3D38",
+      "game_description": "伤害等于当前弹夹已开火子弹总伤害的一半（含加成与溢出，不受敌人剩余生命上限）。例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害。"
     },
     {
       "id": 44,
@@ -109,7 +113,8 @@
         "duration_type": "rest_of_volley",
         "effect_kind": "speed_pct",
         "effect_per_stack": 1.0
-      }
+      },
+      "game_description": "射击后，给枪口挂上「速」状态：本弹夹后续开火节奏+100％，加法叠加，两颗为3倍速；不改变子弹飞行速度。"
     },
     {
       "id": 45,
@@ -139,7 +144,8 @@
         "effect_kind": "none",
         "effect": "开火后已生成临时复制体",
         "outline": false
-      }
+      },
+      "game_description": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（包括自己，不含罪孽弹）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗，没有可复制的则复制自己"
     },
     {
       "id": 46,
@@ -157,7 +163,8 @@
       "in_reward_pool": true,
       "blurb": "前3格×0.5，后3格×2",
       "bullet_color": "#F2CC38",
-      "muzzle_color": "#F2CC38"
+      "muzzle_color": "#F2CC38",
+      "game_description": "如果在开火顺序第1-3格发射，本子弹伤害×0.5；第4-6格则×2。格位按本轮连射开火顺序计算，空仓也占一格。该倍率和枪口状态「起势」「蓄力」直接相乘。"
     },
     {
       "id": 47,
@@ -174,7 +181,8 @@
       "in_reward_pool": true,
       "blurb": "弹夹每有一个结束弹+3",
       "bullet_color": "#4DE036",
-      "muzzle_color": "#52C76B"
+      "muzzle_color": "#52C76B",
+      "game_description": "弹夹里每有一个结束弹，本子弹伤害+3。"
     },
     {
       "id": 48,
@@ -191,7 +199,8 @@
       "in_reward_pool": true,
       "blurb": "复制上一颗开始弹效果",
       "bullet_color": "#52C76B",
-      "muzzle_color": "#52C76B"
+      "muzzle_color": "#52C76B",
+      "game_description": "复制轮盘里上一颗开始弹的效果（若该效果会挂枪口状态，则同样挂上），如果没有则没效果。"
     },
     {
       "id": 49,
@@ -208,7 +217,8 @@
       "in_reward_pool": true,
       "blurb": "没有特殊效果的基本子弹",
       "bullet_color": "#F2CC38",
-      "muzzle_color": "#F2CC38"
+      "muzzle_color": "#F2CC38",
+      "game_description": "没特殊效果，最基本的子弹。"
     },
     {
       "id": 50,
@@ -226,7 +236,8 @@
       "in_reward_pool": true,
       "blurb": "连续同类型n≥2时加伤n×65%",
       "bullet_color": "#FFB41F",
-      "muzzle_color": "#FFB41F"
+      "muzzle_color": "#FFB41F",
+      "game_description": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n不是1。同类型指开始/中间/结束标签；按本轮实际开火顺序计算，空仓不计入也不打断连续；n为2或更多时才加伤。"
     },
     {
       "id": 51,
@@ -244,7 +255,8 @@
       "in_reward_pool": true,
       "blurb": "预计伤害大于7时穿透并逐个-1",
       "bullet_color": "#FF0000",
-      "muzzle_color": "#FF0000"
+      "muzzle_color": "#FF0000",
+      "game_description": "如果这颗子弹的预计伤害大于7，则自带穿透效果（穿过一个敌人后伤害衰减1直到没有）；预计伤害小于或等于7则没有穿透。只作用于本发，不挂到后续枪口。"
     },
     {
       "id": 52,
@@ -262,7 +274,8 @@
       "in_reward_pool": true,
       "blurb": "挂枪口传递：把多出来的伤害传给下一颗",
       "bullet_color": "#FFE600",
-      "muzzle_color": "#FFD900"
+      "muzzle_color": "#FFD900",
+      "game_description": "如果这颗子弹被加强了伤害，则给枪口挂上加同样多出数值伤害的状态（四舍五入后的预计伤害减去基础3），由下一颗实际开火的子弹获得后消耗。空仓不消耗该状态。"
     },
     {
       "id": 53,
@@ -279,7 +292,8 @@
       "in_reward_pool": true,
       "blurb": "获得紧邻前一格的技能，不复制伤害",
       "bullet_color": "#F0B916",
-      "muzzle_color": "#F0B916"
+      "muzzle_color": "#F0B916",
+      "game_description": "获得弹夹里紧邻的前一个槽位上那发子弹的技能效果，但不复制伤害，仍使用自己的基础伤害。若前一格是空仓或没有前一格，则没有技能效果，也不会再往前寻找。"
     },
     {
       "id": 54,
@@ -304,7 +318,8 @@
         "duration_type": "rest_of_volley",
         "effect_kind": "damage_flat",
         "effect_per_stack": 0
-      }
+      },
+      "game_description": "本子弹打出后，按实际造成的伤害给枪口挂上加同样数值伤害的状态，持续到本弹夹结束。若本发没有造成伤害，或没有后续子弹，则不挂状态。多个本子弹的加值会累加。"
     }
   ]
 }

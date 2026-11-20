@@ -1,5 +1,5 @@
 {
-  "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
+  "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, game_description, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). game_description is in-game copy; new bullets default to 普通的一个子弹... Existing rows migrate effect. New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
   "updated_at": "2026-11-20T19:43:21+08:00",
   "bullets": [
@@ -16,7 +16,8 @@
       "updated_at": "2026-11-18T17:21:04+08:00",
       "school": "清算",
       "bullet_color": "#52C76B",
-      "muzzle_color": "#52C76B"
+      "muzzle_color": "#52C76B",
+      "game_description": "射击后，给枪口挂上「起势」状态：本弹夹剩余非「开始」子弹伤害+50％，多个本子弹加法叠加。开始类型子弹不受本状态影响。"
     },
     {
       "id": "b20261113-133535-ztag",
@@ -31,7 +32,8 @@
       "updated_at": "2026-11-18T17:21:27+08:00",
       "school": "清算",
       "bullet_color": "#52C76B",
-      "muzzle_color": "#52C76B"
+      "muzzle_color": "#52C76B",
+      "game_description": "射击后，给枪口挂上「蓄力」状态：下一颗非「开始」子弹伤害×1.5，该发打出后消耗。多个本子弹效果连乘叠加，例如两颗连在一起，下一颗非开始子弹伤害×2.25。空仓与开始类型子弹不消耗该状态。"
     },
     {
       "id": "b20261113-140323-hdjn",
@@ -46,7 +48,8 @@
       "created_at": "2026-11-13T14:03:32+08:00",
       "updated_at": "2026-11-18T17:21:36+08:00",
       "bullet_color": "#F2CC38",
-      "muzzle_color": "#F2CC38"
+      "muzzle_color": "#F2CC38",
+      "game_description": "在弹夹槽位越靠后伤害越高，计算公式为伤害=2+（槽位×0.75），再四舍五入。例如第6格就是2+(6×0.75)=6.5，四舍五入为7。槽位按本轮连射开火顺序计算，空仓也占一格。"
     },
     {
       "id": "b20261113-140632-9cdm",
@@ -61,7 +64,8 @@
       "created_at": "2026-11-13T14:06:41+08:00",
       "updated_at": "2026-11-18T17:20:48+08:00",
       "bullet_color": "#DB3D38",
-      "muzzle_color": "#DB3D38"
+      "muzzle_color": "#DB3D38",
+      "game_description": "伤害等于当前弹夹已开火子弹总伤害的一半，例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害"
     },
     {
       "id": "b20261113-223134-uzoy",
@@ -76,7 +80,8 @@
       "created_at": "2026-11-13T22:31:42+08:00",
       "updated_at": "2026-11-16T10:35:00+08:00",
       "bullet_color": "#F2CC38",
-      "muzzle_color": "#F2CC38"
+      "muzzle_color": "#F2CC38",
+      "game_description": "如果在开火顺序第1-3格发射，本子弹伤害×0.5；第4-6格则×2。格位按本轮连射开火顺序计算，空仓也占一格。该倍率和枪口状态「起势」「蓄力」直接相乘。"
     },
     {
       "id": "b20261114-154015-sdmf",
@@ -91,7 +96,8 @@
       "bullet_color": "#94FFF1",
       "in_game": true,
       "created_at": "2026-11-14T15:40:24+08:00",
-      "updated_at": "2026-11-18T14:13:46+08:00"
+      "updated_at": "2026-11-18T14:13:46+08:00",
+      "game_description": "射击后，给枪口挂上「速」状态：本弹夹后续开火节奏+100％，加法叠加，两颗为3倍速；不改变子弹飞行速度。"
     },
     {
       "id": "b20261114-154316-jcq0",
@@ -106,7 +112,8 @@
       "bullet_color": "#52C76B",
       "in_game": true,
       "created_at": "2026-11-14T15:43:24+08:00",
-      "updated_at": "2026-11-18T17:20:12+08:00"
+      "updated_at": "2026-11-18T17:20:12+08:00",
+      "game_description": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（包括自己，不含罪孽弹）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗，没有可复制的则复制自己"
     },
     {
       "id": "b20261116-103402-h4ot",
@@ -121,7 +128,8 @@
       "bullet_color": "#4DE036",
       "in_game": true,
       "created_at": "2026-11-16T10:34:10+08:00",
-      "updated_at": "2026-11-18T17:19:58+08:00"
+      "updated_at": "2026-11-18T17:19:58+08:00",
+      "game_description": "弹夹里每有一个结束弹伤害+3"
     },
     {
       "id": "b20261116-103520-uott",
@@ -136,7 +144,8 @@
       "bullet_color": "#52C76B",
       "in_game": true,
       "created_at": "2026-11-16T10:35:32+08:00",
-      "updated_at": "2026-11-18T14:13:46+08:00"
+      "updated_at": "2026-11-18T14:13:46+08:00",
+      "game_description": "复制轮盘里上一颗开始弹的效果（若该效果会挂枪口状态，则同样挂上），如果没有则没效果。"
     },
     {
       "id": "b20261116-103811-d4l5",
@@ -151,7 +160,8 @@
       "bullet_color": "#F2CC38",
       "in_game": true,
       "created_at": "2026-11-16T10:38:20+08:00",
-      "updated_at": "2026-11-18T14:13:46+08:00"
+      "updated_at": "2026-11-18T14:13:46+08:00",
+      "game_description": "没特殊效果，最基本的子弹"
     },
     {
       "id": "b20261116-175020-j9oh",
@@ -166,7 +176,8 @@
       "bullet_color": "#F0B916",
       "in_game": true,
       "created_at": "2026-11-16T17:50:29+08:00",
-      "updated_at": "2026-11-18T18:51:53+08:00"
+      "updated_at": "2026-11-18T18:51:53+08:00",
+      "game_description": "获得弹夹里紧邻的前一个槽位上那发子弹的技能效果，但不复制伤害，仍使用自己的基础伤害。若前一格是空仓或没有前一格，则没有技能效果，也不会再往前寻找。"
     },
     {
       "id": "b20261116-175416-pjui",
@@ -181,7 +192,8 @@
       "bullet_color": "#FCCE00",
       "in_game": true,
       "created_at": "2026-11-16T17:54:24+08:00",
-      "updated_at": "2026-11-19T10:20:29+08:00"
+      "updated_at": "2026-11-19T10:20:29+08:00",
+      "game_description": "本子弹打出后，按实际造成的伤害给枪口挂上加同样数值伤害的状态，持续到本弹夹结束。若本发没有造成伤害，或没有后续子弹，则不挂状态。多个本子弹的加值会累加。"
     },
     {
       "id": "b20261118-185044-qp0i",
@@ -196,7 +208,8 @@
       "bullet_color": "#FFB41F",
       "in_game": true,
       "created_at": "2026-11-18T18:51:01+08:00",
-      "updated_at": "2026-11-18T18:51:01+08:00"
+      "updated_at": "2026-11-18T18:51:01+08:00",
+      "game_description": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n≠1"
     },
     {
       "id": "b20261118-190136-dovk",
@@ -211,7 +224,8 @@
       "bullet_color": "#FF0000",
       "in_game": true,
       "created_at": "2026-11-18T19:01:45+08:00",
-      "updated_at": "2026-11-18T19:01:45+08:00"
+      "updated_at": "2026-11-18T19:01:45+08:00",
+      "game_description": "如果这颗子弹的预计伤害＞7，则自带穿透效果（穿过一个敌人后伤害衰减1直到没有），如果预计伤害≤7，则没有穿透效果"
     },
     {
       "id": "b20261118-190327-0ad8",
@@ -226,7 +240,8 @@
       "bullet_color": "#FFE600",
       "in_game": false,
       "created_at": "2026-11-18T19:03:37+08:00",
-      "updated_at": "2026-11-19T13:23:21+08:00"
+      "updated_at": "2026-11-19T13:23:21+08:00",
+      "game_description": "如果这颗子弹被加强了伤害，则给枪口挂上加同样多出数值伤害的状态（四舍五入后的预计伤害减去基础3），由本弹夹剩余所有子弹开火获得并消耗，每颗剩余子弹获得的伤害加成递减。"
     },
     {
       "id": "b20261120-194305-gi4c",
@@ -241,7 +256,8 @@
       "bullet_color": "#BFFF00",
       "in_game": false,
       "created_at": "2026-11-20T19:43:21+08:00",
-      "updated_at": "2026-11-20T19:43:21+08:00"
+      "updated_at": "2026-11-20T19:43:21+08:00",
+      "game_description": "最后一颗子弹获得伤害×1.5，多个本子弹可以叠加，效果相乘"
     }
   ]
 }

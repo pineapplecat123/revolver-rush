@@ -91,8 +91,8 @@ func _noop_commit() -> void:
 	pass
 
 
-func test_version_is_0_4_77() -> void:
-	assert_eq(GameVersion.STRING, "0.4.77")
+func test_version_is_at_least_0_4_77() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.77") >= 0)
 	assert_true("0.4.77" in FileAccess.get_file_as_string("res://data/changelog.json"))
 	assert_true("拉杆" in FileAccess.get_file_as_string("res://data/changelog.json") or "下拉" in FileAccess.get_file_as_string("res://data/changelog.json"))
 

@@ -167,6 +167,7 @@ class IngestUpsertTest(unittest.TestCase):
             "rarity": "R" * 40,
             "school": "S" * 40,
             "effect": "E" * 1500,
+            "game_description": "G" * 2500,
             "notes": "N" * 1500,
         }
         merged, failed = ingest.ingest(self.base, json.dumps(payload))
@@ -179,6 +180,7 @@ class IngestUpsertTest(unittest.TestCase):
         self.assertEqual(len(b["rarity"]), 20)
         self.assertEqual(len(b["school"]), 20)
         self.assertEqual(len(b["effect"]), 1000)
+        self.assertEqual(len(b["game_description"]), 2000)
         self.assertEqual(len(b["notes"]), 1000)
 
     def test_input_too_large_is_skipped(self):
@@ -323,6 +325,81 @@ class IngestUpsertTest(unittest.TestCase):
         b = load(self.base)["bullets"][0]
         self.assertNotIn("muzzle_color", b)
         self.assertNotIn("bullet_color", b)
+
+
+    def test_game_description_new_row_default_and_explicit(self):
+        self.assertEqual(ingest.DEFAULT_GAME_DESCRIPTION, "普通的一个子弹...")
+        self.assertEqual(ingest.DEFAULT_GAME_DESCRIPTION[-3:], "...")
+        self.assertNotIn("…", ingest.DEFAULT_GAME_DESCRIPTION)
+
+        merged, failed = ingest.ingest(self.base, json.dumps({"id": "b-new-gd", "name": "新弹"}))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["game_description"], "普通的一个子弹...")
+        self.assertEqual(b["notes"], "")
+
+        # empty string on a new row also saves the literal default
+        seed(self.base, [])
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-empty-gd", "name": "空描述", "game_description": "   ",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["game_description"], "普通的一个子弹...")
+
+        seed(self.base, [])
+        text = "第一行描述\n第二行还是中文，带标点。"
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-custom-gd", "name": "自述弹",
+            "game_description": text, "notes": "策划备注不进游戏",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["game_description"], text)
+        self.assertEqual(b["notes"], "策划备注不进游戏")
+
+    def test_game_description_update_migrate_and_preserve(self):
+        # 旧行缺字段：更新时沿用效果说明，不用新默认
+        seed(self.base, [row("b-old", effect="原来给玩家看的说明", notes="内部备注")])
+        raw = json.loads((self.base / "data.json").read_text(encoding="utf-8"))
+        self.assertNotIn("game_description", raw["bullets"][0])
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-old", "name": "旧名", "type": "旧类型", "effect": "原来给玩家看的说明", "notes": "内部备注",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["game_description"], "原来给玩家看的说明")
+        self.assertNotEqual(b["game_description"], ingest.DEFAULT_GAME_DESCRIPTION)
+        self.assertEqual(b["notes"], "内部备注")
+        self.assertEqual(b["effect"], "原来给玩家看的说明")
+
+        # 字段已在：请求省略该键时保持原值
+        created = b["created_at"]
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-old", "name": "改名", "notes": "内部备注",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["name"], "改名")
+        self.assertEqual(b["game_description"], "原来给玩家看的说明")
+        self.assertEqual(b["created_at"], created)
+
+        # 显式提交空字符串：尊重用户编辑，不清回默认
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-old", "name": "改名", "game_description": "",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["game_description"], "")
+
+        # 显式改写
+        merged, failed = ingest.ingest(self.base, json.dumps({
+            "id": "b-old", "name": "改名", "game_description": "玩家新文案", "notes": "内部备注",
+        }))
+        self.assertEqual(failed, [])
+        b = load(self.base)["bullets"][0]
+        self.assertEqual(b["game_description"], "玩家新文案")
+        self.assertEqual(b["notes"], "内部备注")
 
 
 if __name__ == "__main__":

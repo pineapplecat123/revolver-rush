@@ -3831,7 +3831,7 @@ func _refresh_campaign_opening_panel() -> void:
 		var nm := str(def.get("name", "未知#%d" % ammo_id))
 		var blurb := DataRegistry.format_ammo_reward_blurb(ammo_id)
 		btn.text = "【%d】%s\n%s" % [i + 1, nm, blurb]
-		var desc := str(def.get("special", ""))
+		var desc := DataRegistry.ammo_game_description(ammo_id)
 		if not desc.is_empty():
 			btn.tooltip_text = desc
 		btn.add_theme_font_size_override("font_size", 18)
@@ -3872,7 +3872,7 @@ func _refresh_reward_panel() -> void:
 			btn.custom_minimum_size = Vector2(0, 72)
 			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 			var nm := str(def.get("name", "未知#%d" % ammo_id))
-			var desc := str(def.get("special", ""))
+			var desc := DataRegistry.ammo_game_description(ammo_id)
 			var blurb := DataRegistry.format_ammo_reward_blurb(ammo_id)
 			btn.text = "【%d】%s\n%s" % [i + 1, nm, blurb]
 			if not desc.is_empty():

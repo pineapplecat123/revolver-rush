@@ -4,7 +4,8 @@
  * Write (one tap): submit-key.json holds a PIN-sealed fine-grained token whose only
  *       permission is Actions:write on this repo. The page calls workflow_dispatch on
  *       bullet-editor-ingest.yml with the bullet JSON; the workflow upserts by id
- *       and always sets in_game to false.
+ *       and always sets in_game to false. game_description is the in-game copy;
+ *       new bullets default to '普通的一个子弹...'. notes stay designer-only.
  * Fallback (no key / key rejected): GitHub "new file" page pre-filled with inbox/<id>.json,
  *       one "Commit changes" tap by the logged-in owner.
  */
@@ -25,6 +26,7 @@
   var API_URL = 'https://api.github.com/repos/' + OWNER + '/' + REPO + '/contents/' + DIR + '/data.json?ref=' + encodeURIComponent(BRANCH);
   var NEW_URL = 'https://github.com/' + OWNER + '/' + REPO + '/new/' + BRANCH + '/' + DIR + '/inbox';
 
+  var DEFAULT_GAME_DESCRIPTION = '普通的一个子弹...';
   var $ = function (id) { return document.getElementById(id); };
   var doc = null, docKey = '', lastOk = 0, lastApi = 0, apiRemaining = null, apiResetAt = 0;
   var filter = 'all', timer = null, busy = false, flashIds = {};
@@ -196,6 +198,7 @@
     meta.push(colorChip(b.bullet_color || defaultBulletColor(b.type), '子弹'));
     var h = '<div class="item' + (flashIds[b.id] ? ' flash' : '') + (editingId && editingId === b.id ? ' editing' : '') + '"><div class="top"><div class="name">' + esc(b.name) + '</div>' + badge + '</div>';
     h += '<div class="meta">' + meta.join('') + '</div>';
+    if (b.game_description) h += '<div class="desc play">' + esc(b.game_description) + '</div>';
     if (b.effect) h += '<div class="desc">' + esc(b.effect) + '</div>';
     if (b.notes) h += '<div class="desc note">备注：' + esc(b.notes) + '</div>';
     var t = shortTime(b.updated_at || b.created_at);
@@ -349,7 +352,7 @@
     if (view.school && String(b.school || '').trim() !== view.school) return false;
     var q = norm(view.q);
     if (!q) return true;
-    return [b.name, b.type, b.school, b.effect, b.notes].some(function (s) { return norm(s).indexOf(q) !== -1; });
+    return [b.name, b.type, b.school, b.effect, b.game_description, b.notes].some(function (s) { return norm(s).indexOf(q) !== -1; });
   }
   function extrasOn() { return !!(view.q || view.type || view.rarity || view.school); }
 
@@ -437,14 +440,22 @@
 
   // ---------- form ----------
   var FIELDS = ['name', 'type', 'damage', 'rarity', 'school', 'effect', 'notes'];
+  function migratedGameDescription(b) {
+    if (!b) return DEFAULT_GAME_DESCRIPTION;
+    if (Object.prototype.hasOwnProperty.call(b, 'game_description')) return String(b.game_description == null ? '' : b.game_description);
+    if (b.id) return String(b.effect == null ? '' : b.effect); // existing row: keep current 效果说明, never the new default
+    return DEFAULT_GAME_DESCRIPTION;
+  }
   function formVals() {
     var v = {};
     FIELDS.forEach(function (f) { v[f] = $('f_' + f).value.trim(); });
+    v.game_description = $('f_game_description').value; // keep trailing spaces/newlines the author typed; trim only for empty-check later if needed
     COLOR_KEYS.forEach(function (k) { v[k] = colorVal(k); });
     return v;
   }
   function fillForm(v) {
     FIELDS.forEach(function (f) { $('f_' + f).value = v && v[f] != null ? v[f] : ''; });
+    $('f_game_description').value = migratedGameDescription(v);
     var name = v && v.name, type = v && v.type;
     setColor('muzzle_color', (v && v.muzzle_color) || defaultMuzzleColor(name, type));
     setColor('bullet_color', (v && v.bullet_color) || defaultBulletColor(type));
@@ -540,7 +551,8 @@
   function buildRec() {
     var v = formVals();
     var now = iso8(new Date());
-    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, school: v.school, effect: v.effect, notes: v.notes, muzzle_color: v.muzzle_color, bullet_color: v.bullet_color, in_game: false, created_at: now, updated_at: now };
+    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, school: v.school, effect: v.effect, game_description: (v.game_description != null ? String(v.game_description) : DEFAULT_GAME_DESCRIPTION), notes: v.notes, muzzle_color: v.muzzle_color, bullet_color: v.bullet_color, in_game: false, created_at: now, updated_at: now };
+    if (!editingId && rec.game_description === '') rec.game_description = DEFAULT_GAME_DESCRIPTION;
     if (editingId) {
       var cur = findBullet(editingId);
       if (cur && cur.created_at) rec.created_at = cur.created_at;

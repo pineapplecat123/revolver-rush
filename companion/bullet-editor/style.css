@@ -60,6 +60,7 @@ button.small{min-height:40px;font-size:15px;padding:0 12px}
 .meta{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:14px;color:var(--muted);margin-top:4px}
 .meta b{color:var(--text);font-weight:500}
 .desc{font-size:15px;margin-top:6px;white-space:pre-wrap;word-break:break-word}
+.desc.play{color:var(--text);white-space:pre-wrap;opacity:.95}
 .desc.note{color:var(--muted)}
 .actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .empty{text-align:center;color:var(--muted);padding:26px 10px;font-size:15px}

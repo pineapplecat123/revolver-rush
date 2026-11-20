@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14161d">
 <title>子弹数据</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div class="wrap">
@@ -64,6 +64,9 @@
         <label for="f_effect">效果说明</label>
         <textarea id="f_effect" name="effect" maxlength="1000"></textarea>
 
+        <label for="f_game_description">游戏内描述</label>
+        <textarea id="f_game_description" name="game_description" maxlength="2000" rows="4">普通的一个子弹...</textarea>
+
         <label for="f_notes">备注</label>
         <textarea id="f_notes" name="notes" maxlength="1000"></textarea>
 
@@ -107,7 +110,7 @@
       </div>
       <div class="filters">
         <label for="q">搜索</label>
-        <input id="q" type="search" placeholder="搜索名称、类型、流派、效果、备注" enterkeyhint="search" autocapitalize="off" spellcheck="false">
+        <input id="q" type="search" placeholder="搜索名称、类型、流派、效果、游戏内描述、备注" enterkeyhint="search" autocapitalize="off" spellcheck="false">
         <div class="row2">
           <div>
             <label for="filterType">类型</label>
@@ -149,6 +152,6 @@
   </main>
 </div>
 <script src="bullet_colors.js?v=1"></script>
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
