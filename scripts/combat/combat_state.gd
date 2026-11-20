@@ -6144,8 +6144,8 @@ func alley_can_buy() -> bool:
 	return gold >= CampaignRules.gumball_price()
 
 
-func alley_try_buy() -> bool:
-	## 糖果机：花一次钱，随机一发常驻弹进袋和基准袋。重复点击无效。
+func alley_commit_pull() -> bool:
+	## 拉杆拉满：扣一次钱并标记已用。奖励是随后从罩里物理掉出的那一发，这里不另开一枪。
 	if alley_seq != ALLEY_HOLD or alley_kind != CampaignRules.ALLEY_GUMBALL:
 		return false
 	if alley_used:
@@ -6154,13 +6154,33 @@ func alley_try_buy() -> bool:
 	if gold < price:
 		return false
 	gold -= price
-	var aid: int = CampaignRules.roll_alley_ammo(rng)
 	alley_used = true
-	alley_awarded_id = aid
+	alley_awarded_id = 0
 	alley_award_kind = "bullet"
 	alley_award_amount = 1
 	alley_award_granted = false
-	_log("糖果机：花 %d 金，摇出 %s。看完掉落后再加入弹药袋。" % [price, _ammo_name(aid)])
+	_log("糖果机：花 %d 金拉杆，等罩里已有的球掉下来。" % price)
+	_emit()
+	return true
+
+
+func alley_try_buy() -> bool:
+	## 兼容旧名：购买动作就是拉满杆。
+	return alley_commit_pull()
+
+
+func alley_note_dispensed(aid: int) -> bool:
+	## 记下从出球口出来的那发，只记一次，不能改成别的 id。
+	if alley_kind != CampaignRules.ALLEY_GUMBALL or not alley_used:
+		return false
+	if alley_award_kind != "bullet":
+		return false
+	if aid <= 0:
+		return false
+	if alley_awarded_id != 0:
+		return alley_awarded_id == aid
+	alley_awarded_id = aid
+	_log("糖果机：罩里掉出 %s。" % _ammo_name(aid))
 	_emit()
 	return true
 
@@ -6234,6 +6254,14 @@ func alley_can_leave() -> bool:
 	if alley_seq != ALLEY_HOLD:
 		return false
 	if reward_pending or pending_levelups > 0:
+		return false
+	# 已扣费但球还没从罩里出来：不能离开，避免丢掉已付钱的奖励。
+	if (
+		alley_kind == CampaignRules.ALLEY_GUMBALL
+		and alley_used
+		and alley_award_kind == "bullet"
+		and alley_awarded_id <= 0
+	):
 		return false
 	return true
 
@@ -6335,7 +6363,9 @@ func campaign_simulate_alley_skip() -> bool:
 			pending_levelups = 0
 			reward_choices.clear()
 		alley_hold = true
-		alley_skip()
+		if not alley_skip():
+			# 已扣费但球还没出来时不能离开，避免测试把已付钱的奖励丢掉。
+			return false
 	if alley_seq == ALLEY_LEAVING or campaign_phase == CampaignRules.PHASE_LEAVE_ALLEY:
 		alley_walk_left = 0.0
 		campaign_walk_left = 0.0

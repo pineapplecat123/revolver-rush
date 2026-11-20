@@ -15,6 +15,9 @@ var ball_t: float = 0.0
 var awarded_id: int = 0
 var awarded_color: Color = Color(0.75, 0.55, 0.7, 1.0)
 var physics_drop: bool = false  ## 特写里用物理出球，不再画补间球
+var hide_interior_balls: bool = false  ## 特写里罩内是真实物理球，街上仍用装饰球
+var hide_knob: bool = false  ## 特写用可拉的杆，不再画自动摇把
+var hide_glass: bool = false  ## 特写自己画玻璃罩，避免挡住物理球
 var _anim: String = ""
 var _anim_age: float = 0.0
 
@@ -123,33 +126,35 @@ func _draw() -> void:
 	# 投币口
 	var slot_r := Rect2(plate_r.position.x + 7.0, plate_r.position.y + 8.0, 12.0, 4.0)
 	draw_rect(slot_r, slot)
-	# 摇把
-	var knob_c := Vector2(plate_r.position.x + 32.0, plate_r.position.y + 18.0)
-	var knob_a: float = -0.35 - knob_t * 4.2
-	var knob_end: Vector2 = knob_c + Vector2(cos(knob_a), sin(knob_a)) * 13.0
-	draw_circle(knob_c, 5.5, accent)
-	draw_line(knob_c, knob_end, Color(0.22, 0.26, 0.28, 1.0), 3.0, true)
-	draw_circle(knob_end, 4.2, Color(0.62, 0.66, 0.70, 1.0))
+	# 摇把（特写改用玩家拉的杆，街上小机器仍画装饰把）
+	if not hide_knob:
+		var knob_c := Vector2(plate_r.position.x + 32.0, plate_r.position.y + 18.0)
+		var knob_a: float = -0.35 - knob_t * 4.2
+		var knob_end: Vector2 = knob_c + Vector2(cos(knob_a), sin(knob_a)) * 13.0
+		draw_circle(knob_c, 5.5, accent)
+		draw_line(knob_c, knob_end, Color(0.22, 0.26, 0.28, 1.0), 3.0, true)
+		draw_circle(knob_end, 4.2, Color(0.62, 0.66, 0.70, 1.0))
 	# 圆罩中心
 	var globe_c := Vector2(foot.x, foot.y - 78.0 - GLOBE_R + 4.0)
-	# 玻璃圆罩（半透明，里面有彩色小球）
-	draw_circle(globe_c, GLOBE_R, Color(0.62, 0.72, 0.78, 0.28))
-	_draw_globe_balls(globe_c)
-	# 玻璃边和反光弧（单线，不做厚高光体）
-	draw_arc(globe_c, GLOBE_R, 0.0, TAU, 40, Color(0.70, 0.78, 0.84, 0.85), 2.0, true)
-	draw_arc(globe_c, GLOBE_R * 0.82, -2.4, -1.15, 12, Color(0.85, 0.90, 0.93, 0.28), 2.2, true)
-	# 穹顶盖
-	var cap_pts := PackedVector2Array()
-	var cap_n := 14
-	for i in cap_n:
-		var a: float = PI + PI * float(i) / float(cap_n - 1)
-		cap_pts.append(globe_c + Vector2(cos(a) * (GLOBE_R + 2.0), sin(a) * (GLOBE_R + 2.0)) + Vector2(0.0, -2.0))
-	# 盖顶稍平
-	var cap_top := globe_c + Vector2(0.0, -GLOBE_R - CAP_H)
-	cap_pts.insert(cap_n / 2, cap_top)
-	if cap_pts.size() >= 3:
-		draw_colored_polygon(cap_pts, steel_l)
-	draw_circle(cap_top + Vector2(0.0, 4.0), 7.0, accent)
+	# 玻璃圆罩。特写自己画罩和物理球，街上小机器仍画装饰球。
+	if not hide_glass:
+		draw_circle(globe_c, GLOBE_R, Color(0.62, 0.72, 0.78, 0.28))
+		if not hide_interior_balls:
+			_draw_globe_balls(globe_c)
+		draw_arc(globe_c, GLOBE_R, 0.0, TAU, 40, Color(0.70, 0.78, 0.84, 0.85), 2.0, true)
+		draw_arc(globe_c, GLOBE_R * 0.82, -2.4, -1.15, 12, Color(0.85, 0.90, 0.93, 0.28), 2.2, true)
+		var cap_pts := PackedVector2Array()
+		var cap_n := 14
+		for i in cap_n:
+			var a: float = PI + PI * float(i) / float(cap_n - 1)
+			cap_pts.append(globe_c + Vector2(cos(a) * (GLOBE_R + 2.0), sin(a) * (GLOBE_R + 2.0)) + Vector2(0.0, -2.0))
+		var cap_top := globe_c + Vector2(0.0, -GLOBE_R - CAP_H)
+		cap_pts.insert(cap_n / 2, cap_top)
+		if cap_pts.size() >= 3:
+			draw_colored_polygon(cap_pts, steel_l)
+		draw_circle(cap_top + Vector2(0.0, 4.0), 7.0, accent)
+	elif not hide_interior_balls:
+		_draw_globe_balls(globe_c)
 	# 出球动画：仅在非物理特写时画补间球（特写由 GumballCloseup 做真实掉落）。
 	if (not physics_drop) and ball_t > 0.0:
 		var start: Vector2 = globe_c + Vector2(0.0, 10.0)

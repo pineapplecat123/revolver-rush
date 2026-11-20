@@ -121,17 +121,20 @@ func test_gumball_affordable_one_use_persistent_and_doubletap() -> void:
 	assert_true(cs.alley_try_buy())
 	assert_eq(cs.gold, gold0 - 5)
 	assert_eq(cs.bag.size(), bag0, "扣金后先出球，进袋要等收集")
-	assert_true(cs.alley_has_pending_grant())
 	assert_eq(cs.alley_award_kind, "bullet")
-	assert_gt(cs.alley_awarded_id, 0)
+	assert_eq(cs.alley_awarded_id, 0, "奖励要等罩里那发出来再记")
+	assert_false(cs.alley_has_pending_grant())
+	assert_false(cs.alley_can_leave())
+	# 记下从罩里出来的那发（物理身份由 v0.4.77 测试覆盖）
+	var aid: int = CampaignRules.roll_alley_ammo(cs.rng)
+	assert_true(cs.alley_note_dispensed(aid))
+	assert_true(cs.alley_has_pending_grant())
 	assert_true(DataRegistry.is_ammo_reward_eligible(cs.alley_awarded_id))
-	assert_false(cs.alley_awarded_id in cs._combat_bag_baseline)
 	# 第二次购买无效，也不再扣金
 	assert_false(cs.alley_try_buy())
 	assert_eq(cs.gold, gold0 - 5)
 	assert_eq(cs.bag.size(), bag0)
 	# 离开/模拟跳过会发一次奖，不会发两次
-	var aid: int = cs.alley_awarded_id
 	assert_true(cs.campaign_simulate_alley_skip())
 	assert_eq(cs.bag.size(), bag0 + 1)
 	assert_true(aid in cs._combat_bag_baseline)
@@ -253,8 +256,8 @@ func test_death_and_restart_clear_event_and_bag() -> void:
 	_kill_wave(cs)
 	cs.gold = 20
 	assert_true(cs.alley_try_buy())
-	var awarded: int = cs.alley_awarded_id
-	assert_gt(awarded, 0)
+	assert_true(cs.alley_used)
+	assert_eq(cs.gold, 15)
 	cs._lose_hp()
 	assert_eq(cs.phase, CombatState.Phase.LOST)
 	assert_false(cs.alley_active())
