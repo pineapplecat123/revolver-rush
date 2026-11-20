@@ -21,6 +21,7 @@ const BAOCHUAN_AMMO_ID := 51  ## 爆穿
 const CHUANDI_AMMO_ID := 52  ## 传递弹
 const MOFANG_AMMO_ID := 53  ## 模仿弹
 const HUIWEI_AMMO_ID := 54  ## 回味弹
+const WEIJIABEI_AMMO_ID := 55  ## 尾加倍弹
 const WHITE_AMMO_ID := BAIBAN_AMMO_ID  ## 旧名：现已指向白板弹
 const CIVILIAN_ENEMY_ID := 1
 const ZOMBIE_ENEMY_ID := 4

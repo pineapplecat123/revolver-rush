@@ -15,8 +15,8 @@ func after_each() -> void:
 	CombatState.boot_sandbox = false
 
 
-func test_version_is_0_4_78() -> void:
-	assert_eq(GameVersion.STRING, "0.4.78")
+func test_version_is_at_least_0_4_78() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.78") >= 0)
 	assert_true("0.4.78" in FileAccess.get_file_as_string("res://data/changelog.json"))
 	assert_true("游戏内描述" in FileAccess.get_file_as_string("res://data/changelog.json"))
 

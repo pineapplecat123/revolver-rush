@@ -17,7 +17,7 @@
       "in_reward_pool": true,
       "blurb": "挂枪口起势：剩余非开始弹+50%，可叠加",
       "bullet_color": "#52C76B",
-      "muzzle_color": "#4AE06A",
+      "muzzle_color": "#52C76B",
       "muzzle_status": {
         "id": "qishi",
         "label": "起势",
@@ -25,7 +25,7 @@
         "effect_kind": "damage_pct",
         "effect_per_stack": 0.5
       },
-      "game_description": "射击后，给枪口挂上「起势」状态：本弹夹剩余非「开始」子弹伤害+50％，多个本子弹加法叠加。开始类型子弹不受本状态影响。"
+      "game_description": "给之后的子弹加伤害"
     },
     {
       "id": 41,
@@ -43,7 +43,7 @@
       "in_reward_pool": true,
       "blurb": "挂枪口蓄力：下一颗非开始弹×1.5，可叠加",
       "bullet_color": "#52C76B",
-      "muzzle_color": "#2CC4B4",
+      "muzzle_color": "#52C76B",
       "muzzle_status": {
         "id": "xuli",
         "label": "蓄力",
@@ -51,7 +51,7 @@
         "effect_kind": "damage_mult",
         "effect_per_stack": 1.5
       },
-      "game_description": "射击后，给枪口挂上「蓄力」状态：下一颗非「开始」子弹伤害×1.5，该发打出后消耗。多个本子弹效果连乘叠加，例如两颗连在一起，下一颗非开始子弹伤害×2.25。空仓与开始类型子弹不消耗该状态。"
+      "game_description": "给下一颗子弹蓄力..."
     },
     {
       "id": 42,
@@ -70,7 +70,7 @@
       "blurb": "按开火槽位越后越高：2+槽位×0.75",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38",
-      "game_description": "在弹夹槽位越靠后伤害越高，计算公式为伤害=2+（槽位×0.75），再四舍五入。例如第6格就是2+(6×0.75)=6.5，四舍五入为7。槽位按本轮连射开火顺序计算，空仓也占一格。"
+      "game_description": "越靠后伤害越高"
     },
     {
       "id": 43,
@@ -79,7 +79,7 @@
       "school": "清算",
       "base_damage": null,
       "base_damage_mode": "formula",
-      "special": "伤害等于当前弹夹已开火子弹总伤害的一半（含加成与溢出，不受敌人剩余生命上限）。例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害。",
+      "special": "伤害等于当前弹夹已开火子弹总伤害的一半，例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害",
       "tags": [
         "结束",
         "清算"
@@ -89,7 +89,7 @@
       "blurb": "伤害等于本轮已开火总伤害的一半",
       "bullet_color": "#DB3D38",
       "muzzle_color": "#DB3D38",
-      "game_description": "伤害等于当前弹夹已开火子弹总伤害的一半（含加成与溢出，不受敌人剩余生命上限）。例如本子弹在当前弹夹第4位，计算前3位总共造成的伤害，然后除以2，就是本子弹预计伤害。"
+      "game_description": "前面越厉害它就越厉害"
     },
     {
       "id": 44,
@@ -164,7 +164,7 @@
       "blurb": "前3格×0.5，后3格×2",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38",
-      "game_description": "如果在开火顺序第1-3格发射，本子弹伤害×0.5；第4-6格则×2。格位按本轮连射开火顺序计算，空仓也占一格。该倍率和枪口状态「起势」「蓄力」直接相乘。"
+      "game_description": "建议放在后半部分..."
     },
     {
       "id": 47,
@@ -173,7 +173,7 @@
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "formula",
-      "special": "弹夹里每有一个结束弹，本子弹伤害+3。",
+      "special": "弹夹里每有一个结束弹伤害+3",
       "tags": [
         "开始"
       ],
@@ -182,7 +182,7 @@
       "blurb": "弹夹每有一个结束弹+3",
       "bullet_color": "#4DE036",
       "muzzle_color": "#52C76B",
-      "game_description": "弹夹里每有一个结束弹，本子弹伤害+3。"
+      "game_description": "弹夹里每有一个结束弹伤害+3"
     },
     {
       "id": 48,
@@ -209,7 +209,7 @@
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "fixed",
-      "special": "没特殊效果，最基本的子弹。",
+      "special": "没特殊效果，最基本的子弹",
       "tags": [
         "中间"
       ],
@@ -218,7 +218,7 @@
       "blurb": "没有特殊效果的基本子弹",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38",
-      "game_description": "没特殊效果，最基本的子弹。"
+      "game_description": "没特殊效果，最基本的子弹"
     },
     {
       "id": 50,
@@ -227,7 +227,7 @@
       "school": "清算",
       "base_damage": 3,
       "base_damage_mode": "formula",
-      "special": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n不是1。同类型指开始/中间/结束标签；按本轮实际开火顺序计算，空仓不计入也不打断连续；n为2或更多时才加伤。",
+      "special": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n≠1",
       "tags": [
         "中间",
         "清算"
@@ -237,7 +237,7 @@
       "blurb": "连续同类型n≥2时加伤n×65%",
       "bullet_color": "#FFB41F",
       "muzzle_color": "#FFB41F",
-      "game_description": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n不是1。同类型指开始/中间/结束标签；按本轮实际开火顺序计算，空仓不计入也不打断连续；n为2或更多时才加伤。"
+      "game_description": "喜欢看到同类型子弹在一起"
     },
     {
       "id": 51,
@@ -246,7 +246,7 @@
       "school": "清算",
       "base_damage": 3,
       "base_damage_mode": "fixed",
-      "special": "如果这颗子弹的预计伤害大于7，则自带穿透效果（穿过一个敌人后伤害衰减1直到没有）；预计伤害小于或等于7则没有穿透。只作用于本发，不挂到后续枪口。",
+      "special": "如果这颗子弹的预计伤害＞7，则自带穿透效果（穿过一个敌人后伤害衰减1直到没有），如果预计伤害≤7，则没有穿透效果",
       "tags": [
         "结束",
         "清算"
@@ -256,7 +256,7 @@
       "blurb": "预计伤害大于7时穿透并逐个-1",
       "bullet_color": "#FF0000",
       "muzzle_color": "#FF0000",
-      "game_description": "如果这颗子弹的预计伤害大于7，则自带穿透效果（穿过一个敌人后伤害衰减1直到没有）；预计伤害小于或等于7则没有穿透。只作用于本发，不挂到后续枪口。"
+      "game_description": "被加强到极致可以穿透！"
     },
     {
       "id": 52,
@@ -319,7 +319,33 @@
         "effect_kind": "damage_flat",
         "effect_per_stack": 0
       },
-      "game_description": "本子弹打出后，按实际造成的伤害给枪口挂上加同样数值伤害的状态，持续到本弹夹结束。若本发没有造成伤害，或没有后续子弹，则不挂状态。多个本子弹的加值会累加。"
+      "game_description": "把伤害加给后续子弹！"
+    },
+    {
+      "id": 55,
+      "name": "尾加倍弹",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "special": "最后一颗子弹获得伤害×1.5，多个本子弹可以叠加，效果相乘",
+      "tags": [
+        "开始",
+        "清算"
+      ],
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "blurb": "挂枪口尾倍：最后一发×1.5，可连乘",
+      "bullet_color": "#BFFF00",
+      "muzzle_color": "#BFFF00",
+      "muzzle_status": {
+        "id": "weijiabei",
+        "label": "尾倍",
+        "duration_type": "until_last",
+        "effect_kind": "damage_mult",
+        "effect_per_stack": 1.5
+      },
+      "game_description": "给最后一发子弹蓄力..."
     }
   ]
 }

@@ -158,7 +158,7 @@ func test_new_ammo_in_registry_and_reward_pool() -> void:
 	assert_true(DataRegistry.is_ammo_reward_eligible(DIESHI))
 	assert_true(DataRegistry.is_ammo_reward_eligible(BAOCHUAN))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CHUANDI))
-	assert_eq(DataRegistry.all_ammo().size(), 15)
+	assert_eq(DataRegistry.all_ammo().size(), 16)
 
 
 func test_editor_marks_ingested_and_blocks_ambiguous() -> void:

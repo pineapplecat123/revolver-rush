@@ -40,10 +40,10 @@ func test_pixel_shader_uses_screen_texture() -> void:
 
 func test_bullet_and_muzzle_colors_from_data() -> void:
 	var qishi: Dictionary = DataRegistry.get_ammo(QISHI)
-	assert_eq(str(qishi.get("muzzle_color", "")).to_upper(), "#4AE06A")
+	assert_eq(str(qishi.get("muzzle_color", "")).to_upper(), "#52C76B")
 	assert_eq(str(qishi.get("bullet_color", "")).to_upper(), "#52C76B")
 	var xuli: Dictionary = DataRegistry.get_ammo(XULI)
-	assert_eq(str(xuli.get("muzzle_color", "")).to_upper(), "#2CC4B4")
+	assert_eq(str(xuli.get("muzzle_color", "")).to_upper(), "#52C76B")
 	var white_bg: Color = AmmoColors.colors_for(WHITE)["bg"]
 	# 白板弹是中间类型黄
 	assert_gt(white_bg.r, 0.7)

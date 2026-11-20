@@ -72,6 +72,8 @@ func muzzle_source_ammo_id(entry: Dictionary) -> int:
 		return CombatConstants.HUIWEI_AMMO_ID
 	if kind == "chuandi":
 		return CombatConstants.CHUANDI_AMMO_ID
+	if kind == "weijiabei":
+		return CombatConstants.WEIJIABEI_AMMO_ID
 	if kind == "jiasu":
 		return CombatConstants.JIASU_AMMO_ID
 	return 0
@@ -81,7 +83,7 @@ func muzzle_buff_display_label(entry: Dictionary) -> String:
 	## 伤害类枪口展示名跟随来源子弹当前图鉴名；其它状态仍用数据里的短标签。
 	var kind: String = str(entry.get("effect_kind", ""))
 	var sid: int = muzzle_source_ammo_id(entry)
-	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat" or sid == CombatConstants.QISHI_AMMO_ID or sid == CombatConstants.XULI_AMMO_ID or sid == CombatConstants.HUIWEI_AMMO_ID or sid == CombatConstants.CHUANDI_AMMO_ID:
+	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat" or sid == CombatConstants.QISHI_AMMO_ID or sid == CombatConstants.XULI_AMMO_ID or sid == CombatConstants.HUIWEI_AMMO_ID or sid == CombatConstants.CHUANDI_AMMO_ID or sid == CombatConstants.WEIJIABEI_AMMO_ID:
 		if sid > 0:
 			return ammo_display_name(sid)
 	if sid > 0 and str(entry.get("label", "")).strip_edges().is_empty():
@@ -298,6 +300,8 @@ static func format_muzzle_status_duration(entry: Dictionary) -> String:
 	var kind := str(entry.get("duration_type", "rest_of_volley"))
 	if kind == "until_consumed":
 		return "下一发"
+	if kind == "until_last":
+		return "最后一发"
 	var rem: int = int(entry.get("remaining", 0))
 	if rem <= 0:
 		return "后续子弹"
@@ -315,7 +319,10 @@ static func format_muzzle_status_effect(entry: Dictionary) -> String:
 		var mul: float = 1.0
 		for _i in stacks:
 			mul *= per if per > 0.0 else 1.0
-		return "下一发×%s" % _format_muzzle_mult(mul)
+		var shown := _format_muzzle_mult(mul)
+		if str(entry.get("duration_type", "")) == "until_last":
+			return "最后一发×%s" % shown
+		return "下一发×%s" % shown
 	if kind == "damage_flat":
 		var amt: int = int(entry.get("amount", 0))
 		if amt == 0:

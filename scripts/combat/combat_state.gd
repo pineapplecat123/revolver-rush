@@ -3847,6 +3847,8 @@ func _capture_applying_buffs(ammo_id: int) -> void:
 	for b in _volley_muzzle_buffs:
 		if not bool(b.get("outline", true)):
 			continue
+		if str(b.get("duration_type", "")) == "until_last" and _remaining_loaded_in_plan() > 0:
+			continue
 		last_shot_buff_outlines.append({
 			"id": b.get("id", ""),
 			"label": b.get("label", ""),
@@ -3881,6 +3883,10 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 		elif dur == "until_consumed":
 			if not start:
 				continue
+		elif dur == "until_last":
+			if rem <= 0:
+				continue
+			b["remaining"] = rem
 		kept.append(b)
 	_volley_muzzle_buffs = kept
 	var source_id: int = _shot_effect_ammo_id(ammo_id)
@@ -3906,6 +3912,9 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	if duration_type == "until_consumed":
 		remaining = 1
 		total = 1
+	elif duration_type == "until_last":
+		remaining = rem
+		total = rem
 	if remaining <= 0:
 		return
 	var entry: Dictionary = def.duplicate(true)
@@ -7853,6 +7862,20 @@ func _sandbox_next_plan_index() -> int:
 	return -1
 
 
+func _is_plan_index_last_loaded(plan_i: int) -> bool:
+	## 该计划槽是否为本轮最后一颗实弹（后面只剩空仓或没有后格）。
+	if plan_i < 0 or plan_i >= _volley_seq_snapshot.size():
+		return false
+	if int(_volley_seq_snapshot[plan_i]) == Magazine.EMPTY:
+		return false
+	var j: int = plan_i + 1
+	while j < _volley_seq_snapshot.size():
+		if int(_volley_seq_snapshot[j]) != Magazine.EMPTY:
+			return false
+		j += 1
+	return true
+
+
 func sandbox_damage_modifiers() -> Dictionary:
 	## 只读预览当前枪口/计划的伤害修正，不挂、不消耗任何状态。
 	var ammo_id: int = sandbox_peek_next_shot_ammo_id()
@@ -7861,6 +7884,7 @@ func sandbox_damage_modifiers() -> Dictionary:
 	var ammo_name: String = _ammo_name(ammo_id) if has_next else ""
 	var qishi_pct: int = 0
 	var xuli_mult: float = 1.0
+	var weijia_mult: float = 1.0
 	var huiwei_flat: int = 0
 	var chuandi_flat: int = 0
 	for b in _volley_muzzle_buffs:
@@ -7871,12 +7895,20 @@ func sandbox_damage_modifiers() -> Dictionary:
 		if kind == "damage_pct":
 			qishi_pct += 50 * stacks
 		elif kind == "damage_mult":
-			for _i in stacks:
-				xuli_mult *= 1.5
+			var step: float = float(b.get("effect_per_stack", 1.5))
+			if step <= 0.0:
+				step = 1.5
+			if str(b.get("duration_type", "")) == "until_last":
+				for _j in stacks:
+					weijia_mult *= step
+			else:
+				for _i in stacks:
+					xuli_mult *= step
 		elif kind == "damage_flat":
 			huiwei_flat += int(b.get("amount", 0))
 	# 传递加伤在计划里，不在枪口 HUD。用计划值与「无传递」期望的差估算，避免为预览改状态。
 	var plan_i: int = _sandbox_next_plan_index()
+	var is_last: bool = has_next and _is_plan_index_last_loaded(plan_i)
 	if has_next and plan_i >= 0 and plan_i < _volley_plan.size():
 		var planned: float = float(_volley_plan[plan_i])
 		var flat_here: int = 0
@@ -7890,11 +7922,14 @@ func sandbox_damage_modifiers() -> Dictionary:
 		var base: float = FireResolver._formula_base_for_shot(ammo_id, effect_id, plan_i + 1, prior, _volley_seq_snapshot, plan_i)
 		var q: float = 1.0
 		var x: float = 1.0
+		var last_m: float = 1.0
 		if not is_start:
 			if qishi_pct != 0:
 				q = 1.0 + float(qishi_pct) / 100.0
 			x = xuli_mult
-		var expected: float = base * q * x + float(flat_here)
+			if is_last:
+				last_m = weijia_mult
+		var expected: float = base * q * x * last_m + float(flat_here)
 		var delta: float = planned - expected
 		if delta > 0.05:
 			chuandi_flat = int(round(delta))
@@ -7904,6 +7939,7 @@ func sandbox_damage_modifiers() -> Dictionary:
 	var xuli_name: String = DataRegistry.ammo_display_name(CombatConstants.XULI_AMMO_ID)
 	var huiwei_name: String = DataRegistry.ammo_display_name(CombatConstants.HUIWEI_AMMO_ID)
 	var chuandi_name: String = DataRegistry.ammo_display_name(CombatConstants.CHUANDI_AMMO_ID)
+	var weijia_name: String = DataRegistry.ammo_display_name(CombatConstants.WEIJIABEI_AMMO_ID)
 	if qishi_pct != 0:
 		if has_next and is_start:
 			parts.append("%s+%d%%（对本发「%s」无效）" % [qishi_name, qishi_pct, ammo_name])
@@ -7919,6 +7955,16 @@ func sandbox_damage_modifiers() -> Dictionary:
 			parts.append("%s×%s（下一发「%s」）" % [xuli_name, xs, ammo_name])
 		else:
 			parts.append("%s×%s" % [xuli_name, xs])
+	if not is_equal_approx(weijia_mult, 1.0):
+		var ws: String = ("%.4f" % weijia_mult).rstrip("0").rstrip(".")
+		if has_next and is_start and is_last:
+			parts.append("%s×%s（对本发「%s」无效）" % [weijia_name, ws, ammo_name])
+		elif has_next and is_last and not is_start:
+			parts.append("%s×%s（最后一发「%s」）" % [weijia_name, ws, ammo_name])
+		elif has_next:
+			parts.append("%s×%s（留给最后一发）" % [weijia_name, ws])
+		else:
+			parts.append("%s×%s（留给最后一发）" % [weijia_name, ws])
 	if huiwei_flat != 0:
 		if has_next:
 			parts.append("%s%+d（本弹夹剩余，含「%s」）" % [huiwei_name, huiwei_flat, ammo_name])
@@ -7941,9 +7987,11 @@ func sandbox_damage_modifiers() -> Dictionary:
 		"is_start": is_start,
 		"qishi_pct": qishi_pct,
 		"xuli_mult": xuli_mult,
+		"weijia_mult": weijia_mult,
 		"huiwei_flat": huiwei_flat,
 		"chuandi_flat": chuandi_flat,
 		"has_next": has_next,
+		"is_last": is_last,
 	}
 
 

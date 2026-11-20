@@ -36,7 +36,9 @@ const ID_BAOCHUAN := CombatConstants.BAOCHUAN_AMMO_ID
 const ID_CHUANDI := CombatConstants.CHUANDI_AMMO_ID
 const ID_MOFANG := CombatConstants.MOFANG_AMMO_ID
 const ID_HUIWEI := CombatConstants.HUIWEI_AMMO_ID
+const ID_WEIJIABEI := CombatConstants.WEIJIABEI_AMMO_ID
 const XULI_MULT := 1.5
+const WEIJIABEI_MULT := 1.5
 const QISHI_BONUS := 0.5
 const DIZENG_BASE := 2.0
 const DIZENG_PER_SLOT := 0.75
@@ -91,7 +93,7 @@ static func base_damage_for(ammo_id: int, _order: Array[int], _index: int) -> in
 			return 3
 		ID_LUST, ID_ENVY, ID_GLUTTONY, ID_SLOTH:
 			return 2
-		ID_QISHI, ID_XULI, ID_ZHONGSHEN, ID_CHONGFU_KAISHI:
+		ID_QISHI, ID_XULI, ID_ZHONGSHEN, ID_CHONGFU_KAISHI, ID_WEIJIABEI:
 			return 0
 		ID_HUIWEI:
 			return 2
@@ -141,18 +143,23 @@ static func load_type_rank(ammo_id: int) -> int:
 static func compute_volley_damages(order: Array[int], flat_at: Array = []) -> Array[float]:
 	## 按连射顺序算每格「计算伤害」（空仓为 0）。起势加法叠层，蓄力连乘挂起，
 	## 递增按 1 起槽位（空仓也占格）伤害=2+槽位×0.75，尾重按同一套槽位×0.5/×2，
-	## 终审为此前计算伤害之和的一半。
-	## 最终伤害 = 基础或公式 × (1 + 0.5×此前起势数) × 待消耗蓄力倍率；尾重倍率与起势/蓄力直接相乘。
-	## 「开始」类型子弹互不影响：起势加成与蓄力倍率都不作用在开始弹上；
+	## 终审为此前计算伤害之和的一半。尾加倍在射击后挂倍率，只作用在本轮最后一颗非开始实弹上，多层连乘。
+	## 最终伤害 = 基础或公式 × (1 + 0.5×此前起势数) × 待消耗蓄力倍率 × 尾加倍倍率；尾重倍率与起势/蓄力/尾加倍直接相乘。
+	## 「开始」类型子弹互不影响：起势加成、蓄力倍率与尾加倍倍率都不作用在开始弹上；
 	## 蓄力倍率穿过开始弹与空仓，由下一发非开始弹消耗。
 	## 重复开始弹按上一颗开始弹的效果计算（没有则无效果）。
 	## 模仿弹取紧邻前一格的技能效果，仍用自己的基础伤害；前一格空仓则无效果，不跳空仓、不绕圈。
 	## flat_at 为可选的按槽位固定加值（回味弹等枪口状态在计划重算时写入），加在倍率与传递之后。
 	var qishi := 0
 	var xuli := 1.0
+	var weijia := 1.0
 	var prior := 0.0
 	var slot := 0
 	var carry := 0.0
+	var last_loaded := -1
+	for i in order.size():
+		if int(order[i]) != Magazine.EMPTY:
+			last_loaded = i
 	var out: Array[float] = []
 	for ammo_id in order:
 		var index: int = slot
@@ -165,7 +172,8 @@ static func compute_volley_damages(order: Array[int], flat_at: Array = []) -> Ar
 		var start := is_start_type(ammo_id)
 		var qishi_mult: float = 1.0 if start else (1.0 + QISHI_BONUS * float(qishi))
 		var pending: float = 1.0 if start else xuli
-		var dmg: float = base * qishi_mult * pending
+		var last_mult: float = 1.0 if start or index != last_loaded else weijia
+		var dmg: float = base * qishi_mult * pending * last_mult
 		if carry != 0.0:
 			dmg += carry
 			carry = 0.0
@@ -175,6 +183,8 @@ static func compute_volley_damages(order: Array[int], flat_at: Array = []) -> Ar
 			xuli = 1.0
 		if effect_id == ID_QISHI:
 			qishi += 1
+		if effect_id == ID_WEIJIABEI:
+			weijia *= WEIJIABEI_MULT
 		if effect_id == ID_CHUANDI:
 			var extra: int = round_damage(dmg) - int(CHUANDI_BASE)
 			if extra > 0:
@@ -283,7 +293,7 @@ static func _same_type_streak(order: Array[int], index: int) -> int:
 
 static func _formula_base(ammo_id: int, slot: int, prior_computed: float, order: Array[int] = [], index: int = -1) -> float:
 	match ammo_id:
-		ID_QISHI, ID_XULI, ID_CHONGFU_KAISHI:
+		ID_QISHI, ID_XULI, ID_CHONGFU_KAISHI, ID_WEIJIABEI:
 			return 0.0
 		ID_DIZENG:
 			return DIZENG_BASE + float(slot) * DIZENG_PER_SLOT
