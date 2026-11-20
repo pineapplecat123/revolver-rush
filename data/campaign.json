@@ -9,6 +9,21 @@
   "walk_enter_sec": 1.0,
   "walk_floor_sec": 1.2,
   "walk_world_drift_px": 80.0,
+  "gumball_price": 5,
+  "trash_gold_amount": 8,
+  "trash_p_bullet": 0.1,
+  "trash_p_gold": 0.35,
+  "trash_p_xp": 0.55,
+  "alley_event_pool": [
+    {
+      "id": "gumball",
+      "weight": 1
+    },
+    {
+      "id": "trash",
+      "weight": 1
+    }
+  ],
   "floors": [
     {
       "id": 1,
@@ -16,12 +31,6 @@
       "segments": [
         {
           "waves": [
-            [
-              {
-                "id": 1,
-                "count": 2
-              }
-            ],
             [
               {
                 "id": 1,

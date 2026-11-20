@@ -66,6 +66,20 @@ var campaign_walk_left: float = 0.0
 var shop_house_seq: int = 0
 var shop_house_walk_left: float = 0.0
 var shop_house_stage_dur: float = 0.0
+## 波间随机事件（糖果机/垃圾桶）：0无 1走近 2停住互动 3离开。
+var alley_seq: int = 0
+var alley_kind: String = ""
+var alley_walk_left: float = 0.0
+var alley_stage_dur: float = 0.0
+var alley_hold: bool = false
+var alley_used: bool = false
+var alley_awarded_id: int = 0
+var alley_award_kind: String = ""
+var alley_award_amount: int = 0
+## 测试/演示：非空则下次开事件时用这个种类，用完清空。
+var alley_force_kind: String = ""
+## 测试：>=0 时垃圾桶用该 0–1 随机数判定结果，不用 rng。
+var alley_force_trash_u: float = -1.0
 ## 测试用：走路进店/进场时长视为 0，仍走同一套阶段切换。
 var campaign_instant_transitions: bool = false
 var campaign_transition_lock: bool = false
@@ -466,6 +480,10 @@ const SHOP_HOUSE_NONE := 0
 const SHOP_HOUSE_APPROACH := 1
 const SHOP_HOUSE_INSIDE := 2
 const SHOP_HOUSE_EXITING := 3
+const ALLEY_NONE := 0
+const ALLEY_APPROACH := 1
+const ALLEY_HOLD := 2
+const ALLEY_LEAVING := 3
 var load_temp_sins_spawned: int = 0
 var _pending_tombstone_ghost_shots: Array = []
 ## 本玩家开火链已累计授予的额外轮数（含主匣与嵌套）；达上限后不再叠加。
@@ -663,6 +681,7 @@ func _reset_campaign_flags() -> void:
 	campaign_opening_resolved = false
 	campaign_boss_reward_issued = false
 	clear_shop_house()
+	clear_alley()
 
 
 func start_campaign(seed_value: int = 0) -> void:
@@ -681,6 +700,7 @@ func start_campaign(seed_value: int = 0) -> void:
 	shop_hold = false
 	_shop_move_prog = 0.0
 	clear_shop_house()
+	clear_alley()
 	_spawn_timer = 99999.0
 	_boss_spawned = 999999
 	encounter_kind = EncounterKind.NORMAL
@@ -748,6 +768,12 @@ func campaign_progress_text() -> String:
 			return "闯关 · 前往第%d关" % campaign_floor
 		CampaignRules.PHASE_VICTORY:
 			return "闯关 · 胜利"
+		CampaignRules.PHASE_WALK_ALLEY:
+			return "闯关 · 第%d关 %s · %s走近" % [campaign_floor, floor_n, CampaignRules.alley_event_title(alley_kind)]
+		CampaignRules.PHASE_ALLEY:
+			return "闯关 · 第%d关 %s · %s" % [campaign_floor, floor_n, CampaignRules.alley_event_title(alley_kind)]
+		CampaignRules.PHASE_LEAVE_ALLEY:
+			return "闯关 · 第%d关 %s · 离开%s" % [campaign_floor, floor_n, CampaignRules.alley_event_title(alley_kind)]
 		_:
 			return "闯关 · %s" % tag
 
@@ -757,7 +783,7 @@ func campaign_walk_tempo() -> float:
 		return 1.0
 	if campaign_phase == CampaignRules.PHASE_COMBAT or campaign_phase == CampaignRules.PHASE_BOSS:
 		return CampaignRules.walk_combat_tempo()
-	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_LEAVE_SHOP, CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR]:
+	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_LEAVE_SHOP, CampaignRules.PHASE_ENTER, CampaignRules.PHASE_WALK_FLOOR, CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
 		return CampaignRules.walk_shop_tempo()
 	return CampaignRules.walk_combat_tempo()
 
@@ -767,11 +793,11 @@ func campaign_world_drift_px_per_sec() -> float:
 	## 店铺房屋自身的位移已按同一速度写好，走道与房子对齐，不会把门带走。
 	if reward_pending or campaign_offer_pending:
 		return 0.0
-	if shop_hold or shop_touch_pending:
+	if shop_hold or shop_touch_pending or alley_hold:
 		return 0.0
 	if phase == Phase.LOST or phase == Phase.WON:
 		return 0.0
-	if shop_house_is_walking():
+	if shop_house_is_walking() or alley_is_walking():
 		return -CampaignRules.walk_shop_tempo() * CampaignRules.walk_world_drift_px()
 	if campaign_mode and campaign_should_walk():
 		return -campaign_walk_tempo() * CampaignRules.walk_world_drift_px()
@@ -783,7 +809,7 @@ func campaign_should_walk() -> bool:
 		return false
 	if campaign_offer_pending or campaign_phase == CampaignRules.PHASE_OFFER:
 		return false
-	if campaign_phase == CampaignRules.PHASE_SHOP or campaign_phase == CampaignRules.PHASE_BOSS_REWARD:
+	if campaign_phase == CampaignRules.PHASE_SHOP or campaign_phase == CampaignRules.PHASE_BOSS_REWARD or campaign_phase == CampaignRules.PHASE_ALLEY:
 		return false
 	if campaign_phase == CampaignRules.PHASE_VICTORY:
 		return false
@@ -919,6 +945,16 @@ func campaign_try_advance() -> void:
 		if campaign_walk_left <= 0.0:
 			_finish_shop_house_exit()
 		return
+	if campaign_phase == CampaignRules.PHASE_WALK_ALLEY:
+		if campaign_walk_left <= 0.0 and campaign_field_safe():
+			_finish_alley_approach()
+		return
+	if campaign_phase == CampaignRules.PHASE_LEAVE_ALLEY:
+		if campaign_walk_left <= 0.0:
+			_finish_alley_exit()
+		return
+	if campaign_phase == CampaignRules.PHASE_ALLEY:
+		return
 	if campaign_phase == CampaignRules.PHASE_ENTER and campaign_walk_left <= 0.0:
 		_campaign_start_segment_combat()
 		return
@@ -928,10 +964,14 @@ func campaign_try_advance() -> void:
 	if campaign_phase == CampaignRules.PHASE_COMBAT:
 		if not campaign_field_safe():
 			return
+		if alley_seq != ALLEY_NONE:
+			return
+		if shop_house_seq != SHOP_HOUSE_NONE:
+			return
 		var wc: int = CampaignRules.wave_count(campaign_floor, campaign_segment)
+		# 每波边界轮流：段内还有下一波 → 随机事件；本段打完 → 商店。第三店后打首领，事件不算店。
 		if campaign_wave < wc:
-			campaign_wave += 1
-			_campaign_spawn_current_wave()
+			_begin_alley_approach()
 			return
 		_begin_walk_to_shop()
 		return
@@ -1014,6 +1054,12 @@ func campaign_skip_walk() -> void:
 		_campaign_finish_walk_to_shop()
 	elif campaign_phase == CampaignRules.PHASE_LEAVE_SHOP or shop_house_seq == SHOP_HOUSE_EXITING:
 		_finish_shop_house_exit()
+	elif campaign_phase == CampaignRules.PHASE_WALK_ALLEY or alley_seq == ALLEY_APPROACH:
+		alley_walk_left = 0.0
+		_finish_alley_approach()
+	elif campaign_phase == CampaignRules.PHASE_LEAVE_ALLEY or alley_seq == ALLEY_LEAVING:
+		alley_walk_left = 0.0
+		_finish_alley_exit()
 	elif campaign_phase == CampaignRules.PHASE_ENTER:
 		campaign_transition_lock = false
 		_campaign_start_segment_combat()
@@ -1041,6 +1087,10 @@ func _begin_campaign_boss_reward() -> void:
 
 func campaign_on_reward_finished() -> void:
 	if not campaign_mode:
+		return
+	# 垃圾桶发经验触发的升级：领完奖励后仍停在事件里，等玩家点继续，不直接进下一波。
+	if alley_hold or alley_seq == ALLEY_HOLD:
+		_emit()
 		return
 	if not campaign_await_boss_reward and campaign_phase != CampaignRules.PHASE_BOSS_REWARD:
 		campaign_try_advance()
@@ -1076,6 +1126,9 @@ func _tick_campaign(delta_sec: float) -> bool:
 				changed = true
 	if campaign_phase in [CampaignRules.PHASE_WALK_SHOP, CampaignRules.PHASE_LEAVE_SHOP] or shop_house_seq in [SHOP_HOUSE_APPROACH, SHOP_HOUSE_EXITING]:
 		if tick_shop_house(delta_sec):
+			changed = true
+	if campaign_phase in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY] or alley_seq in [ALLEY_APPROACH, ALLEY_LEAVING]:
+		if tick_alley(delta_sec):
 			changed = true
 	if campaign_phase == CampaignRules.PHASE_COMBAT or campaign_phase == CampaignRules.PHASE_BOSS:
 		campaign_try_advance()
@@ -2446,6 +2499,10 @@ func _apply_player_heal(amount: int, kind: String = "") -> int:
 
 func _set_phase(p: int) -> void:
 	phase = p
+	if p == Phase.LOST or p == Phase.WON:
+		alley_hold = false
+		if alley_seq != ALLEY_NONE:
+			clear_alley()
 	phase_changed.emit(phase)
 
 
@@ -5808,7 +5865,7 @@ func _spawn_up_to_cap(force_one: bool = false) -> int:
 
 func tick_combat_time(delta_sec: float) -> bool:
 	## UI 每帧（战斗秒×速度，暂停/奖励期间不调用）：累计时长、刷怪、Boss、临时罪孽寿命、DoT、地图商店。返回是否有变化。
-	if shop_hold or delta_sec <= 0.0 or phase == Phase.LOST or phase == Phase.WON or reward_pending:
+	if shop_hold or alley_hold or delta_sec <= 0.0 or phase == Phase.LOST or phase == Phase.WON or reward_pending:
 		return false
 	var changed := false
 	elapsed_sec += delta_sec
@@ -5951,6 +6008,310 @@ func tick_dot(delta_sec: float) -> bool:
 	return true
 
 
+
+
+
+func alley_active() -> bool:
+	return alley_seq != ALLEY_NONE
+
+
+func alley_is_walking() -> bool:
+	return alley_seq == ALLEY_APPROACH or alley_seq == ALLEY_LEAVING
+
+
+func alley_progress() -> float:
+	if alley_seq == ALLEY_NONE:
+		return 0.0
+	if alley_seq == ALLEY_HOLD:
+		return 1.0
+	if alley_stage_dur <= 0.0:
+		return 1.0
+	return clampf(1.0 - alley_walk_left / alley_stage_dur, 0.0, 1.0)
+
+
+func alley_approach_distance() -> float:
+	return CampaignRules.alley_approach_travel_px(_alley_kind_or_default())
+
+
+func alley_exit_travel() -> float:
+	return CampaignRules.alley_exit_travel_px(_alley_kind_or_default())
+
+
+func _alley_kind_or_default() -> String:
+	if alley_kind == CampaignRules.ALLEY_GUMBALL or alley_kind == CampaignRules.ALLEY_TRASH:
+		return alley_kind
+	return CampaignRules.ALLEY_GUMBALL
+
+
+func alley_left_at(cat_x: float) -> float:
+	## 物件左缘世界 X。NONE 时放在右侧场外，避免第一帧出现在场内。
+	var kind: String = _alley_kind_or_default()
+	var use_x: float = CampaignRules.alley_use_x(kind)
+	var prog: float = alley_progress()
+	if alley_seq == ALLEY_APPROACH:
+		return cat_x + (1.0 - prog) * alley_approach_distance() - use_x
+	if alley_seq == ALLEY_HOLD:
+		return cat_x - use_x
+	if alley_seq == ALLEY_LEAVING:
+		return cat_x - use_x - prog * alley_exit_travel()
+	return cat_x + alley_approach_distance() - use_x
+
+
+func clear_alley() -> void:
+	alley_seq = ALLEY_NONE
+	alley_kind = ""
+	alley_walk_left = 0.0
+	alley_stage_dur = 0.0
+	alley_hold = false
+	# 不在这里清 alley_used / 奖励字段：离开时 _finish 已经处理；清空过程保留日志值也无妨。
+	alley_used = false
+	alley_awarded_id = 0
+	alley_award_kind = ""
+	alley_award_amount = 0
+
+
+func _alley_stage_duration(is_approach: bool) -> float:
+	if campaign_mode and campaign_instant_transitions:
+		return 0.0
+	var kind: String = _alley_kind_or_default()
+	if is_approach:
+		return CampaignRules.walk_to_alley_sec(kind)
+	return CampaignRules.walk_from_alley_sec(kind)
+
+
+func _pick_alley_kind() -> String:
+	if not alley_force_kind.is_empty():
+		var forced: String = alley_force_kind
+		alley_force_kind = ""
+		if forced == CampaignRules.ALLEY_GUMBALL or forced == CampaignRules.ALLEY_TRASH:
+			return forced
+	return CampaignRules.roll_alley_event(rng)
+
+
+func _begin_alley_approach() -> void:
+	if phase == Phase.LOST or phase == Phase.WON:
+		return
+	if alley_seq != ALLEY_NONE:
+		return
+	if not campaign_field_safe():
+		return
+	alley_kind = _pick_alley_kind()
+	alley_used = false
+	alley_awarded_id = 0
+	alley_award_kind = ""
+	alley_award_amount = 0
+	var dur: float = _alley_stage_duration(true)
+	alley_seq = ALLEY_APPROACH
+	alley_stage_dur = dur
+	alley_walk_left = dur
+	alley_hold = false
+	campaign_phase = CampaignRules.PHASE_WALK_ALLEY
+	campaign_walk_left = dur
+	campaign_transition_lock = true
+	_log("闯关：第%d段第%d波清空，%s从右边过来。" % [campaign_segment, campaign_wave, CampaignRules.alley_event_title(alley_kind)])
+	if dur <= 0.0:
+		_finish_alley_approach()
+	else:
+		_emit()
+
+
+func _finish_alley_approach() -> void:
+	if phase == Phase.LOST or phase == Phase.WON:
+		campaign_transition_lock = false
+		clear_alley()
+		_emit()
+		return
+	if alley_seq != ALLEY_APPROACH and campaign_phase != CampaignRules.PHASE_WALK_ALLEY:
+		return
+	alley_walk_left = 0.0
+	campaign_walk_left = 0.0
+	alley_seq = ALLEY_HOLD
+	campaign_phase = CampaignRules.PHASE_ALLEY
+	alley_hold = true
+	campaign_transition_lock = true
+	_log("闯关：走到%s前。" % CampaignRules.alley_event_title(alley_kind))
+	_emit()
+
+
+func alley_can_buy() -> bool:
+	if alley_seq != ALLEY_HOLD or alley_kind != CampaignRules.ALLEY_GUMBALL:
+		return false
+	if alley_used or alley_hold == false:
+		return false
+	return gold >= CampaignRules.gumball_price()
+
+
+func alley_try_buy() -> bool:
+	## 糖果机：花一次钱，随机一发常驻弹进袋和基准袋。重复点击无效。
+	if alley_seq != ALLEY_HOLD or alley_kind != CampaignRules.ALLEY_GUMBALL:
+		return false
+	if alley_used:
+		return false
+	var price: int = CampaignRules.gumball_price()
+	if gold < price:
+		return false
+	gold -= price
+	var aid: int = CampaignRules.roll_alley_ammo(rng)
+	_bag_append(aid, false)
+	_note_baseline_add(aid, false)
+	alley_used = true
+	alley_awarded_id = aid
+	alley_award_kind = "bullet"
+	alley_award_amount = 1
+	_log("糖果机：花 %d 金，摇出 %s，加入弹药袋（现 %d）。" % [price, _ammo_name(aid), bag.size()])
+	_emit()
+	return true
+
+
+func alley_can_rummage() -> bool:
+	return alley_seq == ALLEY_HOLD and alley_kind == CampaignRules.ALLEY_TRASH and not alley_used
+
+
+func alley_try_rummage() -> bool:
+	## 垃圾桶：免费翻找一次。10% 子弹 / 35% 金币 / 55% 大量经验。重复点击无效。
+	if not alley_can_rummage():
+		return false
+	var outcome: String
+	if alley_force_trash_u >= 0.0:
+		outcome = CampaignRules.trash_outcome_at(alley_force_trash_u)
+		alley_force_trash_u = -1.0
+	else:
+		outcome = CampaignRules.roll_trash_outcome(rng)
+	alley_used = true
+	alley_award_kind = outcome
+	if outcome == "bullet":
+		var aid: int = CampaignRules.roll_alley_ammo(rng)
+		_bag_append(aid, false)
+		_note_baseline_add(aid, false)
+		alley_awarded_id = aid
+		alley_award_amount = 1
+		_log("垃圾桶：翻出 %s，加入弹药袋（现 %d）。" % [_ammo_name(aid), bag.size()])
+	elif outcome == "gold":
+		var amt: int = CampaignRules.trash_gold_amount()
+		gold += amt
+		alley_award_amount = amt
+		_log("垃圾桶：翻出 %d 金（现 %d）。" % [amt, gold])
+	else:
+		var amt2: int = CampaignRules.trash_xp_amount(level)
+		alley_award_amount = amt2
+		_log("垃圾桶：翻出大量经验 +%d。" % amt2)
+		gain_xp(amt2)
+	_emit()
+	return true
+
+
+func alley_try_use() -> bool:
+	if alley_kind == CampaignRules.ALLEY_GUMBALL:
+		return alley_try_buy()
+	return alley_try_rummage()
+
+
+func alley_can_leave() -> bool:
+	if alley_seq != ALLEY_HOLD:
+		return false
+	if reward_pending or pending_levelups > 0:
+		return false
+	return true
+
+
+func alley_skip() -> bool:
+	## 不花钱离开，或用过之后点继续。升级尚未领完时不能离开。
+	if not alley_can_leave():
+		return false
+	_begin_alley_leave()
+	return true
+
+
+func _begin_alley_leave() -> void:
+	if alley_seq != ALLEY_HOLD and alley_seq != ALLEY_APPROACH:
+		return
+	if phase == Phase.LOST or phase == Phase.WON:
+		clear_alley()
+		return
+	alley_hold = false
+	var dur: float = _alley_stage_duration(false)
+	alley_seq = ALLEY_LEAVING
+	alley_stage_dur = dur
+	alley_walk_left = dur
+	campaign_phase = CampaignRules.PHASE_LEAVE_ALLEY
+	campaign_walk_left = dur
+	campaign_transition_lock = true
+	if dur <= 0.0:
+		_finish_alley_exit()
+	else:
+		_emit()
+
+
+func _finish_alley_exit() -> void:
+	if alley_seq != ALLEY_LEAVING and campaign_phase != CampaignRules.PHASE_LEAVE_ALLEY:
+		if alley_seq == ALLEY_NONE:
+			return
+	if phase == Phase.LOST or phase == Phase.WON:
+		campaign_transition_lock = false
+		clear_alley()
+		_emit()
+		return
+	var kind_title: String = CampaignRules.alley_event_title(alley_kind)
+	clear_alley()
+	campaign_transition_lock = false
+	if not campaign_mode:
+		_emit()
+		return
+	# 事件结束后进入下一波，不把商店/首领提前。
+	campaign_wave += 1
+	campaign_phase = CampaignRules.PHASE_COMBAT
+	_campaign_spawn_current_wave()
+	_log("闯关：离开%s，第%d段第%d波开始。" % [kind_title, campaign_segment, campaign_wave])
+	_emit()
+
+
+func tick_alley(delta_sec: float) -> bool:
+	if alley_seq != ALLEY_APPROACH and alley_seq != ALLEY_LEAVING:
+		return false
+	if phase == Phase.LOST or phase == Phase.WON:
+		clear_alley()
+		return true
+	if delta_sec <= 0.0 and alley_walk_left > 0.0:
+		return false
+	if alley_walk_left > 0.0:
+		alley_walk_left = maxf(0.0, alley_walk_left - maxf(0.0, delta_sec))
+		if campaign_mode and campaign_phase in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
+			campaign_walk_left = alley_walk_left
+	if alley_walk_left > 0.0:
+		return true
+	if alley_seq == ALLEY_APPROACH:
+		_finish_alley_approach()
+	elif alley_seq == ALLEY_LEAVING:
+		_finish_alley_exit()
+	return true
+
+
+func campaign_simulate_alley_skip() -> bool:
+	## 测试用：走完走近（若有）并放弃这次事件，再立刻离开，进入下一波。
+	if not campaign_mode:
+		return false
+	if alley_seq == ALLEY_NONE and campaign_phase not in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
+		return false
+	if alley_seq == ALLEY_APPROACH or campaign_phase == CampaignRules.PHASE_WALK_ALLEY:
+		alley_walk_left = 0.0
+		campaign_walk_left = 0.0
+		_finish_alley_approach()
+	if alley_used:
+		# 已经发过奖就只离开，不再撤销。
+		pass
+	if alley_seq == ALLEY_HOLD or campaign_phase == CampaignRules.PHASE_ALLEY:
+		# 跳过未使用的事件；若已使用则当作继续。升级未领完时这个辅助会强行清掉待选以免测试卡死。
+		if reward_pending or pending_levelups > 0:
+			reward_pending = false
+			pending_levelups = 0
+			reward_choices.clear()
+		alley_hold = true
+		alley_skip()
+	if alley_seq == ALLEY_LEAVING or campaign_phase == CampaignRules.PHASE_LEAVE_ALLEY:
+		alley_walk_left = 0.0
+		campaign_walk_left = 0.0
+		_finish_alley_exit()
+	return true
 
 
 func shop_house_active() -> bool:
@@ -6169,7 +6530,7 @@ func acknowledge_shop_touch() -> void:
 
 func encounter_spawns_blocked() -> bool:
 	## 商店排空/待开/开着时，停止遭遇刷怪（普通补刷、定时刷、到点 Boss），不影响场上已有敌人与超级僵尸召唤。
-	return shop_drain or shop_touch_pending or shop_hold or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE
+	return shop_drain or shop_touch_pending or shop_hold or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE or alley_active()
 
 
 func _shop_milestone_due() -> bool:
@@ -6180,7 +6541,7 @@ func _shop_milestone_due() -> bool:
 
 
 func _shop_cycle_busy() -> bool:
-	return shop_drain or shop_touch_pending or shop_hold or shop_cell >= 0 or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE
+	return shop_drain or shop_touch_pending or shop_hold or shop_cell >= 0 or shop_house_is_walking() or shop_house_seq == SHOP_HOUSE_INSIDE or alley_active()
 
 
 func has_pending_impacts() -> bool:

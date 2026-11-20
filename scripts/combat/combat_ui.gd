@@ -14,6 +14,8 @@ const GoldCoinVfxScript = preload("res://scripts/combat/gold_coin_vfx.gd")
 const XpOrbVfxScript = preload("res://scripts/combat/xp_orb_vfx.gd")
 const CampaignBackdropScript = preload("res://scripts/combat/campaign_backdrop.gd")
 const ShopHouseScript = preload("res://scripts/combat/shop_house.gd")
+const GumballMachineScript = preload("res://scripts/combat/gumball_machine.gd")
+const TrashCanScript = preload("res://scripts/combat/trash_can.gd")
 
 ## 竖屏 720 宽：10 格 × 68 = 680
 const CELL_W := 68
@@ -285,6 +287,15 @@ var _shop_temps: Array = []
 var _shop_disc_temps: Array = []  ## v0.4.29 店里弃牌堆的临时寿命（与 _shop.discard 同序）
 var _campaign_backdrop: CampaignBackdrop = null
 var _shop_house: ShopHouse = null
+var _gumball_machine: GumballMachine = null
+var _trash_can: TrashCan = null
+var _alley_panel: PanelContainer = null
+var _alley_title: Label = null
+var _alley_gold: Label = null
+var _alley_hint: Label = null
+var _alley_result: Label = null
+var _alley_use_btn: Button = null
+var _alley_leave_btn: Button = null
 var _cat_hidden_in_house: bool = false
 var _volley_ui_running: bool = false
 ## v0.4.24：连射步进中（用慢一点、看得清的转一格动画）；上一发转盘动画时长（未乘速度）。
@@ -377,6 +388,7 @@ func _ready() -> void:
 	_style_corner_buttons()
 	_ensure_campaign_backdrop()
 	_ensure_shop_house()
+	_ensure_alley_props()
 	_ensure_long_press_timer()
 	_ensure_enemy_auto_timer()
 	_build_board_cells()
@@ -1390,6 +1402,11 @@ func _process(delta: float) -> void:
 	if _campaign_backdrop != null and is_instance_valid(_campaign_backdrop):
 		_campaign_backdrop.advance(delta, _campaign_debris_drift)
 	_sync_shop_house()
+	_sync_alley_prop()
+	if state.alley_hold or (state.alley_seq == CombatState.ALLEY_HOLD):
+		_tick_alley_anim(delta)
+		_refresh_alley_panel()
+		return
 	if _shop_open or state.shop_hold:
 		return
 	# 射速帽不绑在「敌人自动走」上。商店/升级/选罪已经在上面或 _enemy_auto_allowed 里停掉。
@@ -3708,7 +3725,8 @@ func _update_dimmer() -> void:
 	# 悬停/长按弹药详情不盖遮罩；开发面板 / 奖励 / 商店 / 罪孽选择用遮罩
 	# v0.4.44：沙盒控制台从上方弹出，不盖遮罩，袋区始终看得见
 	var dev_dim: bool = _dev_open and not (state != null and state.sandbox_mode)
-	dimmer.visible = dev_dim or _reward_open or _shop_open or _sin_pick_open
+	var alley_dim: bool = state != null and state.alley_hold and not _reward_open
+	dimmer.visible = dev_dim or _reward_open or _shop_open or _sin_pick_open or alley_dim
 
 
 func _pwait(sec: float) -> void:
@@ -3758,12 +3776,13 @@ func _apply_campaign_presentation() -> void:
 	if state == null:
 		return
 	# 巷景多层视差与碎块共用 drift：近景同速、中远更慢；停步时冻结。店铺房屋仍按序列贴地横移，不跟背景一起被带走。
-	var house_walk: bool = state.shop_house_is_walking() and not _shop_open
+	var house_walk: bool = (state.shop_house_is_walking() or state.alley_is_walking()) and not _shop_open and not state.alley_hold
 	var want_walk: bool = (
 		not _shop_open
 		and not _reward_open
 		and not state.reward_pending
 		and not state.campaign_offer_pending
+		and not state.alley_hold
 		and (
 			house_walk
 			or (
@@ -7179,6 +7198,212 @@ func _sync_campaign_backdrop() -> void:
 	var local_r: float = (inv * Vector2(bright, gy_g)).x
 	_campaign_backdrop.position = Vector2.ZERO
 	_campaign_backdrop.configure(vs, local_gy, local_l, local_r)
+
+
+
+func _ensure_alley_props() -> void:
+	clip_contents = true
+	if _gumball_machine == null or not is_instance_valid(_gumball_machine):
+		_gumball_machine = GumballMachineScript.new()
+		_gumball_machine.name = "GumballMachine"
+		_gumball_machine.z_as_relative = false
+		_gumball_machine.z_index = 8
+		add_child(_gumball_machine)
+	if _trash_can == null or not is_instance_valid(_trash_can):
+		_trash_can = TrashCanScript.new()
+		_trash_can.name = "TrashCan"
+		_trash_can.z_as_relative = false
+		_trash_can.z_index = 8
+		add_child(_trash_can)
+
+
+func _hide_alley_props() -> void:
+	if _gumball_machine != null:
+		_gumball_machine.set_prop_visible(false)
+	if _trash_can != null:
+		_trash_can.set_prop_visible(false)
+	if _alley_panel != null:
+		_alley_panel.visible = false
+
+
+func _sync_alley_prop() -> void:
+	_ensure_alley_props()
+	if state == null or state.sandbox_mode or not state.alley_active():
+		_hide_alley_props()
+		return
+	var cat_x: float = _player_foot_global_x()
+	var gy_g: float = _board_ground_global_y()
+	var left_g: float = state.alley_left_at(cat_x)
+	var inv: Transform2D = get_global_transform().affine_inverse()
+	var local_p: Vector2 = inv * Vector2(left_g, gy_g)
+	var kind: String = state.alley_kind
+	if kind == CampaignRules.ALLEY_GUMBALL:
+		if _trash_can != null:
+			_trash_can.set_prop_visible(false)
+		_gumball_machine.set_grounded(local_p.x, local_p.y)
+		_gumball_machine.set_prop_visible(true)
+	else:
+		if _gumball_machine != null:
+			_gumball_machine.set_prop_visible(false)
+		_trash_can.set_grounded(local_p.x, local_p.y)
+		_trash_can.set_prop_visible(true)
+	if state.alley_seq == CombatState.ALLEY_HOLD:
+		_ensure_alley_panel()
+		_refresh_alley_panel()
+		if _alley_panel != null:
+			_alley_panel.visible = not _reward_open
+	elif _alley_panel != null:
+		_alley_panel.visible = false
+
+
+func _tick_alley_anim(dt: float) -> void:
+	if _gumball_machine != null and _gumball_machine.visible:
+		_gumball_machine.tick_anim(dt)
+	if _trash_can != null and _trash_can.visible:
+		_trash_can.tick_anim(dt)
+
+
+func _ensure_alley_panel() -> void:
+	if _alley_panel != null and is_instance_valid(_alley_panel):
+		return
+	_alley_panel = PanelContainer.new()
+	_alley_panel.name = "AlleyEventPanel"
+	_alley_panel.visible = false
+	_alley_panel.z_index = Z_MODAL_PANEL
+	_alley_panel.set_anchors_preset(Control.PRESET_CENTER)
+	_alley_panel.offset_left = -250.0
+	_alley_panel.offset_top = -210.0
+	_alley_panel.offset_right = 250.0
+	_alley_panel.offset_bottom = 210.0
+	_alley_panel.add_theme_stylebox_override("panel", UiStyle.panel_box(UiStyle.PANEL_MODAL, 1.0, 8, 14))
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_top", 12)
+	margin.add_theme_constant_override("margin_bottom", 12)
+	_alley_panel.add_child(margin)
+	var root := VBoxContainer.new()
+	root.add_theme_constant_override("separation", 10)
+	margin.add_child(root)
+	_alley_title = Label.new()
+	_alley_title.add_theme_font_size_override("font_size", 22)
+	UiStyle.apply_label(_alley_title, COL_REWARD_TITLE, true)
+	root.add_child(_alley_title)
+	_alley_gold = Label.new()
+	_alley_gold.add_theme_color_override("font_color", COL_GOLD)
+	root.add_child(_alley_gold)
+	_alley_hint = Label.new()
+	_alley_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiStyle.apply_label(_alley_hint, COL_REWARD_HINT, true)
+	root.add_child(_alley_hint)
+	_alley_result = Label.new()
+	_alley_result.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UiStyle.apply_label(_alley_result, Color(0.86, 0.90, 0.93), true)
+	root.add_child(_alley_result)
+	var actions := HBoxContainer.new()
+	actions.add_theme_constant_override("separation", 12)
+	root.add_child(actions)
+	_alley_use_btn = Button.new()
+	_alley_use_btn.custom_minimum_size = Vector2(180, 44)
+	_alley_use_btn.pressed.connect(_on_alley_use)
+	UiStyle.apply_text_button(_alley_use_btn)
+	actions.add_child(_alley_use_btn)
+	_alley_leave_btn = Button.new()
+	_alley_leave_btn.custom_minimum_size = Vector2(160, 44)
+	_alley_leave_btn.pressed.connect(_on_alley_leave)
+	UiStyle.apply_text_button(_alley_leave_btn)
+	actions.add_child(_alley_leave_btn)
+	add_child(_alley_panel)
+
+
+func _refresh_alley_panel() -> void:
+	if _alley_panel == null or state == null:
+		return
+	var kind: String = state.alley_kind
+	var title: String = CampaignRules.alley_event_title(kind)
+	if _alley_title != null:
+		_alley_title.text = title
+	if _alley_gold != null:
+		_alley_gold.text = "金币：%d" % state.gold
+	var used: bool = state.alley_used
+	if _alley_hint != null:
+		if kind == CampaignRules.ALLEY_GUMBALL:
+			var price: int = CampaignRules.gumball_price()
+			if used:
+				_alley_hint.text = "已经摇过一次。看完结果后可以继续赶路。"
+			elif state.gold >= price:
+				_alley_hint.text = "花 %d 金摇一次，随机得到一发奖励池子弹，加入弹药袋。也可以不花金币离开。" % price
+			else:
+				_alley_hint.text = "要 %d 金才能摇一次，现在不够。可以先离开，不扣金币。" % price
+		else:
+			if used:
+				_alley_hint.text = "已经翻找过一次。看完结果后可以继续赶路。"
+			else:
+				_alley_hint.text = "免费翻找一次，可能找到子弹、金币或大量经验。也可以不翻直接离开。"
+	if _alley_result != null:
+		if not used:
+			_alley_result.text = ""
+		elif state.alley_award_kind == "bullet":
+			var nm: String = _ammo_bag_glyph(state.alley_awarded_id) if has_method("_ammo_bag_glyph") else str(state.alley_awarded_id)
+			var full: String = ""
+			if state.has_method("_ammo_name"):
+				full = state._ammo_name(state.alley_awarded_id)
+			_alley_result.text = "得到子弹：%s" % (full if not full.is_empty() else nm)
+		elif state.alley_award_kind == "gold":
+			_alley_result.text = "得到金币：%d" % state.alley_award_amount
+		elif state.alley_award_kind == "xp":
+			_alley_result.text = "得到大量经验：+%d" % state.alley_award_amount
+			if state.reward_pending or state.pending_levelups > 0:
+				_alley_result.text += "（请先选完升级奖励）"
+		else:
+			_alley_result.text = ""
+	if _alley_use_btn != null:
+		if kind == CampaignRules.ALLEY_GUMBALL:
+			_alley_use_btn.text = "投币购买（%d金）" % CampaignRules.gumball_price()
+			_alley_use_btn.disabled = used or state.gold < CampaignRules.gumball_price()
+		else:
+			_alley_use_btn.text = "翻找"
+			_alley_use_btn.disabled = used
+		_alley_use_btn.visible = not used
+	if _alley_leave_btn != null:
+		_alley_leave_btn.text = "继续" if used else "离开"
+		_alley_leave_btn.disabled = state.reward_pending or state.pending_levelups > 0
+
+
+func _on_alley_use() -> void:
+	if state == null:
+		return
+	if state.alley_used:
+		return
+	var ok: bool = state.alley_try_use()
+	if ok and state.alley_kind == CampaignRules.ALLEY_GUMBALL:
+		var fill := Color(0.75, 0.55, 0.7, 1.0)
+		var cols: Dictionary = _ammo_colors(state.alley_awarded_id)
+		if cols.has("bg"):
+			fill = cols["bg"]
+		if _gumball_machine != null:
+			_gumball_machine.play_dispense(state.alley_awarded_id, fill)
+	elif ok and state.alley_kind == CampaignRules.ALLEY_TRASH:
+		if _trash_can != null:
+			_trash_can.play_rummage(state.alley_award_kind)
+	_refresh()
+	_refresh_alley_panel()
+	_update_dimmer()
+
+
+func _on_alley_leave() -> void:
+	if state == null:
+		return
+	if not state.alley_skip():
+		return
+	if _alley_panel != null:
+		_alley_panel.visible = false
+	if _gumball_machine != null:
+		_gumball_machine.reset_anim()
+	if _trash_can != null:
+		_trash_can.reset_anim()
+	_update_dimmer()
+	_refresh()
 
 
 func _ensure_shop_house() -> void:

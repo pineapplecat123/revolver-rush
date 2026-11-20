@@ -86,7 +86,7 @@ func test_exactly_three_shops_then_boss_per_floor() -> void:
 	assert_eq(cs.campaign_segment, 1)
 	assert_gt(cs.alive_enemies().size(), 0)
 	var shops := 0
-	var guard := 40
+	var guard := 80
 	while shops < 3 and guard > 0:
 		guard -= 1
 		assert_ne(cs.campaign_phase, CampaignRules.PHASE_BOSS, "boss must not appear before 3 shops")
@@ -98,6 +98,9 @@ func test_exactly_three_shops_then_boss_per_floor() -> void:
 			# 有活怪时不得开店
 			assert_false(cs._shop_field_safe_to_open())
 			cs.dev_kill_all_enemies()
+		if cs.alley_active() or cs.campaign_phase in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
+			assert_true(cs.campaign_simulate_alley_skip())
+			continue
 		if cs.campaign_phase == CampaignRules.PHASE_WALK_SHOP or cs.campaign_phase == CampaignRules.PHASE_SHOP or cs.shop_touch_pending:
 			assert_eq(cs.alive_enemies().size(), 0)
 			assert_true(cs.campaign_simulate_shop_cycle())
@@ -140,6 +143,9 @@ func _finish_floor(cs: CombatState) -> void:
 			continue
 		if cs.campaign_phase == CampaignRules.PHASE_WALK_SHOP or cs.shop_touch_pending or cs.campaign_phase == CampaignRules.PHASE_SHOP:
 			cs.campaign_simulate_shop_cycle()
+			continue
+		if cs.alley_active() or cs.campaign_phase in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
+			cs.campaign_simulate_alley_skip()
 			continue
 		if cs.campaign_phase == CampaignRules.PHASE_WALK_FLOOR or cs.campaign_phase == CampaignRules.PHASE_ENTER:
 			cs.campaign_skip_walk()

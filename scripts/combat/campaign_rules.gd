@@ -17,6 +17,12 @@ const PHASE_BOSS_REWARD := 7
 const PHASE_WALK_FLOOR := 8
 const PHASE_VICTORY := 9
 const PHASE_LEAVE_SHOP := 10
+const PHASE_WALK_ALLEY := 11
+const PHASE_ALLEY := 12
+const PHASE_LEAVE_ALLEY := 13
+
+const ALLEY_GUMBALL := "gumball"
+const ALLEY_TRASH := "trash"
 
 static var _cache: Dictionary = {}
 
@@ -271,5 +277,182 @@ static func phase_title(phase: int) -> String:
 			return "胜利"
 		PHASE_LEAVE_SHOP:
 			return "离店"
+		PHASE_WALK_ALLEY:
+			return "随机事件走近"
+		PHASE_ALLEY:
+			return "随机事件"
+		PHASE_LEAVE_ALLEY:
+			return "离开随机事件"
 		_:
 			return ""
+
+static func gumball_price() -> int:
+	return maxi(1, int(data().get("gumball_price", 5)))
+
+
+static func trash_gold_amount() -> int:
+	return maxi(1, int(data().get("trash_gold_amount", 8)))
+
+
+static func trash_outcome_weights() -> Vector3:
+	## 子弹 / 金币 / 大量经验，三项互斥且和为 1，默认 10/35/55，没有空结果。
+	var b: float = maxf(0.0, float(data().get("trash_p_bullet", 0.10)))
+	var g: float = maxf(0.0, float(data().get("trash_p_gold", 0.35)))
+	var x: float = maxf(0.0, float(data().get("trash_p_xp", 0.55)))
+	var s: float = b + g + x
+	if s <= 0.0001:
+		return Vector3(0.10, 0.35, 0.55)
+	return Vector3(b / s, g / s, x / s)
+
+
+static func trash_outcome_at(u: float) -> String:
+	var w: Vector3 = trash_outcome_weights()
+	var v: float = clampf(u, 0.0, 0.999999)
+	if v < w.x:
+		return "bullet"
+	if v < w.x + w.y:
+		return "gold"
+	return "xp"
+
+
+static func roll_trash_outcome(rng: RandomNumberGenerator) -> String:
+	if rng == null:
+		return "xp"
+	return trash_outcome_at(rng.randf())
+
+
+static func trash_xp_amount(level: int) -> int:
+	## 按当前等级升级门槛发放一整份，相对当前等级能看见涨幅；溢出走标准 gain_xp。
+	var k: int = maxi(level, 1) - 1
+	return CombatConstants.XP_BASE + CombatConstants.XP_LINEAR * k + CombatConstants.XP_QUAD * k * k
+
+
+static func alley_event_pool() -> Array:
+	var raw: Variant = data().get("alley_event_pool", [])
+	var out: Array = []
+	if raw is Array:
+		for item in raw:
+			if not (item is Dictionary):
+				continue
+			var id: String = str(item.get("id", "")).strip_edges()
+			if id != ALLEY_GUMBALL and id != ALLEY_TRASH:
+				continue
+			var w: float = maxf(0.0, float(item.get("weight", 1)))
+			out.append({"id": id, "weight": w})
+	if out.is_empty():
+		out.append({"id": ALLEY_GUMBALL, "weight": 1.0})
+		out.append({"id": ALLEY_TRASH, "weight": 1.0})
+	return out
+
+
+static func roll_alley_event(rng: RandomNumberGenerator) -> String:
+	var pool: Array = alley_event_pool()
+	var total: float = 0.0
+	for item in pool:
+		total += float(item.get("weight", 0.0))
+	if total <= 0.0 or rng == null:
+		return str(pool[0].get("id", ALLEY_GUMBALL))
+	var u: float = rng.randf() * total
+	var acc: float = 0.0
+	for item in pool:
+		acc += float(item.get("weight", 0.0))
+		if u <= acc:
+			return str(item.get("id", ALLEY_GUMBALL))
+	return str(pool[pool.size() - 1].get("id", ALLEY_GUMBALL))
+
+
+static func alley_event_title(kind: String) -> String:
+	if kind == ALLEY_GUMBALL:
+		return "糖果机"
+	if kind == ALLEY_TRASH:
+		return "垃圾桶"
+	return "随机事件"
+
+
+static func gumball_width() -> float:
+	return 118.0
+
+
+static func gumball_height() -> float:
+	return 208.0
+
+
+static func gumball_use_x() -> float:
+	return 59.0
+
+
+static func gumball_visual_pad() -> float:
+	return 12.0
+
+
+static func trash_width() -> float:
+	return 100.0
+
+
+static func trash_height() -> float:
+	return 156.0
+
+
+static func trash_use_x() -> float:
+	return 50.0
+
+
+static func trash_visual_pad() -> float:
+	return 12.0
+
+
+static func alley_clear_pad() -> float:
+	return 40.0
+
+
+static func alley_width(kind: String) -> float:
+	return gumball_width() if kind == ALLEY_GUMBALL else trash_width()
+
+
+static func alley_height(kind: String) -> float:
+	return gumball_height() if kind == ALLEY_GUMBALL else trash_height()
+
+
+static func alley_use_x(kind: String) -> float:
+	return gumball_use_x() if kind == ALLEY_GUMBALL else trash_use_x()
+
+
+static func alley_visual_pad(kind: String) -> float:
+	return gumball_visual_pad() if kind == ALLEY_GUMBALL else trash_visual_pad()
+
+
+static func alley_approach_travel_px(kind: String) -> float:
+	return shop_house_view_width() + alley_visual_pad(kind) + alley_use_x(kind)
+
+
+static func alley_exit_travel_px(kind: String) -> float:
+	return alley_width(kind) + alley_visual_pad(kind) + alley_clear_pad()
+
+
+static func walk_to_alley_sec(kind: String) -> float:
+	return alley_approach_travel_px(kind) / maxf(shop_walk_speed_px(), 0.01)
+
+
+static func walk_from_alley_sec(kind: String) -> float:
+	return alley_exit_travel_px(kind) / maxf(shop_walk_speed_px(), 0.01)
+
+
+static func alley_reward_pool() -> Array[int]:
+	## 与常规奖励池相同（含白板，若白板在奖励池里）；排除未启用/临时/罪孽。
+	var pool: Array[int] = []
+	var reg = _registry()
+	if reg == null:
+		return pool
+	for item in reg.all_ammo():
+		var aid: int = int(item.get("id", 0))
+		if reg.is_ammo_reward_eligible(aid):
+			pool.append(aid)
+	return pool
+
+
+static func roll_alley_ammo(rng: RandomNumberGenerator) -> int:
+	var pool: Array[int] = alley_reward_pool()
+	if pool.is_empty() or rng == null:
+		return CombatConstants.WHITE_AMMO_ID
+	return int(pool[rng.randi_range(0, pool.size() - 1)])
+

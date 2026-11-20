@@ -726,7 +726,14 @@ func _draw_box() -> void:
 	var pv: Vector2 = _sack_pivot()
 	var origin: Vector2 = pv + _sack_shift + Vector2(0.0, _sack_bob)
 	draw_set_transform(origin, _sack_tilt, Vector2.ONE)
-	_draw_sack(-pv, sz)
+	_draw_sack_body(-pv, sz)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	# 内碰撞区浅灰底：画在球后面，不是盖在球上的不透明遮罩。
+	var interior: PackedVector2Array = _sack_walls_world()
+	if interior.size() >= 3:
+		draw_colored_polygon(interior, SACK_INTERIOR)
+	draw_set_transform(origin, _sack_tilt, Vector2.ONE)
+	_draw_sack_trim(-pv, sz)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	# 子弹在盒坐标里（墙转、弹不跟着硬转），已出袋的仍画，好让它们掉进手区。
 	var tsec: float = Time.get_ticks_msec() * 0.001
@@ -747,14 +754,15 @@ func _draw_box() -> void:
 		var seedv: float = float(aid) * 0.37 + float(b.get("seed", 0.0))
 		var h: float = float(b.get("h", r * 2.0))
 		var fx_r: float = h * 0.36
-		if tier != RarityFx.TIER_COMMON:
+		var masked_center: bool = _point_in_sack_interior(pos)
+		if (not masked_center) and tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_back(self, pos, fx_r, bg, tier, tsec, seedv)
 		var ang: float = float(b.get("ang", 0.0))
-		_draw_bag_bullet(pos, h, ang, bg)
-		if tier != RarityFx.TIER_COMMON:
+		_draw_bag_bullet_masked(pos, h, ang, bg, interior)
+		if (not masked_center) and tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_front(self, pos, fx_r, tier, tsec, seedv)
 		# v0.4.36：仅 TTL>0 画寿命环（幽灵/小石头）；打出即毁临时只有半透明，无环无秒数
-		if is_temp_ball:
+		if is_temp_ball and not masked_center:
 			var life: float = float(b.get("life", 0.0))
 			if life > 0.0:
 				var full: float = float(temp_full_life_by_id.get(aid, temp_full_life))
@@ -763,7 +771,7 @@ func _draw_box() -> void:
 				draw_arc(pos, fx_r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, false)
 		var glyph: String = st["glyph"]
 		var fsize := label_font_size_for_height(h)
-		if font != null:
+		if font != null and not masked_center:
 			# 字永远正向对着玩家，画在子弹中心，不跟外形一起转
 			var tkey: String = "%s|%d" % [glyph, fsize]
 			var off = _text_off_cache.get(tkey)
@@ -785,7 +793,7 @@ func _draw_box() -> void:
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		# v0.4.30 嫉妒一次性复制：右上角绿菱
-		if bool(b.get("envy", false)):
+		if bool(b.get("envy", false)) and not masked_center:
 			var d: float = maxf(3.5, h * 0.12)
 			var tip: Vector2 = pos + Vector2(h * 0.18, -h * 0.22)
 			draw_colored_polygon(PackedVector2Array([
@@ -810,7 +818,7 @@ func _draw_box() -> void:
 			draw_string(
 				font2,
 				Vector2(sz.x * 0.5 - es.x * 0.5, sz.y * 0.5 - es.y * 0.5 + ea),
-				empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.65, 0.6, 0.5)
+				empty, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.62, 0.66, 0.70)
 			)
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
@@ -1051,6 +1059,13 @@ const SACK_BELLY_C := Vector2(0.50, 0.58)
 const SACK_BELLY_RX := 0.47
 const SACK_BELLY_RY := 0.40
 const SACK_NECK_GAP := 0.42
+## 外套：低饱和冷灰蓝，无高光无阴影。内碰撞区浅灰底，区内的球统一深灰。
+const SACK_OUTER := Color(0.40, 0.47, 0.53, 1.0)
+const SACK_LINE := Color(0.26, 0.32, 0.37, 1.0)
+const SACK_TIE := Color(0.20, 0.24, 0.28, 1.0)
+const SACK_INTERIOR := Color(0.74, 0.76, 0.78, 1.0)
+const SACK_BALL_MASK := Color(0.27, 0.28, 0.30, 1.0)
+const SACK_BALL_MASK_OUTLINE := Color(0.14, 0.15, 0.16, 1.0)
 
 
 static func _ellipse_pts(c: Vector2, rx: float, ry: float, n: int, a0: float = 0.0, a1: float = TAU) -> PackedVector2Array:
@@ -1313,13 +1328,81 @@ func reset_pour_pose() -> void:
 	sack_shift = Vector2.ZERO
 
 
+
+func sack_interior_poly() -> PackedVector2Array:
+	return _sack_walls_world()
+
+
+func _point_in_sack_interior(pos: Vector2) -> bool:
+	var poly: PackedVector2Array = _sack_walls_world()
+	if poly.size() < 3:
+		return false
+	return Geometry2D.is_point_in_polygon(pos, poly)
+
+
+func _circle_poly(pos: Vector2, rad: float, n: int = 24) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	if rad <= 0.2 or n < 5:
+		return pts
+	pts.resize(n)
+	for i in n:
+		var a: float = TAU * float(i) / float(n)
+		pts[i] = pos + Vector2(cos(a) * rad, sin(a) * rad)
+	return pts
+
+
+
+func _draw_poly_if_valid(part, col: Color) -> void:
+	if not (part is PackedVector2Array):
+		return
+	var pts: PackedVector2Array = part
+	if pts.size() < 3:
+		return
+	if Geometry2D.triangulate_polygon(pts).is_empty():
+		return
+	draw_colored_polygon(pts, col)
+
+
+func _draw_bag_bullet_masked(pos: Vector2, h: float, _ang: float, fill: Color, interior: PackedVector2Array) -> void:
+	## 空间遮罩只作用在球上：区内深灰、区外/倒出保持种类色。不改球的数据色。
+	var rad: float = circle_radius_for_height(h)
+	var mask := SACK_BALL_MASK
+	mask.a = fill.a
+	var mask_ol := SACK_BALL_MASK_OUTLINE
+	mask_ol.a = fill.a
+	if interior.size() < 3:
+		_draw_bag_bullet(pos, h, _ang, fill)
+		return
+	var circ: PackedVector2Array = _circle_poly(pos, rad, 24)
+	if circ.size() < 5:
+		_draw_bag_bullet(pos, h, _ang, fill)
+		return
+	var insides: Array = Geometry2D.intersect_polygons(circ, interior)
+	var outsides: Array = Geometry2D.clip_polygons(circ, interior)
+	var center_in: bool = Geometry2D.is_point_in_polygon(pos, interior)
+	# 先铺一层按圆心决定的底色，避免裁剪多边形无法三角化时球消失。
+	if center_in:
+		draw_circle(pos, rad, mask)
+	else:
+		draw_circle(pos, rad, fill)
+	for part in outsides:
+		_draw_poly_if_valid(part, fill)
+	for part2 in insides:
+		_draw_poly_if_valid(part2, mask)
+	if center_in:
+		draw_arc(pos, rad, 0.0, TAU, 28, mask_ol, BULLET_OUTLINE_W, true)
+	else:
+		draw_arc(pos, rad, 0.0, TAU, 28, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
+
+
 func _draw_sack(off: Vector2, sz: Vector2) -> void:
-	## off 是 -pivot，因为外层已按 pivot 旋转。扁平卡通皮袋：圆底、束带、口上翻边。
-	var leather := Color(0.83, 0.65, 0.43, 1.0)
-	var leather_d := Color(0.66, 0.46, 0.28, 0.55)
-	var leather_l := Color(0.91, 0.76, 0.56, 0.40)
-	var line := Color(0.45, 0.30, 0.16, 1.0)
-	var tie := Color(0.27, 0.15, 0.09, 1.0)
+	## 兼容旧调用：先画外套再画束口（不含内浅灰，内浅灰在 _draw_box 里按碰撞多边形画）。
+	_draw_sack_body(off, sz)
+	_draw_sack_trim(off, sz)
+
+
+func _draw_sack_body(off: Vector2, sz: Vector2) -> void:
+	## 扁平冷灰外套，无高光无阴影。
 	var mx := sz.x
 	var my := sz.y
 	var c: Vector2 = off + Vector2(SACK_BELLY_C.x * mx, SACK_BELLY_C.y * my)
@@ -1327,23 +1410,23 @@ func _draw_sack(off: Vector2, sz: Vector2) -> void:
 	var ry: float = (SACK_BELLY_RY + 0.025) * my
 	var belly: PackedVector2Array = _ellipse_pts(c, rx, ry, 28)
 	if belly.size() >= 3:
-		draw_colored_polygon(belly, leather)
-		var shade: PackedVector2Array = _ellipse_pts(c + Vector2(0.0, ry * 0.28), rx * 0.72, ry * 0.50, 18)
-		draw_colored_polygon(shade, leather_d)
-		var hi: PackedVector2Array = _ellipse_pts(c + Vector2(-rx * 0.18, -ry * 0.22), rx * 0.36, ry * 0.26, 14)
-		draw_colored_polygon(hi, leather_l)
+		draw_colored_polygon(belly, SACK_OUTER)
 		var ol := PackedVector2Array(belly)
 		ol.append(belly[0])
-		draw_polyline(ol, line, 2.2, true)
-	# 短口连到束带
+		draw_polyline(ol, SACK_LINE, 2.2, true)
 	var neck := PackedVector2Array([
 		off + Vector2(0.40 * mx, 0.22 * my),
 		off + Vector2(0.36 * mx, 0.155 * my),
 		off + Vector2(0.64 * mx, 0.155 * my),
 		off + Vector2(0.60 * mx, 0.22 * my),
 	])
-	draw_colored_polygon(neck, leather)
-	# 口上翻边：三个相叠的圆角，扁平卡通
+	draw_colored_polygon(neck, SACK_OUTER)
+
+
+func _draw_sack_trim(off: Vector2, sz: Vector2) -> void:
+	## 翻边和束带画在浅灰内区之上，避免被内区盖住。
+	var mx := sz.x
+	var my := sz.y
 	var flaps := [
 		[Vector2(0.38, 0.09), 0.10, 0.085],
 		[Vector2(0.50, 0.07), 0.15, 0.095],
@@ -1352,25 +1435,23 @@ func _draw_sack(off: Vector2, sz: Vector2) -> void:
 	for fl in flaps:
 		var fc: Vector2 = off + Vector2(float(fl[0].x) * mx, float(fl[0].y) * my)
 		var fp: PackedVector2Array = _ellipse_pts(fc, float(fl[1]) * mx, float(fl[2]) * my, 16)
-		draw_colored_polygon(fp, leather)
+		draw_colored_polygon(fp, SACK_OUTER)
 		var fo := PackedVector2Array(fp)
 		fo.append(fp[0])
-		draw_polyline(fo, line, 1.6, true)
-	# 深色束带
+		draw_polyline(fo, SACK_LINE, 1.6, true)
 	var band_c: Vector2 = off + Vector2(0.50 * mx, 0.165 * my)
 	var band: PackedVector2Array = _ellipse_pts(band_c, 0.13 * mx, 0.028 * my, 16)
-	draw_colored_polygon(band, tie)
-	# 带子向右落下
+	draw_colored_polygon(band, SACK_TIE)
 	draw_polyline(PackedVector2Array([
 		off + Vector2(0.60 * mx, 0.165 * my),
 		off + Vector2(0.72 * mx, 0.13 * my),
 		off + Vector2(0.80 * mx, 0.22 * my),
-	]), tie, maxf(3.0, mx * 0.016), true)
+	]), SACK_TIE, maxf(3.0, mx * 0.016), true)
 	draw_polyline(PackedVector2Array([
 		off + Vector2(0.61 * mx, 0.175 * my),
 		off + Vector2(0.74 * mx, 0.16 * my),
 		off + Vector2(0.82 * mx, 0.28 * my),
-	]), tie, maxf(2.4, mx * 0.013), true)
+	]), SACK_TIE, maxf(2.4, mx * 0.013), true)
 
 
 

@@ -34,8 +34,8 @@ func _force_walk_to_shop(cs: CombatState) -> void:
 	cs.campaign_try_advance()
 
 
-func test_version_is_0_4_74() -> void:
-	assert_eq(GameVersion.STRING, "0.4.74")
+func test_version_is_at_least_0_4_74() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.74") >= 0)
 	assert_true("0.4.74" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
