@@ -16,6 +16,7 @@ const CampaignBackdropScript = preload("res://scripts/combat/campaign_backdrop.g
 const ShopHouseScript = preload("res://scripts/combat/shop_house.gd")
 const GumballMachineScript = preload("res://scripts/combat/gumball_machine.gd")
 const TrashCanScript = preload("res://scripts/combat/trash_can.gd")
+const GumballCloseupScript = preload("res://scripts/combat/gumball_closeup.gd")
 
 ## 竖屏 720 宽：10 格 × 68 = 680
 const CELL_W := 68
@@ -296,6 +297,7 @@ var _alley_hint: Label = null
 var _alley_result: Label = null
 var _alley_use_btn: Button = null
 var _alley_leave_btn: Button = null
+var _gumball_closeup: GumballCloseup = null
 var _cat_hidden_in_house: bool = false
 var _volley_ui_running: bool = false
 ## v0.4.24：连射步进中（用慢一点、看得清的转一格动画）；上一发转盘动画时长（未乘速度）。
@@ -7224,6 +7226,8 @@ func _hide_alley_props() -> void:
 		_trash_can.set_prop_visible(false)
 	if _alley_panel != null:
 		_alley_panel.visible = false
+	if _gumball_closeup != null:
+		_gumball_closeup.close()
 
 
 func _sync_alley_prop() -> void:
@@ -7247,13 +7251,28 @@ func _sync_alley_prop() -> void:
 			_gumball_machine.set_prop_visible(false)
 		_trash_can.set_grounded(local_p.x, local_p.y)
 		_trash_can.set_prop_visible(true)
-	if state.alley_seq == CombatState.ALLEY_HOLD:
+	if state.alley_seq == CombatState.ALLEY_HOLD and kind == CampaignRules.ALLEY_GUMBALL:
+		# 购买特写占满交互层：隐藏街上的小机器和中间模态，避免挡住出球口。
+		if _gumball_machine != null:
+			_gumball_machine.set_prop_visible(false)
+		if _alley_panel != null:
+			_alley_panel.visible = false
+		_ensure_gumball_closeup()
+		_refresh_gumball_closeup()
+		if _gumball_closeup != null:
+			_gumball_closeup.present()
+	elif state.alley_seq == CombatState.ALLEY_HOLD:
+		if _gumball_closeup != null:
+			_gumball_closeup.close()
 		_ensure_alley_panel()
 		_refresh_alley_panel()
 		if _alley_panel != null:
 			_alley_panel.visible = not _reward_open
-	elif _alley_panel != null:
-		_alley_panel.visible = false
+	else:
+		if _gumball_closeup != null:
+			_gumball_closeup.close()
+		if _alley_panel != null:
+			_alley_panel.visible = false
 
 
 func _tick_alley_anim(dt: float) -> void:
@@ -7261,6 +7280,9 @@ func _tick_alley_anim(dt: float) -> void:
 		_gumball_machine.tick_anim(dt)
 	if _trash_can != null and _trash_can.visible:
 		_trash_can.tick_anim(dt)
+	if _gumball_closeup != null and _gumball_closeup.visible:
+		_gumball_closeup.tick(dt)
+		_refresh_gumball_closeup()
 
 
 func _ensure_alley_panel() -> void:
@@ -7370,6 +7392,63 @@ func _refresh_alley_panel() -> void:
 		_alley_leave_btn.disabled = state.reward_pending or state.pending_levelups > 0
 
 
+func _ensure_gumball_closeup() -> void:
+	if _gumball_closeup != null and is_instance_valid(_gumball_closeup):
+		return
+	_gumball_closeup = GumballCloseupScript.new()
+	_gumball_closeup.name = "GumballCloseup"
+	_gumball_closeup.z_as_relative = false
+	_gumball_closeup.z_index = Z_MODAL_PANEL + 2
+	_gumball_closeup.use_pressed.connect(_on_alley_use)
+	_gumball_closeup.leave_pressed.connect(_on_alley_leave)
+	add_child(_gumball_closeup)
+
+
+func _refresh_gumball_closeup() -> void:
+	if _gumball_closeup == null or state == null:
+		return
+	var price: int = CampaignRules.gumball_price()
+	var used: bool = state.alley_used
+	var hint := ""
+	var result := ""
+	if used:
+		hint = "已经摇过一次。看球掉下来停住后，再继续赶路。"
+		if state.alley_award_kind == "bullet":
+			var full: String = state._ammo_name(state.alley_awarded_id) if state.has_method("_ammo_name") else _ammo_bag_glyph(state.alley_awarded_id)
+			result = "得到子弹：%s" % full
+	elif state.gold >= price:
+		hint = "花 %d 金摇一次，随机得到一发奖励池子弹。看完掉落再进袋。也可以不花金币离开。" % price
+	else:
+		hint = "要 %d 金才能摇一次，现在不够。可以先离开，不扣金币。" % price
+	var leave_enabled: bool = state.alley_can_leave()
+	if used:
+		leave_enabled = leave_enabled and (state.alley_award_granted or _gumball_closeup.can_collect())
+	_gumball_closeup.set_copy(
+		CampaignRules.alley_event_title(CampaignRules.ALLEY_GUMBALL),
+		"金币：%d" % state.gold,
+		hint,
+		result,
+		"投币购买（%d金）" % price,
+		not used,
+		(not used) and state.gold >= price,
+		"继续" if used else "离开",
+		leave_enabled
+	)
+
+
+func _start_gumball_dispense() -> void:
+	_ensure_gumball_closeup()
+	if _gumball_closeup == null or state == null:
+		return
+	var cols: Dictionary = _ammo_colors(state.alley_awarded_id)
+	var fill: Color = cols.get("bg", Color(0.75, 0.55, 0.7, 1.0))
+	var fg: Color = cols.get("fg", Color(0.1, 0.1, 0.1))
+	var glyph: String = _ammo_bag_glyph(state.alley_awarded_id)
+	_gumball_closeup.present()
+	_gumball_closeup.play_dispense(state.alley_awarded_id, fill, fg, glyph)
+	_refresh_gumball_closeup()
+
+
 func _on_alley_use() -> void:
 	if state == null:
 		return
@@ -7377,27 +7456,30 @@ func _on_alley_use() -> void:
 		return
 	var ok: bool = state.alley_try_use()
 	if ok and state.alley_kind == CampaignRules.ALLEY_GUMBALL:
-		var fill := Color(0.75, 0.55, 0.7, 1.0)
-		var cols: Dictionary = _ammo_colors(state.alley_awarded_id)
-		if cols.has("bg"):
-			fill = cols["bg"]
-		if _gumball_machine != null:
-			_gumball_machine.play_dispense(state.alley_awarded_id, fill)
+		_start_gumball_dispense()
 	elif ok and state.alley_kind == CampaignRules.ALLEY_TRASH:
 		if _trash_can != null:
 			_trash_can.play_rummage(state.alley_award_kind)
 	_refresh()
 	_refresh_alley_panel()
+	_refresh_gumball_closeup()
 	_update_dimmer()
 
 
 func _on_alley_leave() -> void:
 	if state == null:
 		return
+	# 糖果机：球还没停稳时不能带走或跳过发奖。
+	if state.alley_kind == CampaignRules.ALLEY_GUMBALL and state.alley_has_pending_grant():
+		if _gumball_closeup == null or not _gumball_closeup.can_collect():
+			return
+		state.alley_collect_award()
 	if not state.alley_skip():
 		return
 	if _alley_panel != null:
 		_alley_panel.visible = false
+	if _gumball_closeup != null:
+		_gumball_closeup.close()
 	if _gumball_machine != null:
 		_gumball_machine.reset_anim()
 	if _trash_can != null:

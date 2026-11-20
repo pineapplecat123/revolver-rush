@@ -14,14 +14,14 @@ var knob_t: float = 0.0
 var ball_t: float = 0.0
 var awarded_id: int = 0
 var awarded_color: Color = Color(0.75, 0.55, 0.7, 1.0)
+var physics_drop: bool = false  ## 特写里用物理出球，不再画补间球
 var _anim: String = ""
 var _anim_age: float = 0.0
 
 
 func _ready() -> void:
 	visible = false
-	z_as_relative = false
-	z_index = 8
+	# z_index / z_as_relative 由放置方决定（街上机器 / 特写）。
 
 
 func set_grounded(left_x: float, ground_y: float) -> void:
@@ -37,6 +37,15 @@ func set_prop_visible(v: bool) -> void:
 
 func origin_global() -> Vector2:
 	return global_position if is_inside_tree() else position
+
+
+static func outlet_local() -> Vector2:
+	## 出球口开口中心（本地，原点在左下角，Y 向上为负）。
+	return Vector2(WIDTH * 0.5, -36.0 + 8.0)
+
+
+static func globe_center_local() -> Vector2:
+	return Vector2(WIDTH * 0.5, -78.0 - GLOBE_R + 4.0)
 
 
 func reset_anim() -> void:
@@ -101,10 +110,12 @@ func _draw() -> void:
 	])
 	draw_colored_polygon(ped, steel)
 	draw_polyline(PackedVector2Array(ped) + PackedVector2Array([ped[0]]), Color(0.22, 0.26, 0.30, 0.9), 1.6, true)
-	# 出球口（支柱上部下方）
+	# 出球口（支柱上部下方，开口要能看清球出来）
 	var out_c := foot + Vector2(0.0, -36.0)
-	draw_rect(Rect2(out_c.x - 14.0, out_c.y - 8.0, 28.0, 16.0), steel_d)
-	draw_arc(out_c + Vector2(0.0, 6.0), 11.0, PI, TAU, 16, Color(0.10, 0.11, 0.13, 1.0), 6.0, true)
+	draw_rect(Rect2(out_c.x - 16.0, out_c.y - 9.0, 32.0, 18.0), steel_d)
+	draw_rect(Rect2(out_c.x - 16.0, out_c.y - 9.0, 32.0, 18.0), Color(0.20, 0.24, 0.28, 1.0), false, 1.4)
+	draw_arc(out_c + Vector2(0.0, 7.0), 12.0, PI, TAU, 18, Color(0.08, 0.09, 0.10, 1.0), 7.0, true)
+	draw_arc(out_c + Vector2(0.0, 7.0), 7.0, PI, TAU, 14, Color(0.05, 0.05, 0.06, 1.0), 3.0, true)
 	# 前面金属板：投币口 + 摇把
 	var plate_r := Rect2(foot.x - 22.0, foot.y - 78.0, 44.0, 34.0)
 	draw_rect(plate_r, plate)
@@ -139,8 +150,8 @@ func _draw() -> void:
 	if cap_pts.size() >= 3:
 		draw_colored_polygon(cap_pts, steel_l)
 	draw_circle(cap_top + Vector2(0.0, 4.0), 7.0, accent)
-	# 出球动画：球从罩内落到出球口
-	if ball_t > 0.0:
+	# 出球动画：仅在非物理特写时画补间球（特写由 GumballCloseup 做真实掉落）。
+	if (not physics_drop) and ball_t > 0.0:
 		var start: Vector2 = globe_c + Vector2(0.0, 10.0)
 		var mid: Vector2 = Vector2(foot.x, foot.y - 78.0)
 		var end: Vector2 = out_c + Vector2(0.0, 2.0)
@@ -165,15 +176,15 @@ func _draw() -> void:
 
 
 func _draw_globe_balls(c: Vector2) -> void:
-	## 罩内固定位置的浅色小球，颜色克制，不抢界面。
-	var cols := [
-		Color(0.86, 0.62, 0.70, 0.95),
-		Color(0.70, 0.80, 0.72, 0.95),
-		Color(0.78, 0.74, 0.58, 0.95),
-		Color(0.68, 0.70, 0.84, 0.95),
-		Color(0.80, 0.68, 0.78, 0.95),
-		Color(0.62, 0.78, 0.80, 0.95),
-		Color(0.86, 0.72, 0.62, 0.95),
+	## 罩内小球跟弹药袋一样是圆球+描边，用克制的弹药色，不是另外一套糖果画法。
+	var fills := [
+		Color(0.85, 0.85, 0.88),
+		Color(0.32, 0.78, 0.42),
+		Color(0.95, 0.80, 0.22),
+		Color(0.86, 0.24, 0.22),
+		Color(0.70, 0.80, 0.72),
+		Color(0.68, 0.70, 0.84),
+		Color(0.86, 0.72, 0.62),
 	]
 	var pts := [
 		Vector2(0, 8), Vector2(-16, 0), Vector2(15, 2), Vector2(-8, 18),
@@ -185,9 +196,10 @@ func _draw_globe_balls(c: Vector2) -> void:
 	var j: float = 0.0
 	if ball_t > 0.0 and ball_t < 0.6:
 		j = sin(ball_t * 18.0) * (1.0 - ball_t) * 2.0
+	var h: float = 14.0
 	for i in pts.size():
 		var off: Vector2 = pts[i] + Vector2(j * (1.0 if i % 2 == 0 else -1.0), j * 0.4)
 		var p: Vector2 = c + off
 		if p.distance_to(c) > GLOBE_R - 8.0:
 			continue
-		draw_circle(p, 6.2, cols[i % cols.size()])
+		BagPhysicsBox.stamp_bag_bullet(self, p, h, 0.0, fills[i % fills.size()])

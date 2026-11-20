@@ -76,6 +76,7 @@ var alley_used: bool = false
 var alley_awarded_id: int = 0
 var alley_award_kind: String = ""
 var alley_award_amount: int = 0
+var alley_award_granted: bool = false  ## 糖果机：扣金后先出球，点继续才进袋
 ## 测试/演示：非空则下次开事件时用这个种类，用完清空。
 var alley_force_kind: String = ""
 ## 测试：>=0 时垃圾桶用该 0–1 随机数判定结果，不用 rng。
@@ -6068,6 +6069,7 @@ func clear_alley() -> void:
 	alley_awarded_id = 0
 	alley_award_kind = ""
 	alley_award_amount = 0
+	alley_award_granted = false
 
 
 func _alley_stage_duration(is_approach: bool) -> float:
@@ -6100,6 +6102,7 @@ func _begin_alley_approach() -> void:
 	alley_awarded_id = 0
 	alley_award_kind = ""
 	alley_award_amount = 0
+	alley_award_granted = false
 	var dur: float = _alley_stage_duration(true)
 	alley_seq = ALLEY_APPROACH
 	alley_stage_dur = dur
@@ -6152,13 +6155,12 @@ func alley_try_buy() -> bool:
 		return false
 	gold -= price
 	var aid: int = CampaignRules.roll_alley_ammo(rng)
-	_bag_append(aid, false)
-	_note_baseline_add(aid, false)
 	alley_used = true
 	alley_awarded_id = aid
 	alley_award_kind = "bullet"
 	alley_award_amount = 1
-	_log("糖果机：花 %d 金，摇出 %s，加入弹药袋（现 %d）。" % [price, _ammo_name(aid), bag.size()])
+	alley_award_granted = false
+	_log("糖果机：花 %d 金，摇出 %s。看完掉落后再加入弹药袋。" % [price, _ammo_name(aid)])
 	_emit()
 	return true
 
@@ -6206,6 +6208,28 @@ func alley_try_use() -> bool:
 	return alley_try_rummage()
 
 
+func alley_has_pending_grant() -> bool:
+	return (
+		alley_kind == CampaignRules.ALLEY_GUMBALL
+		and alley_used
+		and alley_award_kind == "bullet"
+		and alley_awarded_id > 0
+		and not alley_award_granted
+	)
+
+
+func alley_collect_award() -> bool:
+	## 把已扣费摇出的那发弹进袋和基准袋，只发一次。
+	if not alley_has_pending_grant():
+		return false
+	_bag_append(alley_awarded_id, false)
+	_note_baseline_add(alley_awarded_id, false)
+	alley_award_granted = true
+	_log("糖果机：%s 加入弹药袋（现 %d）。" % [_ammo_name(alley_awarded_id), bag.size()])
+	_emit()
+	return true
+
+
 func alley_can_leave() -> bool:
 	if alley_seq != ALLEY_HOLD:
 		return false
@@ -6216,6 +6240,9 @@ func alley_can_leave() -> bool:
 
 func alley_skip() -> bool:
 	## 不花钱离开，或用过之后点继续。升级尚未领完时不能离开。
+	## 若已经扣过钱但还没进袋，先发奖再离开，避免关面板丢弹。
+	if alley_has_pending_grant():
+		alley_collect_award()
 	if not alley_can_leave():
 		return false
 	_begin_alley_leave()
@@ -6223,6 +6250,8 @@ func alley_skip() -> bool:
 
 
 func _begin_alley_leave() -> void:
+	if alley_has_pending_grant():
+		alley_collect_award()
 	if alley_seq != ALLEY_HOLD and alley_seq != ALLEY_APPROACH:
 		return
 	if phase == Phase.LOST or phase == Phase.WON:

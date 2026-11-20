@@ -33,8 +33,8 @@ func _kill_wave(cs: CombatState) -> void:
 	cs.campaign_try_advance()
 
 
-func test_version_is_0_4_75() -> void:
-	assert_eq(GameVersion.STRING, "0.4.75")
+func test_version_is_at_least_0_4_75() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.75") >= 0)
 	assert_true("0.4.75" in FileAccess.get_file_as_string("res://data/changelog.json"))
 
 
@@ -120,19 +120,21 @@ func test_gumball_affordable_one_use_persistent_and_doubletap() -> void:
 	assert_true(cs.alley_can_buy())
 	assert_true(cs.alley_try_buy())
 	assert_eq(cs.gold, gold0 - 5)
-	assert_eq(cs.bag.size(), bag0 + 1)
+	assert_eq(cs.bag.size(), bag0, "扣金后先出球，进袋要等收集")
+	assert_true(cs.alley_has_pending_grant())
 	assert_eq(cs.alley_award_kind, "bullet")
 	assert_gt(cs.alley_awarded_id, 0)
 	assert_true(DataRegistry.is_ammo_reward_eligible(cs.alley_awarded_id))
-	assert_true(cs.alley_awarded_id in cs._combat_bag_baseline)
-	# 第二次购买无效
+	assert_false(cs.alley_awarded_id in cs._combat_bag_baseline)
+	# 第二次购买无效，也不再扣金
 	assert_false(cs.alley_try_buy())
 	assert_eq(cs.gold, gold0 - 5)
-	assert_eq(cs.bag.size(), bag0 + 1)
-	# 跳过不会再发一次
+	assert_eq(cs.bag.size(), bag0)
+	# 离开/模拟跳过会发一次奖，不会发两次
 	var aid: int = cs.alley_awarded_id
 	assert_true(cs.campaign_simulate_alley_skip())
 	assert_eq(cs.bag.size(), bag0 + 1)
+	assert_true(aid in cs._combat_bag_baseline)
 	assert_eq(cs._combat_bag_baseline.count(aid), 1)
 	assert_eq(cs.campaign_phase, CampaignRules.PHASE_COMBAT)
 	assert_eq(cs.campaign_wave, 2)
