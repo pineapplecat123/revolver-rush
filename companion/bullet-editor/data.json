@@ -1,7 +1,7 @@
 {
   "_schema": "v1. bullets[]: id, name, type, damage, rarity, school, effect, game_description, notes, muzzle_color, bullet_color (#RRGGBB), in_game (bool, true = 已入库), created_at, updated_at (ISO, +08:00). game_description is in-game copy; new bullets default to 普通的一个子弹... Existing rows migrate effect. New rows arrive via inbox/*.json and are merged by .github/workflows/bullet-editor-ingest.yml.",
   "schema": 1,
-  "updated_at": "2026-11-23T15:31:48+08:00",
+  "updated_at": "2026-11-23T15:32:34+08:00",
   "bullets": [
     {
       "id": "b20261113-133057-zror",
@@ -126,10 +126,10 @@
       "notes": "",
       "muzzle_color": "#52C76B",
       "bullet_color": "#4DE036",
-      "in_game": true,
+      "in_game": false,
       "created_at": "2026-11-16T10:34:10+08:00",
-      "updated_at": "2026-11-18T17:19:58+08:00",
-      "game_description": "弹夹里每有一个结束弹伤害+3"
+      "updated_at": "2026-11-23T15:32:34+08:00",
+      "game_description": "结束弹越多伤害越高！"
     },
     {
       "id": "b20261116-103520-uott",
