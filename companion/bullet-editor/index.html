@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14161d">
 <title>子弹数据</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=editor-ux-1">
 </head>
 <body>
 <div class="wrap">
@@ -56,13 +56,15 @@
           </div>
           <div>
             <label for="f_school">流派</label>
-            <input id="f_school" name="school" maxlength="20" list="schoolList">
-            <datalist id="schoolList"></datalist>
+            <select id="schoolPick" aria-label="选择已有流派"><option value="">新增 / 自定义流派</option></select>
+            <input id="f_school" name="school" maxlength="20" placeholder="选择上方流派，或输入新流派">
+            <div class="hint">可直接输入新流派，之后自动加入下拉选项。</div>
           </div>
         </div>
 
         <label for="f_effect">效果说明</label>
         <textarea id="f_effect" name="effect" maxlength="1000"></textarea>
+        <div class="hint">枪口强化统一使用【枪口火焰】【消耗枪口火焰】【火焰层数】（层数，不是秒数）。</div>
 
         <label for="f_game_description">游戏内描述</label>
         <textarea id="f_game_description" name="game_description" maxlength="2000" rows="4">普通的一个子弹...</textarea>
@@ -72,10 +74,10 @@
 
         <div class="row2">
           <div>
-            <label for="f_muzzle_color">枪口状态颜色</label>
+            <label for="f_muzzle_color">枪口火焰颜色</label>
             <div class="color-field">
-              <input id="f_muzzle_color" name="muzzle_color" type="color" value="#52C76B" aria-label="枪口状态颜色">
-              <input id="f_muzzle_color_hex" class="color-hex" maxlength="7" spellcheck="false" autocapitalize="off" autocomplete="off" value="#52C76B" aria-label="枪口状态颜色色值">
+              <input id="f_muzzle_color" name="muzzle_color" type="color" value="#52C76B" aria-label="枪口火焰颜色">
+              <input id="f_muzzle_color_hex" class="color-hex" maxlength="7" spellcheck="false" autocapitalize="off" autocomplete="off" value="#52C76B" aria-label="枪口火焰颜色色值">
               <button type="button" id="syncBulletColor" class="small">同步子弹颜色</button>
             </div>
           </div>
@@ -147,11 +149,29 @@
           </div>
         </div>
       </div>
+      <div id="facetCounts" class="hint" aria-live="polite"></div>
+      <button type="button" id="openExport" class="small" aria-controls="exportPanel" aria-expanded="false">选择内容并导出长图</button>
+      <section id="exportPanel" class="export-panel hidden" aria-label="长图导出">
+        <h3>导出单张 PNG 长图</h3>
+        <p class="hint">只导出已确认的数据，不含待确认提交。打开面板时生成快照；刷新不会改变这次选择。不上传任何内容。</p>
+        <div class="actions">
+          <button type="button" id="exportVisible" class="small">选中当前筛选结果</button>
+          <button type="button" id="exportAll" class="small">全选快照</button>
+          <button type="button" id="exportNone" class="small">清空</button>
+          <button type="button" id="closeExport" class="small">关闭</button>
+        </div>
+        <fieldset><legend>字段（名称始终保留）</legend><div id="exportFields" class="check-grid"></div></fieldset>
+        <fieldset><legend>子弹（按当前排序；可逐条勾选）</legend><div id="exportRecords" class="export-records"></div></fieldset>
+        <p id="exportStatus" class="hint" role="status"></p>
+        <button type="button" id="downloadExport" class="primary">生成并下载 PNG 长图</button>
+        <a id="exportDownload" class="btn hidden" target="_blank" rel="noopener" download="子弹数据.png">再次下载 / 打开长图</a>
+      </section>
       <div id="list" class="list"></div>
     </section>
   </main>
 </div>
 <script src="bullet_colors.js?v=1"></script>
-<script src="app.js?v=9"></script>
+<script src="overview.js?v=1"></script>
+<script src="app.js?v=editor-ux-1"></script>
 </body>
 </html>

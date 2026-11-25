@@ -32,7 +32,9 @@
   var filter = 'all', timer = null, busy = false, flashIds = {};
   var pending = load(K_PENDING, []);
   var editingId = load(K_EDIT, '') || '';
-  var view = load(K_VIEW, {}) || {};
+  var OV = window.BulletOverview;
+  var view = OV.defaultView(load(K_VIEW, {}) || {});
+  save(K_VIEW, view);
   if (typeof view !== 'object') view = {};
   if (view.q == null) view.q = '';
   if (view.type == null) view.type = '';
@@ -194,12 +196,12 @@
     meta.push('<span>流派 <b>' + (b.school ? esc(b.school) : '—') + '</b></span>');
     meta.push('<span>伤害 <b>' + (b.damage !== '' && b.damage != null ? esc(b.damage) : '—') + '</b></span>');
     meta.push('<span>稀有度 <b>' + (b.rarity ? esc(b.rarity) : '—') + '</b></span>');
-    meta.push(colorChip(b.muzzle_color || defaultMuzzleColor(b.name, b.type), '枪口'));
+    meta.push(colorChip(b.muzzle_color || defaultMuzzleColor(b.name, b.type), '枪口火焰'));
     meta.push(colorChip(b.bullet_color || defaultBulletColor(b.type), '子弹'));
     var h = '<div class="item' + (flashIds[b.id] ? ' flash' : '') + (editingId && editingId === b.id ? ' editing' : '') + '"><div class="top"><div class="name">' + esc(b.name) + '</div>' + badge + '</div>';
     h += '<div class="meta">' + meta.join('') + '</div>';
     if (b.game_description) h += '<div class="desc play">' + esc(b.game_description) + '</div>';
-    if (b.effect) h += '<div class="desc">' + esc(b.effect) + '</div>';
+    if (b.effect) h += '<div class="desc effect">' + esc(b.effect) + '</div>';
     if (b.notes) h += '<div class="desc note">备注：' + esc(b.notes) + '</div>';
     var t = shortTime(b.updated_at || b.created_at);
     if (t && !pend) h += '<div class="meta">更新于 ' + esc(t) + '</div>';
@@ -298,7 +300,7 @@
     hexEl.addEventListener('blur', function () { setColor(key, hexEl.value); rememberTypeValue(); });
   }
   function uniqueValues(key) {
-    var seen = {}, out = [];
+    var seen = Object.create(null), out = [];
     (doc ? doc.bullets : []).forEach(function (b) {
       var t = String(b[key] || '').trim();
       if (t && !seen[t]) { seen[t] = 1; out.push(t); }
@@ -323,6 +325,20 @@
     if (changed) { view.type = t; view.rarity = r; view.school = s; save(K_VIEW, view); }
     return changed;
   }
+  function updateFacetCounts(rows) {
+    var labels = { type: '类型', school: '流派', rarity: '稀有度' }, summaries = [];
+    Object.keys(labels).forEach(function (key) {
+      var c = OV.counts(rows, key, view, filter), values = Object.keys(c).sort(function (a, b) { return a.localeCompare(b, 'zh-CN'); });
+      var id = { type: 'filterType', school: 'filterSchool', rarity: 'filterRarity' }[key];
+      var html = '<option value="">全部（' + rows.filter(function (b) { return OV.matches(b, view, filter, key); }).length + '）</option>';
+      values.filter(Boolean).forEach(function (v) { html += '<option value="' + esc(v) + '">' + esc(v) + '（' + c[v] + '）</option>'; });
+      // Preserve selections, including zero-result facets, so changing another filter is predictable.
+      if ($(id).innerHTML !== html) $(id).innerHTML = html;
+      $(id).value = view[key];
+      if (key !== 'rarity') summaries.push(labels[key] + '：' + (values.map(function (v) { return (v || '未填写') + ' ' + c[v]; }).join(' · ') || '暂无'));
+    });
+    $('facetCounts').textContent = '数量仅统计已确认记录；各项数量遵循其他筛选条件（不受该项自身选择限制）。\n' + summaries.join('\n');
+  }
   function damageNum(v) {
     var n = parseFloat(String(v == null ? '' : v).trim());
     return isFinite(n) ? n : null;
@@ -338,8 +354,8 @@
     }
     if (view.sort === 'updated' || view.sort === 'created') {
       var field = view.sort === 'updated' ? 'updated_at' : 'created_at';
-      av = Date.parse(a[field]) || 0;
-      bv = Date.parse(b[field]) || 0;
+      av = view.sort === 'updated' ? OV.updatedStamp(a) : Date.parse(a[field]) || 0;
+      bv = view.sort === 'updated' ? OV.updatedStamp(b) : Date.parse(b[field]) || 0;
       return (av - bv) * mul;
     }
     av = String(a[view.sort] || '');
@@ -359,6 +375,8 @@
   function render() {
     var list = doc ? doc.bullets.slice() : [];
     list.sort(cmpBullets);
+    fillTypes();
+    updateFacetCounts(list);
     var nIn = list.filter(function (b) { return b.in_game; }).length;
     var tabbed = list.filter(function (b) { return filter === 'all' || (filter === 'in' ? b.in_game : !b.in_game); });
     var shown = tabbed.filter(matchesView);
@@ -460,6 +478,7 @@
     setColor('muzzle_color', (v && v.muzzle_color) || defaultMuzzleColor(name, type));
     setColor('bullet_color', (v && v.bullet_color) || defaultBulletColor(type));
     rememberTypeValue();
+    fillSchoolPicker();
   }
   function findBullet(id) {
     if (!id) return null;
@@ -526,14 +545,33 @@
   $('cancelEdit').addEventListener('click', function () { exitEdit(true); });
 
   function fillDatalist(id, key) {
-    var seen = {}, html = '';
+    var seen = Object.create(null), html = '';
     (doc ? doc.bullets : []).forEach(function (b) { var t = (b[key] || '').trim(); if (t && !seen[t]) { seen[t] = 1; html += '<option value="' + esc(t) + '"></option>'; } });
     if ($(id).innerHTML !== html) $(id).innerHTML = html;
   }
   function fillTypes() {
     fillDatalist('typeList', 'type');
-    fillDatalist('schoolList', 'school');
+    fillSchoolPicker();
   }
+  function fillSchoolPicker() {
+    var current = $('f_school').value.trim(), seen = Object.create(null);
+    (doc ? doc.bullets : []).concat(pending.map(function (p) { return p.rec; })).forEach(function (b) {
+      var name = String(b.school || '').trim(); if (name) seen[name] = true;
+    });
+    if (current) seen[current] = true;
+    var html = '<option value="">新增 / 自定义流派</option>';
+    Object.keys(seen).sort(function (a, b) { return a.localeCompare(b, 'zh-CN'); }).forEach(function (name) {
+      html += '<option value="' + esc(name) + '">' + esc(name) + '</option>';
+    });
+    if ($('schoolPick').innerHTML !== html) $('schoolPick').innerHTML = html;
+    $('schoolPick').value = current;
+  }
+  $('schoolPick').addEventListener('change', function () {
+    $('f_school').value = $('schoolPick').value;
+    save(K_DRAFT, formVals());
+    if (!$('schoolPick').value) $('f_school').focus();
+  });
+  $('f_school').addEventListener('input', fillSchoolPicker);
   function checkDup() {
     var n = norm($('f_name').value), el = $('dupHint');
     if (!n) { el.classList.add('hidden'); return; }
@@ -632,6 +670,62 @@
       : '提交会打开 GitHub 确认页：需要已登录的 GitHub 账号，在那里点一次绿色的「Commit changes」按钮就算交上去了。';
   }
   updateSubmitHint();
+
+  // ---------- local PNG export (snapshot, never changes records/drafts) ----------
+  var exportRows = [], exportVisibleIds = {}, exportUrl = '';
+  function exportSelection() {
+    var ids = Array.prototype.filter.call($('exportRecords').querySelectorAll('input'), function (el) { return el.checked; }).map(function (el) { return +el.value; });
+    return ids.map(function (index) { return exportRows[index]; });
+  }
+  function updateExportStatus() {
+    $('exportStatus').textContent = '已选 ' + exportSelection().length + ' / ' + exportRows.length + ' 颗；名称始终导出。';
+  }
+  function selectExport(mode) {
+    Array.prototype.forEach.call($('exportRecords').querySelectorAll('input'), function (el) {
+      el.checked = mode === 'all' || (mode === 'visible' && !!exportVisibleIds[exportRows[+el.value].id]);
+    });
+    updateExportStatus();
+  }
+  $('openExport').addEventListener('click', function () {
+    // Clone to isolate this selection from background polling or later edits.
+    $('exportDownload').classList.add('hidden');
+    $('openExport').setAttribute('aria-expanded', 'true');
+    exportRows = JSON.parse(JSON.stringify(doc ? doc.bullets : [])).sort(cmpBullets);
+    exportVisibleIds = Object.create(null);
+    exportRows.forEach(function (b) { if (OV.matches(b, view, filter)) exportVisibleIds[b.id] = true; });
+    $('exportRecords').innerHTML = exportRows.map(function (b, i) {
+      return '<label><input type="checkbox" value="' + i + '"><span>' + esc(b.name) + ' · ' + esc(b.type || '未填写类型') + ' · ' + esc(b.school || '未填写流派') + '</span></label>';
+    }).join('');
+    $('exportFields').innerHTML = OV.fields.map(function (field) {
+      return '<label><input type="checkbox" value="' + field[0] + '" checked><span>' + field[1] + '</span></label>';
+    }).join('');
+    $('exportPanel').classList.remove('hidden');
+    selectExport('visible');
+  });
+  $('closeExport').addEventListener('click', function () {
+    $('exportPanel').classList.add('hidden'); $('openExport').setAttribute('aria-expanded', 'false');
+  });
+  $('exportVisible').addEventListener('click', function () { selectExport('visible'); });
+  $('exportAll').addEventListener('click', function () { selectExport('all'); });
+  $('exportNone').addEventListener('click', function () { selectExport('none'); });
+  $('exportRecords').addEventListener('change', updateExportStatus);
+  $('downloadExport').addEventListener('click', async function () {
+    var button = $('downloadExport'); button.disabled = true;
+    $('exportStatus').textContent = '正在本机生成长图…';
+    try {
+      var rows = exportSelection();
+      var fields = Array.prototype.filter.call($('exportFields').querySelectorAll('input'), function (el) { return el.checked; }).map(function (el) { return el.value; });
+      var blob = await OV.png(rows, fields, document);
+      if (exportUrl) URL.revokeObjectURL(exportUrl);
+      exportUrl = URL.createObjectURL(blob);
+      var link = $('exportDownload'); link.href = exportUrl;
+      link.download = '子弹数据-' + iso8(new Date()).slice(0, 10) + '.png';
+      link.classList.remove('hidden'); link.click();
+      $('exportStatus').textContent = '已生成 ' + rows.length + ' 颗子弹的单张 PNG。若未自动下载，请点下方链接保存。';
+    } catch (err) { $('exportStatus').textContent = '导出失败：' + err.message; }
+    finally { button.disabled = false; }
+  });
+  window.addEventListener('beforeunload', function () { if (exportUrl) URL.revokeObjectURL(exportUrl); });
 
   // ---------- polling ----------
   function start() {
