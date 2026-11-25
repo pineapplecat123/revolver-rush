@@ -24,7 +24,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 OUT = Path(__file__).resolve().parents[2] / "companion" / "bullet-editor" / "submit-key.json"
-GATE = "6f1e76e002ffa351d514e393ef9b95a13a7609ae91688194a62dc5a3903afd32"
+GATE = "2add47c0a04a8ac5cc924e574f433fcae2b0bf427f2eb7a2bb9f6c23dcfc1f46"
 ITER = 200_000
 
 
