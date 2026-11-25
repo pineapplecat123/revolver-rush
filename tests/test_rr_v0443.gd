@@ -151,7 +151,7 @@ func test_descriptions_match_resolved_rules() -> void:
 	assert_true("0.5" in wz)
 	assert_true("空仓" in wz)
 	assert_true("枪口火焰" in wz)
-	assert_true("生成顺序" in wz)
+	assert_true("自身公式" in wz)
 
 
 func test_weizhong_def_and_starter_bag() -> void:

@@ -9,8 +9,9 @@ func test_persistent_fire_has_large_envelope_and_shrinks_each_layer() -> void:
 		assert_lt(shape.x, previous.x)
 		assert_lt(shape.y, previous.y)
 		previous = shape
-	assert_gte(HUD.flame_envelope([{"remaining":5}]).x, 180.0)
-	assert_gte(HUD.flame_envelope([{"remaining":5}]).y, 70.0)
+	var five := HUD.flame_envelope([{"remaining":5}])
+	assert_gte(five.y, 160.0)
+	assert_gt(five.y, five.x)
 	assert_eq(HUD.flame_envelope([]), Vector2.ZERO)
 func test_live_hud_icons_and_fire_follow_actual_consumption() -> void:
 	var cs := CombatState.new(48101)
@@ -66,11 +67,27 @@ func test_payload_progressively_emerges_for_readable_multiple_frames() -> void:
 	assert_eq(GumballCloseup.GRAVITY,BagPhysicsBox.GRAVITY)
 	assert_eq(GumballCloseup.RESTITUTION,BagPhysicsBox.RESTITUTION)
 
+func test_persistent_flame_silhouette_is_upright() -> void:
+	var shape := HUD.flame_envelope([{"remaining":5}])
+	var pts: PackedVector2Array = HUD._Flame.body_polygon(shape.x, shape.y, 0.2, 0)
+	var min_x := 9999.0
+	var max_x := -9999.0
+	var min_y := 9999.0
+	var max_y := -9999.0
+	for p in pts:
+		min_x = minf(min_x, p.x)
+		max_x = maxf(max_x, p.x)
+		min_y = minf(min_y, p.y)
+		max_y = maxf(max_y, p.y)
+	assert_gt(max_y - min_y, max_x - min_x, "silhouette must be taller than wide")
+	assert_gt(-min_y, max_y, "most of the body must extend upward from the muzzle")
+	assert_lt(max_x, -min_y, "must not be a forward horizontal jet")
+
 func test_animated_flame_outline_never_self_intersects() -> void:
 	for n in range(1,6):
 		var shape := HUD.flame_envelope([{"remaining":n}])
 		for frame in 160:
-			var pts: PackedVector2Array = HUD._Flame.body_polygon(shape.x,shape.y*0.5,float(frame)/60.0,0)
+			var pts: PackedVector2Array = HUD._Flame.body_polygon(shape.x,shape.y,float(frame)/60.0,0)
 			assert_false(Geometry2D.triangulate_polygon(pts).is_empty(),"flame polygon must not flicker/disappear at frame %d" % frame)
 	for frame in 160:
 		assert_false(Geometry2D.triangulate_polygon(EnhancedTracerFlame.flame_outline(float(frame)/60.0)).is_empty(),"burning tracer contour must stay drawable")

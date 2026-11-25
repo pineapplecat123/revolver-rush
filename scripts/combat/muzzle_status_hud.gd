@@ -99,7 +99,7 @@ func _process(delta: float) -> void:
 		_hide_popup()
 	else:
 		_flame.visible = muzzle != Vector2.ZERO
-		_flame.position = muzzle + Vector2(4, 0)
+		_flame.position = muzzle + Vector2(6, 0)
 		_flame.layers = entries
 		_flame.envelope = flame_envelope(entries)
 		_flame.tick(delta)
@@ -113,9 +113,9 @@ static func flame_envelope(entries: Array) -> Vector2:
 		count += maxi(0, int(e.get("remaining", 0)))
 	if count == 0:
 		return Vector2.ZERO
-	# Readable at the normal 450px portrait window, not only in enlarged shots.
+	# x = width of the rounded base, y = upward height. Taller than wide, like 🔥.
 	var weight := minf(float(count), 12.0)
-	return Vector2(64.0 + 24.0 * weight, 24.0 + 10.0 * weight)
+	return Vector2(48.0 + 13.0 * weight, 88.0 + 18.0 * weight)
 
 
 static func layer_icon_entries(entries: Array) -> Array:
@@ -300,36 +300,40 @@ class _Flame extends Node2D:
 		_t += delta
 		queue_redraw()
 
-	static func body_polygon(length: float, half_h: float, t: float, k: int) -> PackedVector2Array:
-		var pts := PackedVector2Array([Vector2(-5, 0)])
-		for i in range(1, 14):
-			var u := float(i) / 14.0
-			var taper := sin(u * PI) * (1.0 - u * 0.35)
-			var lick := 0.76 + 0.24 * sin(t * 15.0 - u * 27.0 + k)
-			pts.append(Vector2(u * length, -half_h * taper * lick - u * 8.0))
-		pts.append(Vector2(length * (1.03 + 0.02 * sin(t * 19.0)), -8))
-		for i in range(13, 0, -1):
-			var u := float(i) / 14.0
-			var taper := sin(u * PI) * (1.0 - u * 0.35)
-			var lick := 0.76 + 0.24 * sin(t * 17.0 - u * 25.0 + k + 2)
-			pts.append(Vector2(u * length, half_h * taper * lick - u * 8.0))
-		return pts
+	static func body_polygon(width: float, height: float, t: float, k: int) -> PackedVector2Array:
+		# Upright 🔥 silhouette in Godot Y-down space: wide rounded base, tapering irregular tips.
+		var w := width * 0.5
+		var tip := height * (0.90 + 0.10 * sin(t * 14.0 + float(k)))
+		var left_tip := height * (0.68 + 0.10 * sin(t * 17.0 + 1.3 + float(k)))
+		var right_tip := height * (0.74 + 0.09 * sin(t * 15.5 + 2.2 + float(k)))
+		var sway_l := sin(t * 11.0 + float(k)) * w * 0.07
+		var sway_r := sin(t * 13.0 + 2.0 + float(k)) * w * 0.07
+		return PackedVector2Array([
+			Vector2(-w * 0.50, 7.0),
+			Vector2(-w * 0.95, 2.0),
+			Vector2(-w * 1.02, -height * 0.16),
+			Vector2(-w * 0.80 + sway_l, -height * 0.38),
+			Vector2(-w * 0.50, -left_tip * 0.82),
+			Vector2(-w * 0.26 + sway_l, -left_tip),
+			Vector2(-w * 0.10, -height * 0.60),
+			Vector2(sway_l * 0.35, -tip),
+			Vector2(w * 0.12, -height * 0.62),
+			Vector2(w * 0.30 + sway_r, -right_tip),
+			Vector2(w * 0.55, -right_tip * 0.80),
+			Vector2(w * 0.86 + sway_r, -height * 0.36),
+			Vector2(w * 1.00, -height * 0.14),
+			Vector2(w * 0.95, 2.0),
+			Vector2(w * 0.50, 7.0),
+			Vector2(0.0, 9.0),
+		])
 
 	func _draw() -> void:
-		# Filled nested flame silhouettes, not sparse squares/thin tracer-like dots.
-		# Newest effect is outermost, oldest core remains its exact table color.
+		# Nested upright shells; newest group is outermost. Cap 8 visual shells.
 		var count := mini(layers.size(), 8)
 		for k in range(count - 1, -1, -1):
 			var c: Color = layers[k].get("color", Color(1, 0.7, 0.2))
-			var shell := 0.48 + 0.52 * float(k + 1) / float(count)
-			var length := envelope.x * shell
-			var half_h := envelope.y * 0.5 * shell
-			draw_colored_polygon(body_polygon(length, half_h, _t, k), c)
-			# Detached upward tongues give a clearly burning silhouette.
-			for j in 3:
-				var x := length * (0.23 + float(j) * 0.19)
-				var wob := sin(_t * 13.0 + float(j + k))
-				draw_colored_polygon(PackedVector2Array([Vector2(x - 12, 0), Vector2(x + 13 + wob * 5, -half_h * (0.9 + 0.15 * wob)), Vector2(x + 8, 5)]), c)
+			var shell := 0.55 + 0.45 * float(k + 1) / float(count)
+			draw_colored_polygon(body_polygon(envelope.x * shell, envelope.y * shell, _t, k), c)
 
 
 class _Puff extends Node2D:
@@ -348,9 +352,9 @@ class _Puff extends Node2D:
 		var grow := 5.0 + k * 6.0
 		for i in 8:
 			var u := float(i) / 7.0
-			var ang := -0.45 + u * 0.9 + sin(_age * 20.0 + float(i)) * 0.08
-			var dist := (10.0 + u * 14.0) * grow
-			var p := Vector2.RIGHT.rotated(ang) * dist + Vector2(0, -u * 7.0 * grow)
+			var ang := -0.40 + u * 0.80 + sin(_age * 20.0 + float(i)) * 0.08
+			var dist := (10.0 + u * 16.0) * grow
+			var p := Vector2.UP.rotated(ang) * dist + Vector2((u - 0.5) * 8.0, 0)
 			var col := color.lerp(Color(1, 0.95, 0.7), 0.4 * (1.0 - u))
 			col.a = (1.0 - k) * (0.95 - u * 0.3)
 			var s := (30.0 - u * 10.0) * (1.15 - k * 0.3)

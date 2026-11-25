@@ -23,6 +23,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from flame_copy import strip_appended_effect, strip_universal_flame_rules
 
 ROOT = Path(__file__).resolve().parents[1]
 EDITOR = ROOT / "companion" / "bullet-editor" / "data.json"
@@ -64,12 +65,12 @@ def apply_editor_row(ammo: dict, editor: dict) -> list[str]:
     if name and ammo.get("name") != name:
         ammo["name"] = name
         changes.append("name")
-    effect = str(editor.get("effect") or "").strip()
+    effect = strip_universal_flame_rules(str(editor.get("effect") or "").strip())
     if effect and ammo.get("special") != effect:
         ammo["special"] = effect
         changes.append("special")
     if "game_description" in editor:
-        gd = str(editor.get("game_description") or "")
+        gd = strip_appended_effect(str(editor.get("game_description") or ""), effect)
         if ammo.get("game_description") != gd:
             ammo["game_description"] = gd
             changes.append("game_description")
@@ -111,6 +112,13 @@ def apply_editor_row(ammo: dict, editor: dict) -> list[str]:
         if col and ammo.get(key) != col:
             ammo[key] = col
             changes.append(key)
+    ms = ammo.get("muzzle_status")
+    if isinstance(ms, dict) and "effect_description" in ms:
+        # Keep this in-game field aligned with the stripped unique effect text.
+        cleaned = effect if effect else strip_universal_flame_rules(str(ms.get("effect_description") or "").strip())
+        if str(ms.get("effect_description") or "") != cleaned:
+            ms["effect_description"] = cleaned
+            changes.append("muzzle_status.effect_description")
     return changes
 
 

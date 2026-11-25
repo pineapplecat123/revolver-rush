@@ -6,6 +6,7 @@
 
 - 在线试玩（GitHub Pages）：https://pineapplecat123.github.io/revolver-rush/（需在仓库 Settings → Pages 启用 GitHub Actions 部署）
 - 单元测试：[GUT 9.7.1](https://github.com/bitwes/Gut)（已内置在 `addons/gut`）
+- 枪口火焰等已确定的普适规则：[`docs/game_rules.md`](docs/game_rules.md)（编辑器内也可打开同名说明）
 
 ## 目录结构
 

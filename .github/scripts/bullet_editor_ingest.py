@@ -24,6 +24,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT / "tools") not in sys.path:
+    sys.path.insert(0, str(ROOT / "tools"))
+from flame_copy import strip_appended_effect, strip_universal_flame_rules
 BASE = ROOT / "companion" / "bullet-editor"
 DATA = BASE / "data.json"
 INBOX = BASE / "inbox"
@@ -66,6 +69,10 @@ def clean_record(rec, fallback_id: str = ""):
         if k == "game_description" and "game_description" not in rec:
             continue
         clean[k] = str(rec.get(k) if rec.get(k) is not None else "").strip()[:n]
+        if k in ("effect", "game_description"):
+            clean[k] = strip_universal_flame_rules(clean[k])[:n]
+    if "game_description" in clean:
+        clean["game_description"] = strip_appended_effect(clean["game_description"], clean.get("effect", ""))[:TEXT_FIELDS["game_description"]]
     if not clean["name"]:
         raise ValueError("missing name")
     for key in COLOR_FIELDS:
