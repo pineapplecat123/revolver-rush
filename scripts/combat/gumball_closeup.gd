@@ -38,6 +38,8 @@ var _leave_btn: Button = null
 var _chrome: Control = null
 var _actions: Control = null
 var _ball_view: Control = null
+var _hopper_ball_clip: Control = null
+var _outlet_ball_clip: Control = null
 
 var _session: bool = false
 var _balls: Array = []  # {id, pos, vel, asleep, freeze, payload, in_tray, floor_hits, bounce, fill, fg, glyph}
@@ -100,6 +102,10 @@ func _ensure_children() -> void:
 		_ball_view.z_index = 6
 		_ball_view.draw.connect(_on_ball_view_draw)
 		add_child(_ball_view)
+	if _hopper_ball_clip == null:
+		_hopper_ball_clip = _make_ball_clip("HopperBallClip")
+		_outlet_ball_clip = _make_ball_clip("OutletBallClip")
+
 	if _chrome == null or not is_instance_valid(_chrome):
 		_chrome = Control.new()
 		_chrome.name = "CloseupChrome"
@@ -1097,15 +1103,34 @@ func _notification(what: int) -> void:
 		_clear_balls()
 
 
-func _on_ball_view_draw() -> void:
-	if _ball_view == null or not visible:
-		return
+func casing_top_y() -> float:
+	return machine_foot().y - 78.0 * machine_scale()
+
+
+func outlet_reveal_y() -> float:
+	# Fixed spatial aperture, NOT a per-body visible switch. The same circle and
+	# glyph are progressively clipped as they enter/leave the opaque front casing.
+	return machine_foot().y - 36.0 * machine_scale()
+
+
+func _make_ball_clip(node_name: String) -> Control:
+	var ci := Control.new()
+	ci.name = node_name
+	ci.clip_contents = true
+	ci.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ci.show_behind_parent = true
+	ci.draw.connect(_draw_clipped_balls.bind(ci))
+	_ball_view.add_child(ci)
+	return ci
+
+
+func _draw_clipped_balls(ci: Control) -> void:
 	# 球（正常种类色，不加袋内深灰遮罩）
 	var font: Font = get_theme_default_font()
 	for b in _balls:
-		var pos: Vector2 = b["pos"]
+		var pos: Vector2 = b["pos"] - ci.position
 		var fill: Color = b.get("fill", Color(0.85, 0.85, 0.88))
-		BagPhysicsBox.stamp_bag_bullet(_ball_view, pos, BALL_HEIGHT, 0.0, fill)
+		BagPhysicsBox.stamp_bag_bullet(ci, pos, BALL_HEIGHT, 0.0, fill)
 		var glyph: String = str(b.get("glyph", ""))
 		if glyph.is_empty() or font == null:
 			continue
@@ -1113,11 +1138,22 @@ func _on_ball_view_draw() -> void:
 		var fsize: int = BagPhysicsBox.label_font_size_for_height(BALL_HEIGHT)
 		var ts: Vector2 = font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
 		var text_pos := Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
-		_ball_view.draw_set_transform(pos, 0.0, Vector2.ONE)
+		ci.draw_set_transform(pos, 0.0, Vector2.ONE)
 		var oc := Color(0.08, 0.08, 0.1, 0.7) if fg.r + fg.g + fg.b > 1.6 else Color(1, 1, 1, 0.35)
-		_ball_view.draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 2, oc)
-		_ball_view.draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
-		_ball_view.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		ci.draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 2, oc)
+		ci.draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+		ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _on_ball_view_draw() -> void:
+	if _ball_view == null or not visible:
+		return
+	_hopper_ball_clip.position = Vector2.ZERO
+	_hopper_ball_clip.size = Vector2(_ref_size().x, casing_top_y())
+	_outlet_ball_clip.position = Vector2(0, outlet_reveal_y())
+	_outlet_ball_clip.size = Vector2(_ref_size().x, maxf(0, _ref_size().y - outlet_reveal_y()))
+	_hopper_ball_clip.queue_redraw()
+	_outlet_ball_clip.queue_redraw()
 	# 玻璃罩画在球上面，半透明，能看见里面在滚
 	var gc: Vector2 = globe_center()
 	var gR: float = globe_radius() + 8.0

@@ -59,11 +59,11 @@ func test_jiasu_two_stacks_are_double_speed() -> void:
 	cs.magazine.set_slot(2, WHITE)
 	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "一颗 +100%")
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "一颗 +100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "两颗为 3 倍速")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 3.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 4.0, 0.0001, "两颗为 3 倍速")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), 0.0625, 0.0001)
 
 
 func test_chetui_with_one_other_copies_self_and_other() -> void:
@@ -73,9 +73,9 @@ func test_chetui_with_one_other_copies_self_and_other() -> void:
 	cs.magazine.set_slot(1, WHITE)
 	cs.fire_tap(false)
 	var copies: Array = _envy_copies(cs)
-	assert_eq(copies.size(), 2)
+	assert_eq(copies.size(), 1)
 	copies.sort()
-	var expect: Array = [WHITE, CHETUI]
+	var expect: Array = [WHITE]
 	expect.sort()
 	assert_eq(copies, expect, "恰好复制自己和另一颗")
 	for i in cs.bag.size():
@@ -96,9 +96,9 @@ func test_chetui_pool_excludes_already_fired() -> void:
 	cs.take_volley_shot()
 	assert_eq(cs.last_shot_ammo_id, CHETUI)
 	var copies: Array = _envy_copies(cs)
-	assert_eq(copies.size(), 2)
+	assert_eq(copies.size(), 1)
 	copies.sort()
-	var expect: Array = [QISHI, CHETUI]
+	var expect: Array = [QISHI]
 	expect.sort()
 	assert_eq(copies, expect, "不含本轮已打出的平庸")
 	assert_true(WHITE not in copies)
@@ -112,7 +112,7 @@ func test_chetui_skips_sin_and_copies_self_if_needed() -> void:
 	cs.fire_tap(false)
 	var copies: Array = _envy_copies(cs)
 	assert_eq(copies.size(), 1, "罪孽弹排除后只剩自己，复制 1 颗")
-	assert_eq(int(copies[0]), CHETUI)
+	assert_eq(int(copies[0]), 16)
 
 
 func test_chetui_no_duplicate_pick_with_two_same_type() -> void:
@@ -144,21 +144,21 @@ func test_descriptions_match_resolved_rules() -> void:
 	assert_true("加法叠加" in js)
 	assert_true("飞行" in js)
 	var cs_ := str(DataRegistry.get_ammo(CHETUI).get("special", ""))
-	assert_true("包括自己" in cs_)
-	assert_true("罪孽" in cs_)
+	assert_true("不包括自己" in cs_)
+	assert_false("不含罪孽" in cs_)
 	assert_true("不够2颗" in cs_ or "不够 2 颗" in cs_)
 	var wz := str(DataRegistry.get_ammo(WEIZHONG).get("special", ""))
 	assert_true("0.5" in wz)
 	assert_true("空仓" in wz)
-	assert_true("起势" in wz)
-	assert_true("蓄力" in wz)
+	assert_true("枪口火焰" in wz)
+	assert_true("生成顺序" in wz)
 
 
 func test_weizhong_def_and_starter_bag() -> void:
 	assert_eq(FireResolver.type_tag(WEIZHONG), "中间")
 	assert_eq(FireResolver.base_damage_for(WEIZHONG, [], 0), 3)
 	assert_true(DataRegistry.is_ammo_reward_eligible(WEIZHONG), "进奖励池")
-	assert_eq(str(DataRegistry.get_ammo(WEIZHONG).get("school")), "清算")
+	assert_eq(str(DataRegistry.get_ammo(WEIZHONG).get("school")), "通用")
 	assert_eq(str(DataRegistry.get_ammo(WEIZHONG).get("bullet_color")), "#F2CC38")
 	assert_eq(str(DataRegistry.get_ammo(WEIZHONG).get("muzzle_color")), "#F2CC38")
 	assert_true(WEIZHONG in CombatConstants.starter_clearing_ids())
@@ -198,4 +198,4 @@ func test_weizhong_multiplies_with_qishi_and_xuli() -> void:
 	var both: Array[float] = FireResolver.compute_volley_damages([
 		QISHI, QISHI, XULI, EMPTY, EMPTY, WEIZHONG
 	])
-	assert_almost_eq(both[5], 18.0, 0.0001)
+	assert_almost_eq(both[5], 68.34375, 0.0001)

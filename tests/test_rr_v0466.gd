@@ -140,7 +140,7 @@ func test_long_modifier_wraps_inside_hud_without_covering_controls() -> void:
 	ui.state.magazine.set_slot(0, CombatConstants.BAIBAN_AMMO_ID)
 	ui._update_sandbox_stats_hud()
 	await wait_process_frames(3)
-	assert_true(qn + "+" in str(ui._sb_stats_mod.text))
+	assert_true(qn + "×" in str(ui._sb_stats_mod.text))
 	assert_true(xn in str(ui._sb_stats_mod.text))
 	assert_true(hn in str(ui._sb_stats_mod.text))
 	var action := ui.get_node_or_null("%ActionRow") as Control

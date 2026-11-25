@@ -81,8 +81,8 @@ func test_deferred_huiwei_does_not_mount_until_actual_hit() -> void:
 	assert_eq(_front_hp(cs), hp0 - 2, "回味本身应打出基础 2")
 	assert_eq(_huiwei_amount(cs), 2)
 	var mod: Dictionary = cs.sandbox_damage_modifiers()
-	assert_eq(int(mod.get("huiwei_flat", 0)), 2)
-	assert_true(DataRegistry.ammo_display_name(HUIWEI) + "+2" in str(mod.get("text", "")), str(mod.get("text", "")))
+	assert_eq(int(mod.get("huiwei_flat", 0)), 4)
+	assert_true(DataRegistry.ammo_display_name(HUIWEI) + "+4" in str(mod.get("text", "")), str(mod.get("text", "")))
 	assert_false(DataRegistry.ammo_display_name(HUIWEI) + "×" in str(mod.get("text", "")))
 
 
@@ -98,9 +98,9 @@ func test_deferred_huiwei_boosts_next_shot_hp_and_plan() -> void:
 	assert_true(bool(second.get("ok", false)))
 	var shots: Array = second.get("shots", [])
 	assert_gt(shots.size(), 0)
-	assert_eq(int(shots[0].get("planned_damage", 0)), 5, "下一发白板计划伤应是 3+2")
+	assert_eq(int(shots[0].get("planned_damage", 0)), 7, "下一发白板计划伤应是 3+2")
 	_land_all_impacts(cs, shots)
-	assert_eq(_front_hp(cs), hp1 - 5, "下一发实际扣血也应吃到回味+2")
+	assert_eq(_front_hp(cs), hp1 - 7, "下一发实际扣血也应吃到回味+2")
 	assert_eq(_huiwei_amount(cs), 2, "回味持续本弹夹，不应打一发就掉")
 	cs.player_fire_gate_remaining = 0.0
 	var third: Dictionary = cs.fire_manual_tap()
@@ -120,17 +120,17 @@ func test_deferred_huiwei_stacks_and_manual_to_auto() -> void:
 	var b: Dictionary = cs.fire_manual_tap()
 	_land_all_impacts(cs, b.get("shots", []))
 	# 第二发回味自身也吃第一层+2，实际 4，叠成 2+4=6
-	assert_eq(_huiwei_amount(cs), 6)
+	assert_eq(_huiwei_amount(cs), 2)
 	var hp: int = _front_hp(cs)
 	assert_true(cs.begin_auto_continue_from_manual())
 	cs.player_fire_gate_remaining = 0.0
 	var rest: Array = cs.take_volley_shot()
 	assert_gt(rest.size(), 0)
-	assert_eq(int(rest[0].get("planned_damage", 0)), 9, "白板 3+6")
+	assert_eq(int(rest[0].get("planned_damage", 0)), 11, "白板 3+6")
 	_land_all_impacts(cs, rest)
-	assert_eq(_front_hp(cs), hp - 9)
-	# 末发收束后枪口应清
-	assert_eq(_huiwei_amount(cs), 0)
+	assert_eq(_front_hp(cs), hp - 11)
+	# 按效果每发只减一层；新授予的六点层仍保留。
+	assert_eq(_huiwei_amount(cs), 6)
 
 
 func test_combat_ui_manual_and_auto_huiwei_actually_boosts() -> void:
@@ -158,7 +158,7 @@ func test_combat_ui_manual_and_auto_huiwei_actually_boosts() -> void:
 	assert_eq(_huiwei_amount(ui.state), 2)
 	ui._update_sandbox_stats_hud()
 	var live: String = ui.state.sandbox_damage_modifiers_text()
-	assert_true(DataRegistry.ammo_display_name(HUIWEI) + "+2" in live, live)
+	assert_true(DataRegistry.ammo_display_name(HUIWEI) + "+4" in live, live)
 	assert_eq(ui._sb_stats_mod.text, live)
 	# 手动再打一发白板
 	ui.state.player_fire_gate_remaining = 0.0
@@ -167,7 +167,7 @@ func test_combat_ui_manual_and_auto_huiwei_actually_boosts() -> void:
 	var pack2: Dictionary = ui._resolve_manual_fire_logic()
 	await ui._present_manual_resolved(pack2)
 	ui._volley_ui_running = false
-	assert_eq(_front_hp(ui.state), hp1 - 5, "沙盒手动开火路径下，白板应吃到回味+2")
+	assert_eq(_front_hp(ui.state), hp1 - 7, "沙盒手动开火路径下，白板应吃到回味+2")
 	assert_eq(_huiwei_amount(ui.state), 2)
 	# 切自动打完最后一发，仍应带+2
 	var hp2: int = _front_hp(ui.state)

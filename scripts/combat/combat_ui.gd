@@ -773,11 +773,16 @@ func _ensure_muzzle_hud() -> void:
 	# v0.4.41：齐射加强图标跟在「枪口：」后面，不再贴在场上枪口旁边
 	_volley_buff_host = HBoxContainer.new()
 	_volley_buff_host.name = "VolleyBuffHost"
-	_volley_buff_host.add_theme_constant_override("separation", 3)
+	_volley_buff_host.add_theme_constant_override("separation", 1)
 	_volley_buff_host.alignment = BoxContainer.ALIGNMENT_CENTER
 	_volley_buff_host.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_volley_buff_host.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	row.add_child(_volley_buff_host)
+	var layer_scroll := ScrollContainer.new()
+	layer_scroll.name = "FlameLayersScroll"
+	layer_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	layer_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	layer_scroll.add_child(_volley_buff_host)
+	row.add_child(layer_scroll)
 	var chip_wrap := Control.new()
 	chip_wrap.name = "MuzzleChipWrap"
 	chip_wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -2726,6 +2731,11 @@ func _animate_shot_projectile(
 	tip.gradient = _cached_tip_gradient(hc0, hc1)
 	tip.points = PackedVector2Array([Vector2(SHOT_TIP_LEAD * scale, 0), Vector2(-SHOT_TIP_LEN * scale, 0)])
 	tip.visible = true
+	if n_buff > 0:
+		var burn := EnhancedTracerFlame.new()
+		burn.colors = buff_cols
+		burn.size_factor = scale
+		host.add_child(burn)
 	if powder:
 		_attach_powder_trail(host)
 	if sin_shot:

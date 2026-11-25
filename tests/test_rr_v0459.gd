@@ -40,10 +40,10 @@ func test_renamed_ingested_ammo_keep_ids() -> void:
 	assert_eq(FireResolver.type_tag(ZHONGSHEN), "结束")
 
 
-func test_jia_shang_and_bei_shang_still_skip_start_types() -> void:
-	# 规则在更名后保持原实现：开始弹互不影响；倍伤穿过开始与空仓，由下一发非开始消耗。
+func test_flames_preserve_zero_damage_start_types_and_empty_chambers() -> void:
+	# t640：零伤害开始弹与空仓保留火焰；不是按开始类型豁免。
 	var d: Array[float] = FireResolver.compute_volley_damages([QISHI, QISHI, BAIBAN])
-	assert_almost_eq(d[2], 6.0, 0.0001)  # 两层加伤 +100%
+	assert_almost_eq(d[2], 10.125, 0.0001)  # 三层逐层相乘：3×1.5³
 	d = FireResolver.compute_volley_damages([XULI, QISHI, BAIBAN])
 	# 倍伤穿过开始弹，加伤再叠一层：3×1.5×1.5=6.75
 	assert_almost_eq(d[2], 6.75, 0.0001)
@@ -61,7 +61,7 @@ func test_sui_ji_fu_zhi_still_copies_loaded() -> void:
 	cs.magazine.set_slot(1, BAIBAN)
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	cs.fire_tap(true)
-	assert_eq(cs.bag.size(), 2)
+	assert_eq(cs.bag.size(), 1)
 	for i in cs.bag.size():
 		assert_eq(float(cs.bag_temp[i]), CombatConstants.FIRE_ONCE_TEMP)
 		assert_true(bool(cs.bag_envy_copy[i]))
@@ -91,27 +91,27 @@ func test_die_shi_bonus_needs_streak_of_two() -> void:
 
 
 func test_chuandi_passes_bonus_to_next_shot() -> void:
-	# 加伤后传递 3×1.5=4.5→5，多出 2，传给白板：3×1.5+2=6.5→7
+	# 两层加伤使传递 3×1.5²=6.75→7，超额4；白板先乘剩余加伤，再加4→9
 	var d: Array[int] = FireResolver.compute_shot_damages([QISHI, CHUANDI, BAIBAN])
-	assert_eq(d[1], 5)
-	assert_eq(d[2], 7)
+	assert_eq(d[1], 7)
+	assert_eq(d[2], 9)
 	# 没有加强则不传
 	var plain: Array[int] = FireResolver.compute_shot_damages([CHUANDI, BAIBAN])
 	assert_eq(plain[0], 3)
 	assert_eq(plain[1], 3)
 	# 空仓之后的下一颗实际子弹接收
 	var gap: Array[int] = FireResolver.compute_shot_damages([QISHI, CHUANDI, EMPTY, BAIBAN])
-	assert_eq(gap[1], 5)
-	assert_eq(gap[3], 7)
+	assert_eq(gap[1], 7)
+	assert_eq(gap[3], 9)
 
 
 func test_baochuan_pierces_only_when_planned_over_7() -> void:
 	assert_false(FireResolver.shot_self_pierce(BAOCHUAN, 7))
 	assert_true(FireResolver.shot_self_pierce(BAOCHUAN, 8))
 	assert_false(FireResolver.shot_self_pierce(BAIBAN, 9))
-	# 三层加伤：3×2.5=7.5→8
+	# 三次授予共六层：3×1.5⁶=34.171875→34
 	var d: Array[int] = FireResolver.compute_shot_damages([QISHI, QISHI, QISHI, BAOCHUAN])
-	assert_eq(d[3], 8)
+	assert_eq(d[3], 34)
 	assert_true(FireResolver.shot_self_pierce(BAOCHUAN, d[3]))
 	var low: Array[int] = FireResolver.compute_shot_damages([QISHI, BAOCHUAN])
 	assert_eq(low[1], 5)
@@ -142,9 +142,9 @@ func test_baochuan_self_pierce_decays_and_does_not_mount_muzzle() -> void:
 	cs.fire_tap(true)
 	assert_true(cs.last_shot_was_pierce)
 	assert_eq(cs.last_shot_hit_amounts.size(), 3)
-	assert_eq(cs.last_shot_hit_amounts[0], 8)
-	assert_eq(cs.last_shot_hit_amounts[1], 7)
-	assert_eq(cs.last_shot_hit_amounts[2], 6)
+	assert_eq(cs.last_shot_hit_amounts[0], 34)
+	assert_eq(cs.last_shot_hit_amounts[1], 33)
+	assert_eq(cs.last_shot_hit_amounts[2], 32)
 	assert_false(cs._muzzle_pierce, "爆穿只作用于本发，不应挂穿甲枪口")
 
 
@@ -158,7 +158,7 @@ func test_new_ammo_in_registry_and_reward_pool() -> void:
 	assert_true(DataRegistry.is_ammo_reward_eligible(DIESHI))
 	assert_true(DataRegistry.is_ammo_reward_eligible(BAOCHUAN))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CHUANDI))
-	assert_eq(DataRegistry.all_ammo().size(), 16)
+	assert_eq(DataRegistry.all_ammo().size(), 20)
 
 
 func test_editor_marks_ingested_and_blocks_ambiguous() -> void:

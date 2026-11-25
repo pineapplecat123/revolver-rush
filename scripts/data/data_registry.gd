@@ -263,7 +263,7 @@ func muzzle_status_of(ammo_id: int) -> Dictionary:
 		out["name"] = display
 	var kind: String = str(out.get("effect_kind", ""))
 	# 伤害类枪口标签跟当前子弹名走，不用数据里写死的旧称（如「起势」「蓄力」）。
-	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat":
+	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat" or kind == "transfer_decay":
 		out["name"] = display
 		out["label"] = display
 	else:
@@ -297,24 +297,15 @@ static func _muzzle_status_color(raw, _ammo_id: int) -> Color:
 
 
 static func format_muzzle_status_duration(entry: Dictionary) -> String:
-	var kind := str(entry.get("duration_type", "rest_of_volley"))
-	if kind == "until_consumed":
-		return "下一发"
-	if kind == "until_last":
-		return "最后一发"
-	var rem: int = int(entry.get("remaining", 0))
-	if rem <= 0:
-		return "后续子弹"
-	return "后续 %d 发子弹" % rem
+	return "【火焰层数】%d" % maxi(0, int(entry.get("remaining", entry.get("layer_count", 1))))
 
 
 static func format_muzzle_status_effect(entry: Dictionary) -> String:
 	var kind := str(entry.get("effect_kind", ""))
-	var stacks: int = maxi(int(entry.get("stacks", 1)), 1)
+	var stacks: int = maxi(int(entry.get("remaining", entry.get("stacks", 1))), 1)
 	var per: float = float(entry.get("effect_per_stack", 0.0))
 	if kind == "damage_pct":
-		var pct: int = int(round(per * 100.0 * float(stacks)))
-		return "伤害+%d%%" % pct
+		return "每层伤害×%s；当前×%s" % [_format_muzzle_mult(1.0 + per), _format_muzzle_mult(pow(1.0 + per, stacks))]
 	if kind == "damage_mult":
 		var mul: float = 1.0
 		for _i in stacks:
@@ -323,6 +314,8 @@ static func format_muzzle_status_effect(entry: Dictionary) -> String:
 		if str(entry.get("duration_type", "")) == "until_last":
 			return "最后一发×%s" % shown
 		return "下一发×%s" % shown
+	if kind == "transfer_decay":
+		return "伤害+%d；每次消耗一层后减1，最低0" % int(entry.get("remaining", 0))
 	if kind == "damage_flat":
 		var amt: int = int(entry.get("amount", 0))
 		if amt == 0:

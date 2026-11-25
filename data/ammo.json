@@ -8,24 +8,25 @@
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "射击后，给枪口挂上「起势」状态：本弹夹剩余非「开始」子弹伤害+50％，多个本子弹加法叠加。开始类型子弹不受本状态影响。",
+      "special": "开火后产生【枪口火焰】，每层伤害×1.5，多层逐层相乘。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
       "tags": [
         "开始",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "挂枪口起势：剩余非开始弹+50%，可叠加",
+      "blurb": "给之后的子弹加伤害",
       "bullet_color": "#52C76B",
       "muzzle_color": "#52C76B",
       "muzzle_status": {
         "id": "qishi",
-        "label": "起势",
+        "label": "加",
         "duration_type": "rest_of_volley",
         "effect_kind": "damage_pct",
-        "effect_per_stack": 0.5
+        "effect_per_stack": 0.5,
+        "effect_description": "开火后产生【枪口火焰】，每层伤害×1.5，多层逐层相乘。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
       },
-      "game_description": "给之后的子弹加伤害"
+      "game_description": "给之后的子弹加伤害\n开火后产生【枪口火焰】，每层伤害×1.5，多层逐层相乘。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
     },
     {
       "id": 41,
@@ -34,40 +35,41 @@
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "射击后，给枪口挂上「蓄力」状态：下一颗非「开始」子弹伤害×1.5，该发打出后消耗。多个本子弹效果连乘叠加，例如两颗连在一起，下一颗非开始子弹伤害×2.25。空仓与开始类型子弹不消耗该状态。",
+      "special": "开火后产生【枪口火焰】，每层伤害×1.5，多层逐层相乘。【火焰层数】1。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
       "tags": [
         "开始",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "挂枪口蓄力：下一颗非开始弹×1.5，可叠加",
+      "blurb": "给下一颗子弹蓄力...",
       "bullet_color": "#52C76B",
       "muzzle_color": "#52C76B",
       "muzzle_status": {
         "id": "xuli",
-        "label": "蓄力",
+        "label": "倍",
         "duration_type": "until_consumed",
         "effect_kind": "damage_mult",
-        "effect_per_stack": 1.5
+        "effect_per_stack": 1.5,
+        "effect_description": "开火后产生【枪口火焰】，每层伤害×1.5，多层逐层相乘。【火焰层数】1。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
       },
-      "game_description": "给下一颗子弹蓄力..."
+      "game_description": "给下一颗子弹蓄力...\n开火后产生【枪口火焰】，每层伤害×1.5，多层逐层相乘。【火焰层数】1。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
     },
     {
       "id": 42,
       "name": "伤害递增弹",
       "rarity": "common",
-      "school": "清算",
+      "school": "通用",
       "base_damage": 2,
       "base_damage_mode": "slot",
       "special": "在弹夹槽位越靠后伤害越高，计算公式为伤害=2+（槽位×0.75），再四舍五入。例如第6格就是2+(6×0.75)=6.5，四舍五入为7。槽位按本轮连射开火顺序计算，空仓也占一格。",
       "tags": [
         "中间",
-        "清算"
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "按开火槽位越后越高：2+槽位×0.75",
+      "blurb": "越靠后伤害越高",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38",
       "game_description": "越靠后伤害越高"
@@ -86,7 +88,7 @@
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "伤害等于本轮已开火总伤害的一半",
+      "blurb": "前面越厉害它就越厉害",
       "bullet_color": "#DB3D38",
       "muzzle_color": "#DB3D38",
       "game_description": "前面越厉害它就越厉害"
@@ -98,13 +100,14 @@
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "射击后，给枪口挂上「速」状态：本弹夹后续开火节奏+100％，加法叠加，两颗为3倍速；不改变子弹飞行速度。",
+      "special": "开火后产生【枪口火焰】，每层开火节奏+100％，加法叠加；不改变弹道飞行速度。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
       "tags": [
-        "开始"
+        "开始",
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "挂枪口速：本弹夹开火节奏+100％，可叠加",
+      "blurb": "让射击变快...",
       "bullet_color": "#94FFF1",
       "muzzle_color": "#94FFF1",
       "muzzle_status": {
@@ -112,9 +115,10 @@
         "label": "速",
         "duration_type": "rest_of_volley",
         "effect_kind": "speed_pct",
-        "effect_per_stack": 1.0
+        "effect_per_stack": 1.0,
+        "effect_description": "开火后产生【枪口火焰】，每层开火节奏+100％，加法叠加；不改变弹道飞行速度。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
       },
-      "game_description": "射击后，给枪口挂上「速」状态：本弹夹后续开火节奏+100％，加法叠加，两颗为3倍速；不改变子弹飞行速度。"
+      "game_description": "让射击变快...\n开火后产生【枪口火焰】，每层开火节奏+100％，加法叠加；不改变弹道飞行速度。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
     },
     {
       "id": 45,
@@ -123,13 +127,14 @@
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（包括自己，不含罪孽弹）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗，没有可复制的则复制自己",
+      "special": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（不包括自己）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗。",
       "tags": [
-        "开始"
+        "开始",
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "随机复制弹仓内2颗不同子弹（含自己）",
+      "blurb": "临时制作一些仿造子弹...",
       "bullet_color": "#52C76B",
       "muzzle_color": "#5855E0",
       "on_fire": {
@@ -143,25 +148,26 @@
         "duration_type": "rest_of_volley",
         "effect_kind": "none",
         "effect": "开火后已生成临时复制体",
-        "outline": false
+        "outline": false,
+        "effect_description": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（不包括自己）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗。"
       },
-      "game_description": "开火后，从弹仓里全部已装子弹中随机挑2颗不同的（包括自己，不含罪孽弹）做成一次性临时复制放进背包；不够2颗就有几颗复制几颗，没有可复制的则复制自己"
+      "game_description": "临时制作一些仿造子弹..."
     },
     {
       "id": 46,
       "name": "尾重弹",
       "rarity": "common",
-      "school": "清算",
+      "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "fixed",
-      "special": "如果在开火顺序第1-3格发射，本子弹伤害×0.5；第4-6格则×2。格位按本轮连射开火顺序计算，空仓也占一格。该倍率和枪口状态「起势」「蓄力」直接相乘。",
+      "special": "如果在开火顺序第1-3格发射，本子弹伤害×0.5；第4-6格则×2。格位按本轮连射开火顺序计算，空仓也占一格。该倍率为自身公式的一部分，之后按生成顺序结算【枪口火焰】。",
       "tags": [
         "中间",
-        "清算"
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "前3格×0.5，后3格×2",
+      "blurb": "建议放在后半部分...",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38",
       "game_description": "建议放在后半部分..."
@@ -175,14 +181,15 @@
       "base_damage_mode": "formula",
       "special": "弹夹里每有一个结束弹伤害+3",
       "tags": [
-        "开始"
+        "开始",
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "弹夹每有一个结束弹+3",
+      "blurb": "结束弹越多伤害越高！",
       "bullet_color": "#4DE036",
       "muzzle_color": "#52C76B",
-      "game_description": "弹夹里每有一个结束弹伤害+3"
+      "game_description": "结束弹越多伤害越高！"
     },
     {
       "id": 48,
@@ -191,16 +198,17 @@
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "复制轮盘里上一颗开始弹的效果（若该效果会挂枪口状态，则同样挂上），如果没有则没效果。",
+      "special": "复制轮盘里上一颗开始弹的效果（若该效果会挂【枪口火焰】，则同样挂上），如果没有则没效果。",
       "tags": [
-        "开始"
+        "开始",
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "复制上一颗开始弹效果",
+      "blurb": "模仿前一个开始弹...",
       "bullet_color": "#52C76B",
       "muzzle_color": "#52C76B",
-      "game_description": "复制轮盘里上一颗开始弹的效果（若该效果会挂枪口状态，则同样挂上），如果没有则没效果。"
+      "game_description": "模仿前一个开始弹..."
     },
     {
       "id": 49,
@@ -211,30 +219,31 @@
       "base_damage_mode": "fixed",
       "special": "没特殊效果，最基本的子弹",
       "tags": [
-        "中间"
+        "中间",
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "没有特殊效果的基本子弹",
+      "blurb": "平平无奇的子弹，只能造成伤害...",
       "bullet_color": "#F2CC38",
       "muzzle_color": "#F2CC38",
-      "game_description": "没特殊效果，最基本的子弹"
+      "game_description": "平平无奇的子弹，只能造成伤害..."
     },
     {
       "id": 50,
       "name": "叠势弹",
       "rarity": "common",
-      "school": "清算",
+      "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "formula",
       "special": "如果之前连续发射了n个同类型子弹就加伤n×65％，四舍五入取整，n≠1",
       "tags": [
         "中间",
-        "清算"
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "连续同类型n≥2时加伤n×65%",
+      "blurb": "喜欢看到同类型子弹在一起",
       "bullet_color": "#FFB41F",
       "muzzle_color": "#FFB41F",
       "game_description": "喜欢看到同类型子弹在一起"
@@ -253,7 +262,7 @@
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "预计伤害大于7时穿透并逐个-1",
+      "blurb": "被加强到极致可以穿透！",
       "bullet_color": "#FF0000",
       "muzzle_color": "#FF0000",
       "game_description": "被加强到极致可以穿透！"
@@ -265,17 +274,24 @@
       "school": "清算",
       "base_damage": 3,
       "base_damage_mode": "fixed",
-      "special": "如果这颗子弹被加强了伤害，则给枪口挂上加同样多出数值伤害的状态（四舍五入后的预计伤害减去基础3），由下一颗实际开火的子弹获得后消耗。空仓不消耗该状态。",
+      "special": "本发被加强时产生【枪口火焰】，每层固定加伤1。【火焰层数】四舍五入后的预计伤害减基础3，最低0。因此超额9后面三发加伤为+9、+8、+7；超额2后面四发为+2、+1、+0、+0，不做总和守恒。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
       "tags": [
         "中间",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "挂枪口传递：把多出来的伤害传给下一颗",
+      "blurb": "被加强时会把加强同步给后续子弹",
       "bullet_color": "#FFE600",
       "muzzle_color": "#FFD900",
-      "game_description": "如果这颗子弹被加强了伤害，则给枪口挂上加同样多出数值伤害的状态（四舍五入后的预计伤害减去基础3），由下一颗实际开火的子弹获得后消耗。空仓不消耗该状态。"
+      "game_description": "被加强时会把加强同步给后续子弹\n本发被加强时产生【枪口火焰】，每层固定加伤1。【火焰层数】四舍五入后的预计伤害减基础3，最低0。因此超额9后面三发加伤为+9、+8、+7；超额2后面四发为+2、+1、+0、+0，不做总和守恒。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
+      "muzzle_status": {
+        "id": "chuandi",
+        "label": "传递",
+        "duration_type": "rest_of_volley",
+        "effect_kind": "transfer_decay",
+        "effect_description": "本发被加强时产生【枪口火焰】，每层固定加伤1。【火焰层数】四舍五入后的预计伤害减基础3，最低0。因此超额9后面三发加伤为+9、+8、+7；超额2后面四发为+2、+1、+0、+0，不做总和守恒。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
+      }
     },
     {
       "id": 53,
@@ -286,14 +302,15 @@
       "base_damage_mode": "fixed",
       "special": "获得弹夹里紧邻的前一个槽位上那发子弹的技能效果，但不复制伤害，仍使用自己的基础伤害。若前一格是空仓或没有前一格，则没有技能效果，也不会再往前寻找。",
       "tags": [
-        "中间"
+        "中间",
+        "通用"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "获得紧邻前一格的技能，不复制伤害",
+      "blurb": "纯粹的模仿者...",
       "bullet_color": "#F0B916",
       "muzzle_color": "#F0B916",
-      "game_description": "获得弹夹里紧邻的前一个槽位上那发子弹的技能效果，但不复制伤害，仍使用自己的基础伤害。若前一格是空仓或没有前一格，则没有技能效果，也不会再往前寻找。"
+      "game_description": "纯粹的模仿者..."
     },
     {
       "id": 54,
@@ -302,14 +319,14 @@
       "school": "清算",
       "base_damage": 2,
       "base_damage_mode": "fixed",
-      "special": "本子弹打出后，按实际造成的伤害给枪口挂上加同样数值伤害的状态，持续到本弹夹结束。若本发没有造成伤害，或没有后续子弹，则不挂状态。多个本子弹的加值会累加。",
+      "special": "本发结算后，产生每层固定加伤等于本发实际造成总伤害的【枪口火焰】；没有造成伤害或没有后续实弹时不产生。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
       "tags": [
         "中间",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "按实际伤害挂枪口加伤，持续本弹夹",
+      "blurb": "把伤害加给后续子弹！",
       "bullet_color": "#FCCE00",
       "muzzle_color": "#FF6F00",
       "muzzle_status": {
@@ -317,9 +334,10 @@
         "label": "回味",
         "duration_type": "rest_of_volley",
         "effect_kind": "damage_flat",
-        "effect_per_stack": 0
+        "effect_per_stack": 0,
+        "effect_description": "本发结算后，产生每层固定加伤等于本发实际造成总伤害的【枪口火焰】；没有造成伤害或没有后续实弹时不产生。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
       },
-      "game_description": "把伤害加给后续子弹！"
+      "game_description": "把伤害加给后续子弹！\n本发结算后，产生每层固定加伤等于本发实际造成总伤害的【枪口火焰】；没有造成伤害或没有后续实弹时不产生。【火焰层数】本轮剩余实弹数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
     },
     {
       "id": 55,
@@ -328,14 +346,14 @@
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
-      "special": "最后一颗子弹获得伤害×1.5，多个本子弹可以叠加，效果相乘",
+      "special": "开火后产生留给本轮最后一颗实弹的【枪口火焰】，每层伤害×1.5，多层逐层相乘；只在最后一颗实弹自身计算伤害大于0时生效并消耗。【火焰层数】1。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
       "tags": [
         "开始",
         "清算"
       ],
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "blurb": "挂枪口尾倍：最后一发×1.5，可连乘",
+      "blurb": "给最后一发子弹蓄力...",
       "bullet_color": "#BFFF00",
       "muzzle_color": "#BFFF00",
       "muzzle_status": {
@@ -343,9 +361,94 @@
         "label": "尾倍",
         "duration_type": "until_last",
         "effect_kind": "damage_mult",
-        "effect_per_stack": 1.5
+        "effect_per_stack": 1.5,
+        "effect_description": "开火后产生留给本轮最后一颗实弹的【枪口火焰】，每层伤害×1.5，多层逐层相乘；只在最后一颗实弹自身计算伤害大于0时生效并消耗。【火焰层数】1。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
       },
-      "game_description": "给最后一发子弹蓄力..."
+      "game_description": "给最后一发子弹蓄力...\n开火后产生留给本轮最后一颗实弹的【枪口火焰】，每层伤害×1.5，多层逐层相乘；只在最后一颗实弹自身计算伤害大于0时生效并消耗。【火焰层数】1。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
+    },
+    {
+      "id": 56,
+      "name": "需要鼓励",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 3,
+      "base_damage_mode": "fixed",
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "special": "如果本子弹获得加强，则基础伤害翻倍，即进行伤害修正的基础值为6",
+      "game_description": "普通的一个子弹...直到获得加强",
+      "tags": [
+        "结束",
+        "清算"
+      ],
+      "muzzle_color": "#C54216",
+      "bullet_color": "#C54216",
+      "blurb": "普通的一个子弹...直到获得加强"
+    },
+    {
+      "id": 57,
+      "name": "模仿伤害",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 0,
+      "base_damage_mode": "previous_actual",
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "special": "复制上一颗子弹造成的伤害，但只取二分之一（向上取整）",
+      "game_description": "模仿上一颗子弹的伤害，但差点意思...",
+      "tags": [
+        "结束",
+        "清算"
+      ],
+      "muzzle_color": "#B62808",
+      "bullet_color": "#B62808",
+      "blurb": "模仿上一颗子弹的伤害，但差点意思..."
+    },
+    {
+      "id": 58,
+      "name": "超级放大",
+      "rarity": "common",
+      "school": "清算",
+      "base_damage": 0,
+      "base_damage_mode": "previous_actual",
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "special": "伤害＝上一发子弹造成的伤害的2倍",
+      "game_description": "双倍上一发子弹的伤害！",
+      "tags": [
+        "结束",
+        "清算"
+      ],
+      "muzzle_color": "#FF2200",
+      "bullet_color": "#FF2200",
+      "blurb": "双倍上一发子弹的伤害！"
+    },
+    {
+      "id": 59,
+      "name": "空拍",
+      "rarity": "common",
+      "school": "节奏",
+      "base_damage": 0,
+      "base_damage_mode": "fixed",
+      "enabled_in_combat": true,
+      "in_reward_pool": true,
+      "special": "开火后，按本轮装填快照的空槽数产生【枪口火焰】，每层伤害×2。【火焰层数】本轮装填的空槽数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
+      "game_description": "空槽=加伤..？\n开火后，按本轮装填快照的空槽数产生【枪口火焰】，每层伤害×2。【火焰层数】本轮装填的空槽数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。",
+      "tags": [
+        "开始",
+        "节奏"
+      ],
+      "muzzle_color": "#3BD6D0",
+      "bullet_color": "#3BD6D0",
+      "muzzle_status": {
+        "id": "empty_beat",
+        "label": "空拍",
+        "duration_type": "rest_of_volley",
+        "effect_kind": "damage_pct",
+        "effect_per_stack": 1.0,
+        "effect_description": "开火后，按本轮装填快照的空槽数产生【枪口火焰】，每层伤害×2。【火焰层数】本轮装填的空槽数。【消耗枪口火焰】自身公式伤害（含基础0的特殊公式）>0时，按生成顺序应用全部层，各效果减最早一层；零伤害或空仓不消耗、无弹道，开始不豁免。"
+      },
+      "blurb": "空槽=加伤..？"
     }
   ]
 }

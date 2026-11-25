@@ -141,8 +141,8 @@ func test_icons_sit_after_muzzle_label_not_at_gun() -> void:
 	var label: Label = ui._muzzle_label
 	assert_not_null(label)
 	assert_eq(label.text, "枪口：")
-	assert_eq(host.get_parent(), label.get_parent())
-	assert_eq(host.get_index(), label.get_index() + 1, "图标槽紧跟「枪口：」")
+	assert_eq(host.get_parent().get_parent(), label.get_parent())
+	assert_eq(host.get_parent().get_index(), label.get_index() + 1, "可滚动火焰图标槽紧跟「枪口：」")
 	assert_gt(host.get_child_count(), 0, "起势后应出现状态圆")
 	var ic: Control = host.get_child(0) as Control
 	assert_not_null(ic)

@@ -37,6 +37,10 @@ const ID_CHUANDI := CombatConstants.CHUANDI_AMMO_ID
 const ID_MOFANG := CombatConstants.MOFANG_AMMO_ID
 const ID_HUIWEI := CombatConstants.HUIWEI_AMMO_ID
 const ID_WEIJIABEI := CombatConstants.WEIJIABEI_AMMO_ID
+const ID_ENCOURAGE := 56
+const ID_HALF_PREV := 57
+const ID_DOUBLE_PREV := 58
+const ID_EMPTY_BEAT := 59
 const XULI_MULT := 1.5
 const WEIJIABEI_MULT := 1.5
 const QISHI_BONUS := 0.5
@@ -140,60 +144,127 @@ static func load_type_rank(ammo_id: int) -> int:
 	return 3
 
 
-static func compute_volley_damages(order: Array[int], flat_at: Array = []) -> Array[float]:
-	## 按连射顺序算每格「计算伤害」（空仓为 0）。起势加法叠层，蓄力连乘挂起，
-	## 递增按 1 起槽位（空仓也占格）伤害=2+槽位×0.75，尾重按同一套槽位×0.5/×2，
-	## 终审为此前计算伤害之和的一半。尾加倍在射击后挂倍率，只作用在本轮最后一颗非开始实弹上，多层连乘。
-	## 最终伤害 = 基础或公式 × (1 + 0.5×此前起势数) × 待消耗蓄力倍率 × 尾加倍倍率；尾重倍率与起势/蓄力/尾加倍直接相乘。
-	## 「开始」类型子弹互不影响：起势加成、蓄力倍率与尾加倍倍率都不作用在开始弹上；
-	## 蓄力倍率穿过开始弹与空仓，由下一发非开始弹消耗。
-	## 重复开始弹按上一颗开始弹的效果计算（没有则无效果）。
-	## 模仿弹取紧邻前一格的技能效果，仍用自己的基础伤害；前一格空仓则无效果，不跳空仓、不绕圈。
-	## flat_at 为可选的按槽位固定加值（回味弹等枪口状态在计划重算时写入），加在倍率与传递之后。
-	var qishi := 0
-	var xuli := 1.0
-	var weijia := 1.0
+static func compute_volley_damages(order: Array[int], flat_at: Array = [], actual_at: Array = []) -> Array[float]:
+	return compute_volley_details(order, flat_at, actual_at)["damages"]
+
+
+static func flame_applies(flame: Dictionary, intrinsic: float, last: bool) -> bool:
+	# Eligibility is decided BEFORE flat boosts. Utility shots cannot bootstrap damage.
+	return round_damage(intrinsic) > 0 and (str(flame.get("duration_type", "")) != "until_last" or last)
+
+
+static func apply_flames(intrinsic: float, flames: Array, last: bool = false) -> float:
+	var damage := intrinsic
+	for flame in flames:
+		if not flame_applies(flame, intrinsic, last):
+			continue
+		var layers := maxi(0, int(flame.get("remaining", 1)))
+		match str(flame.get("effect_kind", "")):
+			"damage_pct":
+				damage *= pow(1.0 + float(flame.get("effect_per_stack", 0.5)), layers)
+			"damage_mult":
+				damage *= pow(float(flame.get("effect_per_stack", 1.5)), layers)
+			"damage_flat", "transfer_decay":
+				damage += float(flame.get("amount", 0)) * float(layers)
+	return damage
+
+
+static func consume_flame_layers(flames: Array, intrinsic: float, last: bool = false) -> Array:
+	# t640: each effect TYPE loses one layer, not one per grant or one globally.
+	# Repeated grants remain separate, ordered groups; consume oldest group of
+	# each source effect first, preserving all surviving creation order.
+	var consumed: Dictionary = {}
+	var kept: Array = []
+	for src in flames:
+		var f: Dictionary = src.duplicate(true)
+		var effect: String = str(f.get("id", f.get("source_ammo_id", "")))
+		if not consumed.has(effect) and flame_applies(f, intrinsic, last):
+			f["remaining"] = maxi(0, int(f.get("remaining", 1)) - 1)
+			consumed[effect] = true
+		if int(f.get("remaining", 0)) > 0:
+			kept.append(f)
+	return kept
+
+
+static func make_flame(source_id: int, index: int, layers: int, amount: float = 0.0) -> Dictionary:
+	var entry: Dictionary = DataRegistry.muzzle_status_of(source_id).duplicate(true)
+	if entry.is_empty() or layers <= 0 or str(entry.get("effect_kind", "none")) == "none":
+		return {}
+	entry["source_ammo_id"] = source_id
+	entry["ammo_id"] = source_id
+	entry["created_index"] = index
+	entry["uid"] = "%s:%d" % [str(entry.get("id", source_id)), index]
+	entry["stacks"] = 1
+	entry["remaining"] = layers
+	entry["total"] = layers
+	entry["amount"] = amount
+	return entry
+
+
+static func compute_volley_details(order: Array[int], flat_at: Array = [], actual_at: Array = [], seed_flames: Array = [], generation: int = 0) -> Dictionary:
+	var flames: Array = seed_flames.duplicate(true)
+	var out: Array[float] = []
+	var intrinsic_values: Array[float] = []
+	var before: Array = []
+	var after: Array = []
 	var prior := 0.0
-	var slot := 0
-	var carry := 0.0
+	var previous := 0.0
+	var old_flat := 0.0
 	var last_loaded := -1
 	for i in order.size():
-		if int(order[i]) != Magazine.EMPTY:
+		if order[i] != Magazine.EMPTY:
 			last_loaded = i
-	var out: Array[float] = []
-	for ammo_id in order:
-		var index: int = slot
-		slot += 1
+	for index in order.size():
+		var rem := 0
+		for j in range(index + 1, order.size()):
+			if order[j] != Magazine.EMPTY:
+				rem += 1
+		var flat: float = float(flat_at[index]) if index < flat_at.size() else old_flat
+		if flat > old_flat:
+			var mounted := make_flame(ID_HUIWEI, index - 1, rem + 1, flat - old_flat)
+			if not mounted.is_empty():
+				mounted["uid"] = "%d:%s" % [generation, mounted["uid"]]
+				flames.append(mounted)
+		old_flat = flat
+		before.append(flames.duplicate(true))
+		var ammo_id: int = order[index]
 		if ammo_id == Magazine.EMPTY:
 			out.append(0.0)
+			intrinsic_values.append(0.0)
+			after.append(flames.duplicate(true))
 			continue
-		var effect_id: int = resolve_shot_effect_id(order, index)
-		var base := _formula_base_for_shot(ammo_id, effect_id, slot, prior, order, index)
-		var start := is_start_type(ammo_id)
-		var qishi_mult: float = 1.0 if start else (1.0 + QISHI_BONUS * float(qishi))
-		var pending: float = 1.0 if start else xuli
-		var last_mult: float = 1.0 if start or index != last_loaded else weijia
-		var dmg: float = base * qishi_mult * pending * last_mult
-		if carry != 0.0:
-			dmg += carry
-			carry = 0.0
-		if effect_id == ID_XULI:
-			xuli *= XULI_MULT
-		elif not start:
-			xuli = 1.0
-		if effect_id == ID_QISHI:
-			qishi += 1
-		if effect_id == ID_WEIJIABEI:
-			weijia *= WEIJIABEI_MULT
+		var effect_id := resolve_shot_effect_id(order, index)
+		var base := _formula_base_for_shot(ammo_id, effect_id, index + 1, prior, order, index)
+		if effect_id == ID_HALF_PREV:
+			base = ceilf(previous * 0.5)
+		elif effect_id == ID_DOUBLE_PREV:
+			base = previous * 2.0
+		elif effect_id == ID_ENCOURAGE:
+			if apply_flames(base, flames, index == last_loaded) > base:
+				base = 6.0
+		intrinsic_values.append(base)
+		var dmg := apply_flames(base, flames, index == last_loaded)
+		flames = consume_flame_layers(flames, base, index == last_loaded)
+		var def: Dictionary = DataRegistry.muzzle_status_of(effect_id)
+		var layers := rem
+		if str(def.get("duration_type", "")) in ["until_consumed", "until_last"]:
+			layers = 1
+		var amount := 0.0
 		if effect_id == ID_CHUANDI:
-			var extra: int = round_damage(dmg) - int(CHUANDI_BASE)
-			if extra > 0:
-				carry = float(extra)
-		if index < flat_at.size():
-			dmg += float(flat_at[index])
-		prior += dmg
+			layers = maxi(0, round_damage(dmg) - int(CHUANDI_BASE))
+			amount = 1.0
+		elif effect_id == ID_EMPTY_BEAT:
+			layers = order.count(Magazine.EMPTY)
+		var f := make_flame(effect_id, index, layers, amount)
+		if not f.is_empty() and effect_id != ID_HUIWEI:
+			f["uid"] = "%d:%s" % [generation, f["uid"]]
+			flames.append(f)
+		after.append(flames.duplicate(true))
 		out.append(dmg)
-	return out
+		var actual: float = float(actual_at[index]) if index < actual_at.size() and actual_at[index] != null else dmg
+		prior += actual
+		previous = float(round_damage(actual))
+	return {"damages": out, "intrinsic": intrinsic_values, "before": before, "after": after}
 
 
 static func count_end_type(order: Array[int]) -> int:
@@ -251,7 +322,7 @@ static func resolve_shot_effect_id(order: Array[int], index: int) -> int:
 static func effect_replaces_own_base(effect_id: int) -> bool:
 	## 这些技能本身就是伤害公式，模仿弹获得后按公式结算，而不是先抄对方的基础伤害数字。
 	match effect_id:
-		ID_DIZENG, ID_WEIZHONG, ID_ZHONGSHEN, ID_XIANWEI, ID_DIESHI:
+		ID_DIZENG, ID_WEIZHONG, ID_ZHONGSHEN, ID_XIANWEI, ID_DIESHI, ID_HALF_PREV, ID_DOUBLE_PREV:
 			return true
 		_:
 			return false
@@ -293,7 +364,7 @@ static func _same_type_streak(order: Array[int], index: int) -> int:
 
 static func _formula_base(ammo_id: int, slot: int, prior_computed: float, order: Array[int] = [], index: int = -1) -> float:
 	match ammo_id:
-		ID_QISHI, ID_XULI, ID_CHONGFU_KAISHI, ID_WEIJIABEI:
+		ID_QISHI, ID_XULI, ID_CHONGFU_KAISHI, ID_WEIJIABEI, ID_EMPTY_BEAT:
 			return 0.0
 		ID_DIZENG:
 			return DIZENG_BASE + float(slot) * DIZENG_PER_SLOT

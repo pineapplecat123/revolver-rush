@@ -58,7 +58,7 @@ func test_current_registry_names_are_jia_shang_and_bei_shang() -> void:
 	assert_eq(str(x.get("id", "")), "xuli")
 	assert_eq(DataRegistry.muzzle_buff_display_label(q), "加伤弹")
 	assert_eq(DataRegistry.muzzle_buff_display_label(x), "倍伤弹")
-	assert_eq(DataRegistry.format_muzzle_status_effect(q), "伤害+50%")
+	assert_eq(DataRegistry.format_muzzle_status_effect(q), "每层伤害×1.5；当前×1.5")
 	assert_eq(DataRegistry.format_muzzle_status_effect(x), "下一发×1.5")
 
 
@@ -74,7 +74,7 @@ func test_modifier_text_uses_current_registry_names_not_legacy() -> void:
 	cs.magazine.start_index = 0
 	cs.magazine.set_slot(0, BAIBAN)
 	var text: String = cs.sandbox_damage_modifiers_text()
-	assert_true("加伤弹+50%" in text, text)
+	assert_true("加伤弹×1.5" in text, text)
 	assert_true("倍伤弹×1.5" in text, text)
 	assert_true("回味弹+8" in text or "回味弹+" in text or "回味弹+8" in text, text)
 	assert_false("起势" in text, text)
@@ -103,7 +103,7 @@ func test_renamed_registry_name_propagates_to_modifiers_and_muzzle() -> void:
 	cs.magazine.start_index = 0
 	cs.magazine.set_slot(0, BAIBAN)
 	var text: String = cs.sandbox_damage_modifiers_text()
-	assert_true("测试改名弹+50%" in text, text)
+	assert_true("测试改名弹×1.5" in text, text)
 	assert_true("试验倍伤名×1.5" in text, text)
 	assert_false("加伤弹" in text)
 	assert_false("起势" in text)
@@ -124,7 +124,7 @@ func test_missing_ammo_entry_falls_back_to_unknown_id() -> void:
 	cs.start_sandbox(46703)
 	cs._volley_muzzle_buffs = [entry]
 	var text: String = cs.sandbox_damage_modifiers_text()
-	assert_true("未知#%d+" % QISHI in text, text)
+	assert_true("未知#%d×" % QISHI in text, text)
 	assert_false("起势" in text, text)
 	if not saved.is_empty():
 		DataRegistry._ammo_by_id[QISHI] = saved

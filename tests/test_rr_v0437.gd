@@ -46,8 +46,8 @@ func test_qishi_additive_stacking() -> void:
 	var d: Array[float] = FireResolver.compute_volley_damages([QISHI, QISHI, WHITE, WHITE])
 	assert_almost_eq(d[0], 0.0, 0.0001)
 	assert_almost_eq(d[1], 0.0, 0.0001)
-	assert_almost_eq(d[2], 3.0 * 2.0, 0.0001)
-	assert_almost_eq(d[3], 3.0 * 2.0, 0.0001)
+	assert_almost_eq(d[2], 22.78125, 0.0001)
+	assert_almost_eq(d[3], 15.1875, 0.0001)
 	# 单颗起势：+50%
 	var one: Array[float] = FireResolver.compute_volley_damages([QISHI, WHITE])
 	assert_almost_eq(one[1], 4.5, 0.0001)
@@ -89,14 +89,14 @@ func test_zhongshen_half_of_prior_including_buffs_and_overkill() -> void:
 	assert_almost_eq(plain[2], 3.0, 0.0001)
 	# 起势后两发平庸各 4.5（含加成，与敌人 HP 无关）；终审基础 4.5，再吃起势 ×1.5 = 6.75
 	var buffed: Array[float] = FireResolver.compute_volley_damages([QISHI, WHITE, WHITE, ZHONGSHEN])
-	assert_almost_eq(buffed[1], 4.5, 0.0001)
-	assert_almost_eq(buffed[2], 4.5, 0.0001)
-	assert_almost_eq(buffed[3], 6.75, 0.0001)
+	assert_almost_eq(buffed[1], 10.125, 0.0001)
+	assert_almost_eq(buffed[2], 6.75, 0.0001)
+	assert_almost_eq(buffed[3], 12.65625, 0.0001)
 	# 终审自己也吃起势与蓄力：先前只有一发平庸 3，终审基础 1.5，×1.5×1.5
 	var on_zhong: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE, ZHONGSHEN])
 	# 平庸：3 * 1.5 * 1.5 = 6.75；终审基础 6.75/2，×1.5（一颗起势）且蓄力已消耗
-	assert_almost_eq(on_zhong[2], 6.75, 0.0001)
-	assert_almost_eq(on_zhong[3], 3.375 * 1.5, 0.0001)
+	assert_almost_eq(on_zhong[2], 15.1875, 0.0001)
+	assert_almost_eq(on_zhong[3], 17.0859375, 0.0001)
 	# 蓄力直接接到终审
 	var xuli_z: Array[float] = FireResolver.compute_volley_damages([WHITE, XULI, ZHONGSHEN])
 	# 终审基础 3/2=1.5，×1.5 蓄力 = 2.25

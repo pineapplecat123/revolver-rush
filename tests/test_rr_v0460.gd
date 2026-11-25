@@ -35,7 +35,7 @@ func test_mofang_and_huiwei_in_registry() -> void:
 	assert_eq(FireResolver.base_damage_for(HUIWEI, [], 0), 2)
 	assert_true(DataRegistry.is_ammo_reward_eligible(MOFANG))
 	assert_true(DataRegistry.is_ammo_reward_eligible(HUIWEI))
-	assert_eq(DataRegistry.all_ammo().size(), 16)
+	assert_eq(DataRegistry.all_ammo().size(), 20)
 	var raw := FileAccess.get_file_as_string("res://companion/bullet-editor/data.json")
 	assert_true('"name": "模仿弹"' in raw)
 	assert_true('"name": "回味弹"' in raw)
@@ -55,7 +55,7 @@ func test_muzzle_wording_and_status_presentation() -> void:
 	var flat := {"effect_kind": "damage_flat", "amount": 2, "stacks": 1}
 	assert_eq(DataRegistry.format_muzzle_status_effect(flat), "伤害+2")
 	var pct := {"effect_kind": "damage_pct", "effect_per_stack": 0.5, "stacks": 2}
-	assert_eq(DataRegistry.format_muzzle_status_effect(pct), "伤害+100%")
+	assert_eq(DataRegistry.format_muzzle_status_effect(pct), "每层伤害×1.5；当前×2.25")
 
 
 func test_mofang_keeps_own_base_and_copies_adjacent_skill() -> void:
@@ -66,11 +66,11 @@ func test_mofang_keeps_own_base_and_copies_adjacent_skill() -> void:
 	assert_eq(FireResolver.copied_adjacent_effect_id([QISHI, MOFANG, MOFANG], 2), QISHI)
 	# 获得加伤枪口，但自己仍是中间弹且基础伤害 3，再吃上一颗加伤：3×1.5=4.5
 	var d: Array[float] = FireResolver.compute_volley_damages([QISHI, MOFANG, BAIBAN])
-	assert_almost_eq(d[1], 4.5, 0.0001)
-	assert_almost_eq(d[2], 6.0, 0.0001)
+	assert_almost_eq(d[1], 6.75, 0.0001)
+	assert_almost_eq(d[2], 6.75, 0.0001)
 	# 前一格空仓：不跳到加伤
 	var gap: Array[float] = FireResolver.compute_volley_damages([QISHI, EMPTY, MOFANG, BAIBAN])
-	assert_almost_eq(gap[2], 4.5, 0.0001)  # 模仿本身仍吃加伤（自己是中间），但不挂第二层
+	assert_almost_eq(gap[2], 6.75, 0.0001)  # 模仿本身仍吃加伤（自己是中间），但不挂第二层
 	assert_almost_eq(gap[3], 4.5, 0.0001)
 	# 不复制倍伤的 0 伤害
 	var x: Array[float] = FireResolver.compute_volley_damages([XULI, MOFANG])
@@ -88,9 +88,9 @@ func test_mofang_does_not_wrap_and_chain_through_mimics() -> void:
 	assert_almost_eq(wrap[1], 3.0, 0.0001)
 	# 连续模仿拿到同一技能
 	var chain: Array[float] = FireResolver.compute_volley_damages([QISHI, MOFANG, MOFANG, BAIBAN])
-	assert_almost_eq(chain[1], 4.5, 0.0001)
-	assert_almost_eq(chain[2], 6.0, 0.0001)
-	assert_almost_eq(chain[3], 7.5, 0.0001)
+	assert_almost_eq(chain[1], 10.125, 0.0001)
+	assert_almost_eq(chain[2], 15.1875, 0.0001)
+	assert_almost_eq(chain[3], 15.1875, 0.0001)
 
 
 func _ready_cs(seed: int) -> CombatState:
@@ -113,10 +113,11 @@ func _ready_cs(seed: int) -> CombatState:
 
 
 func _huiwei_amount(cs: CombatState) -> int:
+	var total := 0
 	for b in cs.volley_muzzle_buffs():
 		if str(b.get("id", "")) == "huiwei":
-			return int(b.get("amount", 0))
-	return 0
+			total += int(b.get("amount", 0)) * int(b.get("remaining", 1))
+	return total
 
 
 func test_huiwei_grants_actual_dealt_flat_and_cleans_up() -> void:
@@ -197,8 +198,8 @@ func test_huiwei_stacks_and_magazine_end_cleanup() -> void:
 	cs.magazine.set_slot(2, BAIBAN)
 	cs._set_phase(CombatState.Phase.AWAIT_ACTION)
 	cs.fire_tap(true)
-	assert_eq(cs.last_shot_dealt, 9)  # 3 + 2（第一发）+ 4（第二发实际）
-	assert_true(cs.volley_muzzle_buffs().is_empty(), "弹夹打完应收掉回味枪口")
+	assert_eq(cs.last_shot_dealt, 11)  # 3 + 2（第一发）+ 4（第二发实际）
+	assert_false(cs.volley_muzzle_buffs().is_empty(), "未消耗的层保留，不按弹夹或时间清除")
 
 
 func test_huiwei_subsequent_zhongshen_sees_buffed_shots() -> void:
@@ -212,11 +213,11 @@ func test_huiwei_subsequent_zhongshen_sees_buffed_shots() -> void:
 	cs.fire_next_shot()
 	assert_true(cs.begin_fire())
 	cs.fire_next_shot()
-	assert_eq(cs.last_shot_dealt, 5)
+	assert_eq(cs.last_shot_dealt, 7)
 	assert_true(cs.begin_fire())
 	cs.fire_next_shot()
-	assert_eq(cs.last_shot_planned_damage, 6)  # 3.5 + 2 → 5.5 → 6
-	assert_eq(cs.last_shot_dealt, 6)
+	assert_eq(cs.last_shot_planned_damage, 7)  # 3.5 + 2 → 5.5 → 6
+	assert_eq(cs.last_shot_dealt, 7)
 	cs._volley_session = false
 	cs._reset_volley_plan()
 
@@ -230,14 +231,14 @@ func test_mofang_of_huiwei_keeps_base_3_then_hangs_dealt() -> void:
 	assert_true(cs.begin_fire())
 	cs.fire_next_shot()
 	assert_eq(cs.last_shot_dealt, 2)
-	assert_eq(_huiwei_amount(cs), 2)
+	assert_eq(_huiwei_amount(cs), 4)
 	assert_true(cs.begin_fire())
 	cs.fire_next_shot()
 	# 模仿自身伤害 3+2，并再按实际 5 累加回味
-	assert_eq(cs.last_shot_dealt, 5)
-	assert_eq(_huiwei_amount(cs), 7)
+	assert_eq(cs.last_shot_dealt, 7)
+	assert_eq(_huiwei_amount(cs), 9)
 	assert_true(cs.begin_fire())
 	cs.fire_next_shot()
-	assert_eq(cs.last_shot_dealt, 10)
+	assert_eq(cs.last_shot_dealt, 12)
 	cs._volley_session = false
 	cs._reset_volley_plan()

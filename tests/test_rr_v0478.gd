@@ -32,7 +32,7 @@ func test_default_literal_is_exact_ascii_periods() -> void:
 func test_accessor_uses_field_and_respects_empty() -> void:
 	var white_id := CombatConstants.WHITE_AMMO_ID
 	var text := DataRegistry.ammo_game_description(white_id)
-	assert_true(text.contains("没特殊效果") or text.contains("基本"), text)
+	assert_true(text.contains("没特殊效果") or text.contains("基本") or text.contains("平平无奇"), text)
 	assert_eq(DataRegistry.ammo_display_name(white_id), "白板弹")
 
 	assert_eq(DataRegistry.ammo_game_description(CombatConstants.INVALID_AMMO_ID), str(CombatConstants.INVALID_AMMO_SPECIAL))
@@ -107,4 +107,4 @@ func test_accessor_falls_back_when_field_absent() -> void:
 	else:
 		def["blurb"] = saved_blurb
 	assert_eq(got, "回退摘要文案XYZ")
-	assert_true(str(DataRegistry.ammo_game_description(id)).contains("没特殊效果") or str(DataRegistry.ammo_game_description(id)).contains("基本"))
+	assert_true(str(DataRegistry.ammo_game_description(id)).contains("没特殊效果") or str(DataRegistry.ammo_game_description(id)).contains("基本") or str(DataRegistry.ammo_game_description(id)).contains("平平无奇"))

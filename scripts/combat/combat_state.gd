@@ -454,6 +454,10 @@ var _volley_pending: bool = false
 ## 一次点射连射会话：计划在开火前按当时转轮（含空仓）算好，打完再清。
 var _volley_session: bool = false
 var _volley_muzzle_buffs: Array = []
+var _volley_details: Dictionary = {}
+var _volley_actuals: Array = []
+var _volley_seed_flames: Array = []
+var _volley_flame_generation: int = 0
 var _volley_plan_ready: bool = false
 var _volley_plan: Array[float] = []
 var _volley_seq_snapshot: Array[int] = []
@@ -1419,6 +1423,8 @@ func muzzle_damage_tip_text() -> String:
 
 
 func _reset_muzzle() -> void:
+	_volley_muzzle_buffs.clear()
+	_volley_seed_flames.clear()
 	## 清全部元素枪口层（胜/败/新波/新开）；平时靠每层计时自然到期。
 	_muzzle_pierce_layers.clear()
 	_muzzle_gas_layers.clear()
@@ -3736,12 +3742,15 @@ func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -
 
 
 func _reset_volley_plan() -> void:
+	_volley_flame_generation += 1
+	_volley_seed_flames = _volley_muzzle_buffs.duplicate(true)
 	_volley_plan_ready = false
 	_volley_plan.clear()
 	_volley_seq_snapshot.clear()
 	_volley_plan_index = 0
 	_volley_flat_adds.clear()
-	_volley_muzzle_buffs.clear()
+	_volley_details.clear()
+	_volley_actuals.clear()
 
 
 func _ensure_volley_plan() -> void:
@@ -3752,7 +3761,8 @@ func _ensure_volley_plan() -> void:
 		_volley_plan = [] as Array[float]
 	else:
 		_volley_seq_snapshot = magazine.volley_sequence()
-		_volley_plan = FireResolver.compute_volley_damages(_volley_seq_snapshot)
+		_volley_details = FireResolver.compute_volley_details(_volley_seq_snapshot, [], [], _volley_seed_flames, _volley_flame_generation)
+		_volley_plan = _volley_details["damages"]
 	_volley_plan_index = 0
 	_volley_plan_ready = true
 
@@ -3779,81 +3789,54 @@ func _remaining_loaded_in_plan() -> int:
 
 
 func _huiwei_buff_amount() -> int:
+	var amount := 0
 	for b in _volley_muzzle_buffs:
 		if str(b.get("id", "")) == "huiwei":
-			return int(b.get("amount", 0))
-	return 0
+			amount += int(b.get("amount", 0)) * int(b.get("remaining", 0))
+	return amount
 
 
 func _recompute_volley_plan_flats() -> void:
 	if not _volley_plan_ready:
 		return
-	_volley_plan = FireResolver.compute_volley_damages(_volley_seq_snapshot, _volley_flat_adds)
+	_volley_details = FireResolver.compute_volley_details(_volley_seq_snapshot, _volley_flat_adds, _volley_actuals, _volley_seed_flames, _volley_flame_generation)
+	_volley_plan = _volley_details["damages"]
+	_sync_flames_at_cursor()
+
+
+func _sync_flames_at_cursor() -> void:
+	if _volley_plan_index < _volley_seq_snapshot.size() and not _volley_details.is_empty():
+		_volley_muzzle_buffs = _volley_details["before"][_volley_plan_index].duplicate(true)
+	elif not _volley_details.is_empty() and not _volley_details["after"].is_empty():
+		_volley_muzzle_buffs = _volley_details["after"][-1].duplicate(true)
 
 
 func _maybe_mount_aftertaste_muzzle(ammo_id: int, dealt: int) -> void:
-	## 回味弹（或模仿到回味）：按本发实际扣血挂固定加伤枪口，持续本弹夹剩余子弹。
-	## 0 伤害或没有后续子弹则不挂，避免空状态。
-	var source_id: int = _shot_effect_ammo_id(ammo_id)
-	if source_id != CombatConstants.HUIWEI_AMMO_ID:
+	# Actual hit totals also feed alternate damage formulas, including paced misses.
+	var idx := _volley_plan_index - 1
+	if idx < 0 or idx >= _volley_seq_snapshot.size():
 		return
-	if dealt <= 0:
-		return
-	var rem: int = _remaining_loaded_in_plan()
-	if rem <= 0:
-		return
-	if _volley_flat_adds.size() != _volley_seq_snapshot.size():
-		_volley_flat_adds.resize(_volley_seq_snapshot.size())
-	for i in range(_volley_plan_index, _volley_flat_adds.size()):
-		_volley_flat_adds[i] = int(_volley_flat_adds[i]) + dealt
+	if _volley_actuals.size() != _volley_seq_snapshot.size():
+		_volley_actuals.resize(_volley_seq_snapshot.size())
+	_volley_actuals[idx] = dealt
+	if _shot_effect_ammo_id(ammo_id) == CombatConstants.HUIWEI_AMMO_ID and dealt > 0 and _remaining_loaded_in_plan() > 0:
+		if _volley_flat_adds.size() != _volley_seq_snapshot.size():
+			_volley_flat_adds.resize(_volley_seq_snapshot.size())
+		for i in range(_volley_plan_index, _volley_flat_adds.size()):
+			_volley_flat_adds[i] = int(_volley_flat_adds[i]) + dealt
 	_recompute_volley_plan_flats()
-	var existing := -1
-	for i in _volley_muzzle_buffs.size():
-		if str(_volley_muzzle_buffs[i].get("id", "")) == "huiwei":
-			existing = i
-			break
-	var amount: int = dealt
-	var stacks := 1
-	if existing >= 0:
-		amount = int(_volley_muzzle_buffs[existing].get("amount", 0)) + dealt
-		stacks = int(_volley_muzzle_buffs[existing].get("stacks", 1)) + 1
-		_volley_muzzle_buffs.remove_at(existing)
-	var def: Dictionary = DataRegistry.muzzle_status_of(CombatConstants.HUIWEI_AMMO_ID)
-	if def.is_empty():
-		def = {
-			"id": "huiwei",
-			"label": "回味",
-			"duration_type": "rest_of_volley",
-			"effect_kind": "damage_flat",
-		}
-	var entry: Dictionary = def.duplicate(true)
-	entry["id"] = "huiwei"
-	entry["ammo_id"] = ammo_id
-	entry["source_ammo_id"] = CombatConstants.HUIWEI_AMMO_ID
-	entry["label"] = DataRegistry.ammo_display_name(CombatConstants.HUIWEI_AMMO_ID)
-	entry["name"] = entry["label"]
-	entry["stacks"] = stacks
-	entry["amount"] = amount
-	entry["remaining"] = rem
-	entry["total"] = rem
-	_volley_muzzle_buffs.append(entry)
 
 
-func _capture_applying_buffs(ammo_id: int) -> void:
-	## 本发实际吃到的加强（开始弹不吃）。要在消耗/追加之前拍，供弹道描边使用。
+func _capture_applying_buffs(_ammo_id: int) -> void:
 	last_shot_buff_outlines = []
-	if FireResolver.is_start_type(ammo_id):
+	var idx := _volley_plan_index - 1
+	if idx < 0 or _volley_details.is_empty():
 		return
-	for b in _volley_muzzle_buffs:
-		if not bool(b.get("outline", true)):
+	var intrinsic: float = _volley_details["intrinsic"][idx]
+	for b in _volley_details["before"][idx]:
+		if not bool(b.get("outline", true)) or not FireResolver.flame_applies(b, intrinsic, _remaining_loaded_in_plan() == 0):
 			continue
-		if str(b.get("duration_type", "")) == "until_last" and _remaining_loaded_in_plan() > 0:
-			continue
-		last_shot_buff_outlines.append({
-			"id": b.get("id", ""),
-			"label": b.get("label", ""),
-			"color": b.get("color", Color(0.32, 0.78, 0.42)),
-		})
+		last_shot_buff_outlines.append({"id": b.get("id", ""), "label": b.get("label", ""), "color": b.get("color", Color(0.32, 0.78, 0.42))})
 
 
 func _shot_effect_ammo_id(ammo_id: int) -> int:
@@ -3868,67 +3851,10 @@ func _shot_effect_ammo_id(ammo_id: int) -> int:
 
 
 func _apply_volley_muzzle_status(ammo_id: int) -> void:
-	## 先按本发消耗已有状态，再按子弹定义挂上新状态。空仓不走这里。
 	_capture_applying_buffs(ammo_id)
-	var start := FireResolver.is_start_type(ammo_id)
-	var rem := _remaining_loaded_in_plan()
-	var kept: Array = []
-	for b in _volley_muzzle_buffs:
-		var dur := str(b.get("duration_type", ""))
-		if dur == "rest_of_volley":
-			var left: int = maxi(int(b.get("remaining", 0)) - 1, 0)
-			b["remaining"] = left
-			if left <= 0:
-				continue
-		elif dur == "until_consumed":
-			if not start:
-				continue
-		elif dur == "until_last":
-			if rem <= 0:
-				continue
-			b["remaining"] = rem
-		kept.append(b)
-	_volley_muzzle_buffs = kept
-	var source_id: int = _shot_effect_ammo_id(ammo_id)
-	var def: Dictionary = DataRegistry.muzzle_status_of(source_id) if source_id > 0 else {}
-	if def.is_empty():
-		return
-	# 回味等固定加值枪口要等本发实际扣血后再挂，这里不提前挂空状态。
-	if str(def.get("effect_kind", "")) == "damage_flat":
-		return
-	var kind := str(def.get("id", ammo_id))
-	var stacks := 1
-	var existing := -1
-	for i in _volley_muzzle_buffs.size():
-		if str(_volley_muzzle_buffs[i].get("id", "")) == kind:
-			existing = i
-			break
-	if existing >= 0:
-		stacks = int(_volley_muzzle_buffs[existing].get("stacks", 1)) + 1
-		_volley_muzzle_buffs.remove_at(existing)
-	var duration_type := str(def.get("duration_type", "rest_of_volley"))
-	var remaining := rem
-	var total := rem
-	if duration_type == "until_consumed":
-		remaining = 1
-		total = 1
-	elif duration_type == "until_last":
-		remaining = rem
-		total = rem
-	if remaining <= 0:
-		return
-	var entry: Dictionary = def.duplicate(true)
-	entry["id"] = kind
-	entry["ammo_id"] = ammo_id
-	entry["source_ammo_id"] = source_id
-	entry["stacks"] = stacks
-	var dlab: String = DataRegistry.muzzle_buff_display_label(entry)
-	if not dlab.is_empty():
-		entry["label"] = dlab
-		entry["name"] = dlab
-	entry["remaining"] = remaining
-	entry["total"] = total
-	_volley_muzzle_buffs.append(entry)
+	var idx := _volley_plan_index - 1
+	if idx >= 0 and not _volley_details.is_empty():
+		_volley_muzzle_buffs = _volley_details["after"][idx].duplicate(true)
 
 
 func volley_speed_mult() -> float:
@@ -3936,7 +3862,7 @@ func volley_speed_mult() -> float:
 	var stacks := 0
 	for b in _volley_muzzle_buffs:
 		if str(b.get("effect_kind", "")) == "speed_pct":
-			stacks += int(b.get("stacks", 1))
+			stacks += int(b.get("remaining", 1))
 	return 1.0 + CombatConstants.JIASU_SPEED_PER_STACK * float(stacks)
 
 
@@ -3949,20 +3875,15 @@ func _is_temp_copy_excluded(ammo_id: int) -> bool:
 	return DataRegistry.is_sin_ammo(ammo_id) or _is_opening_sin_id(ammo_id)
 
 
-func _temp_copy_candidate_ids(fired_ammo_id: int) -> Array[int]:
-	## 随机复制弹可选子弹：弹仓里此刻仍装着的非空、非罪孽子弹，再加上刚打出的自己。
-	## 本轮已经打出去的前序子弹此时已出仓，不再列入。每个仓位一记，互不相同。
+func _temp_copy_candidate_ids(_fired_ammo_id: int) -> Array[int]:
+	# Fired chamber has already been consumed. Only OTHER still-loaded chambers
+	# are eligible; no self fallback, and fewer than two produces fewer copies.
 	var pool: Array[int] = []
 	if magazine != null:
 		for sid in magazine.slots:
 			var aid: int = int(sid)
-			if aid == Magazine.EMPTY or aid < 0 or _is_temp_copy_excluded(aid):
-				continue
-			pool.append(aid)
-	if fired_ammo_id > 0 and not _is_temp_copy_excluded(fired_ammo_id):
-		pool.append(fired_ammo_id)
-	if pool.is_empty() and fired_ammo_id > 0:
-		pool.append(fired_ammo_id)
+			if aid != Magazine.EMPTY and aid > 0:
+				pool.append(aid)
 	return pool
 
 
@@ -7881,8 +7802,21 @@ func sandbox_damage_modifiers() -> Dictionary:
 	var ammo_id: int = sandbox_peek_next_shot_ammo_id()
 	var has_next: bool = ammo_id != Magazine.EMPTY
 	var is_start: bool = has_next and FireResolver.is_start_type(ammo_id)
+	var eligible := false
+	var next_i := _sandbox_next_plan_index()
+	if next_i >= 0 and not _volley_details.is_empty() and next_i < _volley_details["intrinsic"].size():
+		eligible = FireResolver.round_damage(float(_volley_details["intrinsic"][next_i])) > 0
+	elif has_next and magazine != null:
+		var preview_order: Array[int] = magazine.volley_sequence()
+		var preview: Dictionary = FireResolver.compute_volley_details(preview_order, [], [], _volley_muzzle_buffs)
+		for i in preview_order.size():
+			if preview_order[i] != Magazine.EMPTY:
+				eligible = FireResolver.round_damage(float(preview["intrinsic"][i])) > 0
+				break
+
 	var ammo_name: String = _ammo_name(ammo_id) if has_next else ""
 	var qishi_pct: int = 0
+	var qishi_factor := 1.0
 	var xuli_mult: float = 1.0
 	var weijia_mult: float = 1.0
 	var huiwei_flat: int = 0
@@ -7891,9 +7825,9 @@ func sandbox_damage_modifiers() -> Dictionary:
 		if typeof(b) != TYPE_DICTIONARY:
 			continue
 		var kind: String = str(b.get("effect_kind", b.get("kind", "")))
-		var stacks: int = maxi(1, int(b.get("stacks", 1)))
+		var stacks: int = maxi(1, int(b.get("remaining", 1)))
 		if kind == "damage_pct":
-			qishi_pct += 50 * stacks
+			qishi_factor *= pow(1.0 + float(b.get("effect_per_stack", 0.5)), stacks)
 		elif kind == "damage_mult":
 			var step: float = float(b.get("effect_per_stack", 1.5))
 			if step <= 0.0:
@@ -7905,34 +7839,12 @@ func sandbox_damage_modifiers() -> Dictionary:
 				for _i in stacks:
 					xuli_mult *= step
 		elif kind == "damage_flat":
-			huiwei_flat += int(b.get("amount", 0))
-	# 传递加伤在计划里，不在枪口 HUD。用计划值与「无传递」期望的差估算，避免为预览改状态。
+			huiwei_flat += int(b.get("amount", 0)) * stacks
+		elif kind == "transfer_decay":
+			chuandi_flat += int(b.get("amount", 0)) * stacks
+	qishi_pct = int(round((qishi_factor - 1.0) * 100.0))
 	var plan_i: int = _sandbox_next_plan_index()
 	var is_last: bool = has_next and _is_plan_index_last_loaded(plan_i)
-	if has_next and plan_i >= 0 and plan_i < _volley_plan.size():
-		var planned: float = float(_volley_plan[plan_i])
-		var flat_here: int = 0
-		if plan_i < _volley_flat_adds.size():
-			flat_here = int(_volley_flat_adds[plan_i])
-		var prior := 0.0
-		for j in plan_i:
-			if j < _volley_plan.size():
-				prior += float(_volley_plan[j])
-		var effect_id: int = FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, plan_i)
-		var base: float = FireResolver._formula_base_for_shot(ammo_id, effect_id, plan_i + 1, prior, _volley_seq_snapshot, plan_i)
-		var q: float = 1.0
-		var x: float = 1.0
-		var last_m: float = 1.0
-		if not is_start:
-			if qishi_pct != 0:
-				q = 1.0 + float(qishi_pct) / 100.0
-			x = xuli_mult
-			if is_last:
-				last_m = weijia_mult
-		var expected: float = base * q * x * last_m + float(flat_here)
-		var delta: float = planned - expected
-		if delta > 0.05:
-			chuandi_flat = int(round(delta))
 	var parts: Array = []
 	var notes: Array = []
 	var qishi_name: String = DataRegistry.ammo_display_name(CombatConstants.QISHI_AMMO_ID)
@@ -7941,25 +7853,25 @@ func sandbox_damage_modifiers() -> Dictionary:
 	var chuandi_name: String = DataRegistry.ammo_display_name(CombatConstants.CHUANDI_AMMO_ID)
 	var weijia_name: String = DataRegistry.ammo_display_name(CombatConstants.WEIJIABEI_AMMO_ID)
 	if qishi_pct != 0:
-		if has_next and is_start:
-			parts.append("%s+%d%%（对本发「%s」无效）" % [qishi_name, qishi_pct, ammo_name])
+		if has_next and not eligible:
+			parts.append("%s×%s（对本发「%s」无效）" % [qishi_name, DataRegistry._format_muzzle_mult(qishi_factor), ammo_name])
 		elif has_next:
-			parts.append("%s+%d%%（下一发「%s」）" % [qishi_name, qishi_pct, ammo_name])
+			parts.append("%s×%s（下一发「%s」）" % [qishi_name, DataRegistry._format_muzzle_mult(qishi_factor), ammo_name])
 		else:
-			parts.append("%s+%d%%" % [qishi_name, qishi_pct])
+			parts.append("%s×%s" % [qishi_name, DataRegistry._format_muzzle_mult(qishi_factor)])
 	if not is_equal_approx(xuli_mult, 1.0):
 		var xs: String = ("%.4f" % xuli_mult).rstrip("0").rstrip(".")
-		if has_next and is_start:
-			parts.append("%s×%s（对本发「%s」无效，保留到下一颗非开始弹）" % [xuli_name, xs, ammo_name])
+		if has_next and not eligible:
+			parts.append("%s×%s（对本发「%s」无效，零伤害保留）" % [xuli_name, xs, ammo_name])
 		elif has_next:
 			parts.append("%s×%s（下一发「%s」）" % [xuli_name, xs, ammo_name])
 		else:
 			parts.append("%s×%s" % [xuli_name, xs])
 	if not is_equal_approx(weijia_mult, 1.0):
 		var ws: String = ("%.4f" % weijia_mult).rstrip("0").rstrip(".")
-		if has_next and is_start and is_last:
+		if has_next and not eligible and is_last:
 			parts.append("%s×%s（对本发「%s」无效）" % [weijia_name, ws, ammo_name])
-		elif has_next and is_last and not is_start:
+		elif has_next and is_last and eligible:
 			parts.append("%s×%s（最后一发「%s」）" % [weijia_name, ws, ammo_name])
 		elif has_next:
 			parts.append("%s×%s（留给最后一发）" % [weijia_name, ws])
@@ -7967,7 +7879,7 @@ func sandbox_damage_modifiers() -> Dictionary:
 			parts.append("%s×%s（留给最后一发）" % [weijia_name, ws])
 	if huiwei_flat != 0:
 		if has_next:
-			parts.append("%s%+d（本弹夹剩余，含「%s」）" % [huiwei_name, huiwei_flat, ammo_name])
+			parts.append("%s%+d（本弹夹剩余，有伤害时生效，含「%s」）" % [huiwei_name, huiwei_flat, ammo_name])
 		else:
 			parts.append("%s%+d（本弹夹剩余）" % [huiwei_name, huiwei_flat])
 	if chuandi_flat != 0:

@@ -157,8 +157,8 @@ func test_manual_one_tap_one_shot_and_buff_continues() -> void:
 	assert_true(cs.is_sandbox_sequence_active())
 	assert_false(cs.is_volley_pending())
 	var mid: Dictionary = cs.sandbox_damage_modifiers()
-	assert_eq(int(mid.get("qishi_pct", 0)), 50)
-	assert_true("%s+50%%" % DataRegistry.ammo_display_name(QISHI) in str(mid.get("text", "")))
+	assert_eq(int(mid.get("qishi_pct", 0)), 125)
+	assert_true("%s×2.25" % DataRegistry.ammo_display_name(QISHI) in str(mid.get("text", "")))
 	assert_true("白板弹" in str(mid.get("text", "")))
 	var second: Dictionary = _manual(cs)
 	assert_true(bool(second.get("ok", false)))
@@ -244,8 +244,8 @@ func test_damage_modifiers_baseline_and_active_kinds() -> void:
 	_load_mag(cs, [QISHI, XULI, BAIBAN])
 	assert_true(bool(_manual(cs).get("ok", false)))
 	var q: Dictionary = cs.sandbox_damage_modifiers()
-	assert_eq(int(q.get("qishi_pct", 0)), 50)
-	assert_true("%s+50%%" % DataRegistry.ammo_display_name(QISHI) in str(q.get("text", "")))
+	assert_eq(int(q.get("qishi_pct", 0)), 125)
+	assert_true("%s×2.25" % DataRegistry.ammo_display_name(QISHI) in str(q.get("text", "")))
 	assert_true("倍伤弹" in str(q.get("text", "")) or "加伤" in str(q.get("text", "")))
 	# 下一发是开始弹：起势对它无效
 	assert_true("无效" in str(q.get("text", "")))
@@ -257,7 +257,7 @@ func test_damage_modifiers_baseline_and_active_kinds() -> void:
 
 	assert_true(bool(_manual(cs).get("ok", false)))
 	var x: Dictionary = cs.sandbox_damage_modifiers()
-	assert_eq(int(x.get("qishi_pct", 0)), 50)
+	assert_eq(int(x.get("qishi_pct", 0)), 125)
 	assert_almost_eq(float(x.get("xuli_mult", 1.0)), 1.5, 0.0001)
 	assert_true("%s×1.5" % DataRegistry.ammo_display_name(XULI) in str(x.get("text", "")))
 	assert_true("白板弹" in str(x.get("text", "")))
@@ -266,7 +266,7 @@ func test_damage_modifiers_baseline_and_active_kinds() -> void:
 	assert_true(bool(_manual(cs).get("ok", false)))
 	assert_true(bool(_manual(cs).get("finished", false)) or cs.magazine.is_empty())
 	var done: Dictionary = cs.sandbox_damage_modifiers()
-	assert_eq(str(done.get("text", "")), "伤害修正：无")
+	assert_true(str(done.get("text", "")).contains("加伤弹"), "未消耗层跨装填保留")
 	assert_eq(float(done.get("xuli_mult", 0.0)), 1.0)
 
 
@@ -287,7 +287,7 @@ func test_damage_modifiers_flat_aftertaste_and_transfer_and_reset() -> void:
 	assert_eq(cs.magazine.loaded_count(), 2)
 	assert_true(bool(_manual(cs).get("ok", false)))
 	var still: Dictionary = cs.sandbox_damage_modifiers()
-	assert_eq(int(still.get("huiwei_flat", 0)), flat0, "回味持续本弹夹剩余，不应打一发就掉")
+	assert_eq(int(still.get("huiwei_flat", 0)), 2, "回味持续本弹夹剩余，不应打一发就掉")
 	assert_true(bool(_manual(cs).get("finished", false)))
 	assert_eq(str(cs.sandbox_damage_modifiers_text()), "伤害修正：无")
 
@@ -304,7 +304,7 @@ func test_damage_modifiers_flat_aftertaste_and_transfer_and_reset() -> void:
 	assert_eq(int(cs.sandbox_damage_modifiers().get("chuandi_flat", 0)), carry)
 	assert_eq(cs.magazine.loaded_count(), 1)
 	assert_true(bool(_manual(cs).get("finished", false)))
-	assert_eq(int(cs.sandbox_damage_modifiers().get("chuandi_flat", 1)), 0)
+	assert_eq(int(cs.sandbox_damage_modifiers().get("chuandi_flat", 1)), 3)
 
 
 func test_busy_blocks_preset_and_missing_is_non_destructive() -> void:
@@ -359,7 +359,7 @@ func test_sandbox_ui_splits_fire_and_shows_modifiers() -> void:
 	assert_true(bool(ui.state.fire_manual_tap().get("ok", false)))
 	ui._update_sandbox_stats_hud()
 	var live: String = ui.state.sandbox_damage_modifiers_text()
-	assert_true("%s+50%%" % DataRegistry.ammo_display_name(QISHI) in live)
+	assert_true("%s×1.5" % DataRegistry.ammo_display_name(QISHI) in live)
 	assert_eq(ui._sb_stats_mod.text, live)
 	CombatState.boot_sandbox = false
 

@@ -34,7 +34,7 @@ func test_pingyong_replaced_by_single_baiban() -> void:
 	assert_eq(ids.count(BAIBAN), 1, "只有一条白板定义")
 	assert_false("平庸子弹" in names)
 	assert_true("白板弹" in names)
-	assert_eq(DataRegistry.all_ammo().size(), 16)
+	assert_eq(DataRegistry.all_ammo().size(), 20)
 	var def: Dictionary = DataRegistry.get_ammo(BAIBAN)
 	assert_eq(str(def.get("name")), "白板弹")
 	assert_eq(int(def.get("base_damage")), 3)
@@ -159,11 +159,16 @@ func test_sandbox_still_allows_effect_generated_ammo() -> void:
 	var chetui := CombatConstants.CHETUI_AMMO_ID
 	cs.sandbox_add_ammo(BAIBAN, 1)
 	cs.sandbox_add_ammo(chetui, 1)
+	cs.sandbox_add_ammo(CombatConstants.BAIBAN_AMMO_ID, 1)
 	assert_true(cs.begin_load())
 	for _i in 8:
 		var rec: Dictionary = cs.load_next_chamber()
 		if bool(rec.get("done", false)):
 			break
+	cs.magazine.clear()
+	cs.magazine.start_index = 0
+	cs.magazine.set_slot(0, chetui)
+	cs.magazine.set_slot(1, BAIBAN)
 	var before: int = cs.bag.size()
 	cs.fire_tap(false)
 	var guard := 8

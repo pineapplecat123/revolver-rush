@@ -33,20 +33,20 @@ func test_weijiabei_in_registry_and_reward_pool() -> void:
 	assert_true(DataRegistry.is_ammo_reward_eligible(WEIJIA))
 	assert_eq(str(def.get("bullet_color", "")).to_upper(), "#BFFF00")
 	assert_eq(str(def.get("muzzle_color", "")).to_upper(), "#BFFF00")
-	assert_eq(str(def.get("game_description")), "给最后一发子弹蓄力...")
-	assert_eq(DataRegistry.all_ammo().size(), 16)
+	assert_true(str(def.get("game_description")).begins_with("给最后一发子弹蓄力..."))
+	assert_eq(DataRegistry.all_ammo().size(), 20)
 	var status: Dictionary = DataRegistry.muzzle_status_of(WEIJIA)
 	assert_eq(str(status.get("id")), "weijiabei")
 	assert_eq(str(status.get("duration_type")), "until_last")
 	assert_eq(str(status.get("effect_kind")), "damage_mult")
 	assert_almost_eq(float(status.get("effect_per_stack", 0.0)), 1.5, 0.0001)
-	assert_eq(DataRegistry.format_muzzle_status_duration(status), "最后一发")
+	assert_eq(DataRegistry.format_muzzle_status_duration(status), "【火焰层数】1")
 	assert_eq(DataRegistry.format_muzzle_status_effect(status), "最后一发×1.5")
 	status["stacks"] = 2
 	assert_eq(DataRegistry.format_muzzle_status_effect(status), "最后一发×2.25")
 
 
-func test_weijiabei_multiplies_only_last_non_start() -> void:
+func test_weijiabei_multiplies_only_last_actual_damaging_shot() -> void:
 	# 最后一发白板：3×1.5=4.5；中间白板不被加强。
 	var one: Array[float] = FireResolver.compute_volley_damages([WEIJIA, BAIBAN, BAIBAN])
 	assert_almost_eq(one[0], 0.0, 0.0001)
@@ -63,21 +63,21 @@ func test_weijiabei_multiplies_only_last_non_start() -> void:
 	assert_eq(rounded[2], 7)
 
 
-func test_weijiabei_skips_start_and_self_if_last() -> void:
-	# 尾加倍自己是开始弹且是最后一发时，不给自己×1.5（0 伤害也无意义）。
+func test_weijiabei_preserves_zero_damage_last_shots() -> void:
+	# 尾加倍自身零伤害，不是开始类型豁免。
 	var self_last: Array[float] = FireResolver.compute_volley_damages([BAIBAN, WEIJIA])
 	assert_almost_eq(self_last[0], 3.0, 0.0001)
 	assert_almost_eq(self_last[1], 0.0, 0.0001)
-	# 最后一发是开始弹（加伤）时不吃尾加倍。
+	# 最后一发加伤弹自身零伤害，所以不吃尾加倍。
 	var last_start: Array[float] = FireResolver.compute_volley_damages([WEIJIA, BAIBAN, QISHI])
 	assert_almost_eq(last_start[1], 3.0, 0.0001)
 	assert_almost_eq(last_start[2], 0.0, 0.0001)
 
 
 func test_weijiabei_multiplies_with_qishi_and_xuli() -> void:
-	# 加伤 +50%、蓄力 ×1.5、尾加倍 ×1.5：3×1.5×1.5×1.5=10.125
+	# 加伤三层、倍伤一层、尾加倍一层：3×1.5⁵=22.78125
 	var d: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WEIJIA, BAIBAN])
-	assert_almost_eq(d[3], 10.125, 0.0001)
+	assert_almost_eq(d[3], 22.78125, 0.0001)
 	# 中间还有一发白板时，蓄力给中间那发，尾加倍给最后一发。
 	var split: Array[float] = FireResolver.compute_volley_damages([XULI, WEIJIA, BAIBAN, BAIBAN])
 	assert_almost_eq(split[2], 4.5, 0.0001)
@@ -153,11 +153,11 @@ func test_weijiabei_muzzle_status_and_planned_damage() -> void:
 
 
 func test_synced_editor_game_descriptions() -> void:
-	assert_eq(str(DataRegistry.get_ammo(QISHI).get("game_description")), "给之后的子弹加伤害")
-	assert_eq(str(DataRegistry.get_ammo(XULI).get("game_description")), "给下一颗子弹蓄力...")
+	assert_true(str(DataRegistry.get_ammo(QISHI).get("game_description")).begins_with("给之后的子弹加伤害"))
+	assert_true(str(DataRegistry.get_ammo(XULI).get("game_description")).begins_with("给下一颗子弹蓄力..."))
 	assert_eq(str(DataRegistry.get_ammo(QISHI).get("muzzle_color", "")).to_upper(), "#52C76B")
 	assert_eq(str(DataRegistry.get_ammo(XULI).get("muzzle_color", "")).to_upper(), "#52C76B")
-	# 传递弹仍是旧规则文案，未把未定的递减算法写进游戏。
+	# 传递弹使用已确认的全额超额逐次减1规则。
 	var chuandi: Dictionary = DataRegistry.get_ammo(CombatConstants.CHUANDI_AMMO_ID)
-	assert_true(str(chuandi.get("special", "")).contains("下一颗实际开火"))
-	assert_false(str(chuandi.get("special", "")).contains("递减"))
+	assert_true(str(chuandi.get("special", "")).contains("【火焰层数】"))
+	assert_true(str(chuandi.get("special", "")).contains("+9、+8、+7"))

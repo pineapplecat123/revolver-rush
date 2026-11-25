@@ -42,7 +42,7 @@ boxes.forEach((b, i)=>{
 });
 assert(plan.commands.some(c=>c.style==='italic' && c.text.includes('效果说明')));
 assert(plan.commands.some(c=>c.text.includes('专用游戏内描述')));
-assert(OV.layout(measure, currentRows, OV.fields.map(f=>f[0])).height <= 16000, 'full current dataset fits conservative mobile canvas budget');
+assert(OV.layout(measure, currentRows, OV.fields.map(f=>f[0])).height <= 16000, 'all current rows and fields fit the explicit export guard');
 const namesOnly = OV.layout(measure, rows, []);
 assert.equal(namesOnly.commands.filter(c=>!c.box).length, 3);
 assert(OV.layout(measure, [{name:'大段', effect:'中文'.repeat(3000)+'\n结束'}], ['effect']).height > 3000);

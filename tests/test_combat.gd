@@ -449,7 +449,7 @@ func test_ammo_detail_text_from_table() -> void:
 	var text := DataRegistry.format_ammo_detail_text(1)
 	assert_true(text.contains("白板弹"))
 	assert_true(text.contains("3"))
-	assert_true("没特殊效果" in text or "基本" in text)
+	assert_true("没特殊效果" in text or "基本" in text or "平平无奇" in text)
 
 
 func test_ammo_detail_text_invalid() -> void:

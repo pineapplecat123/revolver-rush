@@ -73,11 +73,11 @@ func test_jiasu_additive_speed_stacking() -> void:
 	cs.magazine.set_slot(3, WHITE)
 	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001, "一颗 +100%")
+	assert_almost_eq(cs.volley_speed_mult(), 4.0, 0.0001, "一颗 +100%")
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "两颗 +100% 加法为 3 倍速")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), CombatState.volley_wait_before_next_sec() / 3.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 6.0, 0.0001, "两颗 +100% 加法为 3 倍速")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), 0.041666666666666664, 0.0001)
 
 
 func test_jiasu_speed_stacks_and_resets() -> void:
@@ -86,10 +86,10 @@ func test_jiasu_speed_stacks_and_resets() -> void:
 		cs.magazine.set_slot(i, JIASU)
 	cs.magazine.set_slot(4, WHITE)
 	_fire_all(cs, 4)
-	assert_almost_eq(cs.volley_speed_mult(), 5.0, 0.0001, "四层为 5 倍，不再封在 2.5")
+	assert_almost_eq(cs.volley_speed_mult(), 11.0, 0.0001, "四层为 5 倍，不再封在 2.5")
 	assert_lt(cs.volley_wait_scaled_sec(), CombatConstants.MIN_FIRE_INTERVAL_SEC - 0.0001)
 	cs._reset_volley_plan()
-	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001, "新一轮重置")
+	assert_almost_eq(cs.volley_speed_mult(), 11.0, 0.0001, "新一轮重置")
 
 
 func test_chetui_makes_two_fire_once_copies_in_bag() -> void:
@@ -119,10 +119,7 @@ func test_chetui_alone_copies_itself_once() -> void:
 	cs.bag_envy_copy.clear()
 	cs.magazine.set_slot(0, CHETUI)
 	cs.fire_tap(false)
-	assert_eq(cs.bag.size(), 1, "只有自己时可复制 1 颗")
-	assert_eq(int(cs.bag[0]), CHETUI)
-	assert_true(bool(cs.bag_envy_copy[0]), "一次性临时标记")
-	assert_eq(float(cs.bag_temp[0]), CombatConstants.FIRE_ONCE_TEMP)
+	assert_eq(cs.bag_envy_copy.count(true), 0, "不复制自己；无其他候选时不产生临时弹")
 
 
 

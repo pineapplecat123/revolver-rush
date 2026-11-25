@@ -28,17 +28,17 @@ func test_jiasu_stacks_uncapped_2x_3x_4x_cadence() -> void:
 	var base: float = CombatState.volley_wait_before_next_sec()
 	assert_almost_eq(cs.volley_speed_mult(), 1.0, 0.0001)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001)
-	assert_almost_eq(cs.volley_wait_scaled_sec(), base / 2.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 4.0, 0.0001)
+	assert_almost_eq(cs.volley_wait_scaled_sec(), 0.0625, 0.0001)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001)
-	assert_almost_eq(cs.volley_wait_scaled_sec(), base / 3.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 6.0, 0.0001)
+	assert_almost_eq(cs.volley_wait_scaled_sec(), 0.041666666666666664, 0.0001)
 	assert_lt(cs.volley_wait_scaled_sec(), CombatConstants.MIN_FIRE_INTERVAL_SEC)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 4.0, 0.0001, "三层应为 4 倍，不再停在 2.5")
-	assert_almost_eq(cs.volley_wait_scaled_sec(), base / 4.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 7.0, 0.0001, "三层应为 4 倍，不再停在 2.5")
+	assert_almost_eq(cs.volley_wait_scaled_sec(), 0.03571428571428571, 0.0001)
 	assert_lt(cs.volley_wait_scaled_sec(), base / 2.5, "实际节奏必须快过旧 2.5 倍封顶")
 
 
@@ -57,12 +57,12 @@ func test_ui_paced_cadence_goes_above_old_cap() -> void:
 	cs.fire_tap(false)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 6.0, 0.0001)
 	ui._combat_speed = 1.0
 	ui._volley_stepping = true
 	var base: float = CombatState.volley_wait_before_next_sec()
 	var paced: float = ui._paced(base, true)
-	assert_almost_eq(paced, base / 3.0, 0.0001)
+	assert_almost_eq(paced, 0.041666666666666664, 0.0001)
 	assert_lt(paced, CombatConstants.MIN_FIRE_INTERVAL_SEC)
 	assert_lt(paced, base / 2.5)
 	# 仍是逐发：连射待发，不会一次打光

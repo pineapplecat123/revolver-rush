@@ -1,8 +1,8 @@
 extends Control
 ## 枪口旁的状态图标、信息弹层、循环火焰，以及零伤害时的短喷火。
 
-const ICON_SIZE := 28.0
-const ICON_GAP := 4.0
+const ICON_SIZE := 13.0
+const ICON_GAP := 1.0
 const RING_WIDTH := 3.0
 const MUZZLE_OFFSET := Vector2(16, -30)
 const FONT := preload("res://assets/fonts/NotoSansSC-UI.ttf")
@@ -18,6 +18,7 @@ var _popup_dur: Label
 var _popup_eff: Label
 var _open_id: String = ""
 var _catcher: Control
+var _seen_flames: Dictionary = {}
 var _flame: _Flame
 
 
@@ -76,7 +77,14 @@ func _buffs() -> Array:
 
 func _process(delta: float) -> void:
 	var entries: Array = _buffs()
-	_sync_icons(entries)
+	_sync_icons(layer_icon_entries(entries))
+	var alive: Dictionary = {}
+	for entry in entries:
+		var uid := str(entry.get("uid", entry.get("id", "")))
+		alive[uid] = true
+		if not _seen_flames.has(uid):
+			play_puff(entry.get("color", Color(1, 0.7, 0.2)))
+	_seen_flames = alive
 	var muzzle := _muzzle_local()
 	var hosted := icon_host != null and is_instance_valid(icon_host)
 	if not hosted:
@@ -90,23 +98,21 @@ func _process(delta: float) -> void:
 	else:
 		_flame.visible = muzzle != Vector2.ZERO
 		_flame.position = muzzle + Vector2(4, 0)
-		_flame.color = _flame_color(entries)
+		_flame.layers = entries
 		_flame.tick(delta)
 	if _open_id != "":
 		_place_popup()
 
 
-func _flame_color(entries: Array) -> Color:
-	if entries.is_empty():
-		return Color(0.32, 0.78, 0.42)
-	var latest: Color = entries[entries.size() - 1].get("color", Color(0.32, 0.78, 0.42))
-	if entries.size() == 1:
-		return latest
-	var mix := Color(0, 0, 0, 1)
+static func layer_icon_entries(entries: Array) -> Array:
+	# Every actual layer gets its own flame icon; groups are never collapsed ×N.
+	var icons: Array = []
 	for e in entries:
-		mix += e.get("color", latest)
-	mix /= float(entries.size())
-	return latest.lerp(mix, 0.35)
+		for i in maxi(0, int(e.get("remaining", 0))):
+			var icon: Dictionary = e.duplicate()
+			icon["layer_index"] = i
+			icons.append(icon)
+	return icons
 
 
 func _sync_icons(entries: Array) -> void:
@@ -154,7 +160,7 @@ func _toggle_popup(ic: _Icon) -> void:
 	_popup_name.text = DataRegistry.muzzle_buff_display_label(ic.entry)
 	if _popup_name.text.strip_edges().is_empty():
 		_popup_name.text = str(ic.entry.get("name", ic.entry.get("label", "")))
-	_popup_dur.text = DataRegistry.format_muzzle_status_duration(ic.entry)
+	_popup_dur.text = "【火焰层数】%d" % int(ic.entry.get("remaining", 0))
 	_popup_eff.text = DataRegistry.format_muzzle_status_effect(ic.entry)
 	_popup.visible = true
 	_catcher.visible = true
@@ -259,32 +265,20 @@ class _Icon extends Control:
 	var entry: Dictionary = {}
 
 	func _ready() -> void:
-		custom_minimum_size = Vector2(28, 28)
+		custom_minimum_size = Vector2(13, 20)
 
 	func _draw() -> void:
 		var c: Color = entry.get("color", Color(0.32, 0.78, 0.42))
 		var cx := size * 0.5
-		var r: float = minf(size.x, size.y) * 0.5 - 1.5
-		draw_circle(cx, r - 1.0, Color(c.r * 0.18, c.g * 0.18, c.b * 0.18, 0.92))
-		draw_circle(cx, r - 4.0, Color(c.r * 0.35, c.g * 0.38, c.b * 0.32, 0.96))
-		var label := DataRegistry.muzzle_buff_display_label(entry)
-		if label.is_empty():
-			label = str(entry.get("label", ""))
-		var font: Font = FONT
-		var fs := 9 if label.length() >= 3 else (11 if label.length() >= 2 else 13)
-		var ts := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-		var fg := Color(0.07, 0.12, 0.07) if (c.r * 0.3 + c.g * 0.6 + c.b * 0.1) > 0.55 else Color(0.95, 0.98, 0.92)
-		draw_string(font, cx - ts * 0.5 + Vector2(0, ts.y * 0.35), label, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, fg)
-		var rem: int = maxi(int(entry.get("remaining", 0)), 0)
-		var total: int = maxi(int(entry.get("total", rem)), 1)
-		var frac: float = clampf(float(rem) / float(total), 0.0, 1.0)
-		if frac > 0.0:
-			draw_arc(cx, r - 0.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 32, c.lightened(0.15), 3.0, true)
-		draw_arc(cx, r - 0.5, 0.0, TAU, 32, Color(0, 0, 0, 0.35), 1.0, true)
+		var pts := PackedVector2Array([Vector2(-5, 6), Vector2(-6, 1), Vector2(-2, -4), Vector2(-1, 0), Vector2(2, -9), Vector2(6, 0), Vector2(5, 6), Vector2(0, 8)])
+		for i in pts.size():
+			pts[i] += cx
+		draw_colored_polygon(pts, c)
+		draw_circle(cx + Vector2(0, 4), 2.4, c.lightened(0.6))
 
 
 class _Flame extends Node2D:
-	var color := Color(0.32, 0.78, 0.42)
+	var layers: Array = []
 	var _t := 0.0
 
 	func tick(delta: float) -> void:
@@ -292,29 +286,27 @@ class _Flame extends Node2D:
 		queue_redraw()
 
 	func _draw() -> void:
-		var t := _t
-		# 底部光晕，让火焰在棋盘上更容易看见
-		var glow := color
-		glow.a = 0.42 + sin(t * 10.0) * 0.08
-		draw_circle(Vector2(0, -4), 14.0 + sin(t * 8.0) * 1.6, glow)
-		var glow2 := color.lerp(Color(1, 0.85, 0.4), 0.35)
-		glow2.a = 0.28
-		draw_circle(Vector2(0, -10), 10.0, glow2)
-		for i in 11:
-			var u := float(i) / 10.0
-			var wob := sin(t * 14.0 + float(i) * 0.9) * (3.2 + u * 2.4)
-			var h := 10.0 + (1.0 - u) * 28.0 + sin(t * 18.0 + float(i) * 0.5) * 3.4
-			var w := (1.0 - u) * 7.2 + 2.2
-			var col := color.lerp(Color(1, 1, 0.85), 0.55 * (1.0 - u))
-			col.a = 0.98 - u * 0.32
-			var p := Vector2(wob, -h)
-			draw_rect(Rect2(p.snapped(Vector2(1, 1)) - Vector2(w, w) * 0.5, Vector2(w, w).ceil()), col)
+		# One batched CanvasItem, capped at eight visual shells (icons still exact).
+		# Most recently created group is outermost; layer loss shrinks its shell.
+		var count := mini(layers.size(), 8)
+		for k in range(count - 1, -1, -1):
+			var entry: Dictionary = layers[k]
+			var c: Color = entry.get("color", Color(1, 0.7, 0.2))
+			var ratio := clampf(float(entry.get("remaining", 1)) / maxf(1.0, float(entry.get("total", 1))), 0.0, 1.0)
+			var scale := (0.48 + 0.52 * ratio) * (1.0 + float(k) * 0.24)
+			for i in 7:
+				var u := float(i) / 6.0
+				var p := Vector2(8.0 + u * 46.0, sin(_t * 18.0 + float(i + k)) * (5.0 + u * 7.0) - u * 6.0) * scale
+				var col := c.lightened((1.0 - u) * 0.38)
+				col.a = 0.9 - u * 0.30
+				var side := (13.0 - u * 9.0) * scale
+				draw_rect(Rect2(p - Vector2.ONE * side * 0.5, Vector2.ONE * side), col)
 
 
 class _Puff extends Node2D:
 	var color := Color(1.0, 0.72, 0.28)
 	var _age := 0.0
-	const LIFE := 0.32
+	const LIFE := 0.44
 
 	func _process(delta: float) -> void:
 		_age += delta
@@ -324,7 +316,7 @@ class _Puff extends Node2D:
 
 	func _draw() -> void:
 		var k := clampf(_age / LIFE, 0.0, 1.0)
-		var grow := 1.0 + k * 2.1
+		var grow := 2.8 + k * 3.5
 		for i in 8:
 			var u := float(i) / 7.0
 			var ang := -0.45 + u * 0.9 + sin(_age * 20.0 + float(i)) * 0.08
@@ -332,5 +324,5 @@ class _Puff extends Node2D:
 			var p := Vector2.RIGHT.rotated(ang) * dist + Vector2(0, -u * 7.0 * grow)
 			var col := color.lerp(Color(1, 0.95, 0.7), 0.4 * (1.0 - u))
 			col.a = (1.0 - k) * (0.95 - u * 0.3)
-			var s := (5.6 - u * 2.2) * (1.15 - k * 0.3)
+			var s := (12.0 - u * 4.0) * (1.15 - k * 0.3)
 			draw_rect(Rect2((p - Vector2(s, s) * 0.5).snapped(Vector2(1, 1)), Vector2(s, s).ceil()), col)

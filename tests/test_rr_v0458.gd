@@ -213,7 +213,7 @@ func test_chetui_generated_temp_pour_hand_load_fire() -> void:
 	var fired: Array = cs.fire_tap(true)
 	assert_gt(fired.size(), 0)
 	assert_eq(cs.magazine.slots[0], EMPTY)
-	assert_eq(cs.discard.size(), disc0, "打出即毁临时复制体打出后不进弃牌")
+	assert_lte(cs.discard.size(), disc0, "打出即毁临时弹不增加弃牌；空袋重洗可减少弃牌")
 
 
 func test_temp_copy_hand_and_chamber_stay_translucent() -> void:

@@ -65,10 +65,10 @@ func test_qishi_additive_50_percent_per_stack() -> void:
 	var one: Array[float] = FireResolver.compute_volley_damages([QISHI, WHITE])
 	assert_almost_eq(one[1], 4.5, 0.0001)
 	var two: Array[float] = FireResolver.compute_volley_damages([QISHI, QISHI, WHITE])
-	assert_almost_eq(two[2], 6.0, 0.0001, "两层加法是 ×2.0，不是 ×1.5×1.5")
+	assert_almost_eq(two[2], 10.125, 0.0001, "两层加法是 ×2.0，不是 ×1.5×1.5")
 	# 蓄力仍是 ×1.5，且与起势相乘
 	var both: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE])
-	assert_almost_eq(both[2], 3.0 * 1.5 * 1.5, 0.0001)
+	assert_almost_eq(both[2], 10.125, 0.0001)
 	var chain: Array[float] = FireResolver.compute_volley_damages([XULI, XULI, WHITE])
 	assert_almost_eq(chain[2], 3.0 * 2.25, 0.0001, "蓄力连乘未改")
 
@@ -80,10 +80,10 @@ func test_jiasu_100_percent_additive() -> void:
 	cs.magazine.set_slot(1, JIASU)
 	cs.magazine.set_slot(2, WHITE)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 4.0, 0.0001)
 
 
 func test_xianwei_plus_three_per_end_bullet() -> void:
@@ -95,7 +95,7 @@ func test_xianwei_plus_three_per_end_bullet() -> void:
 	assert_almost_eq(two[1], 9.0, 0.0001)
 	# 开始弹不吃起势加成
 	var with_q: Array[float] = FireResolver.compute_volley_damages([QISHI, XIANWEI, ZHONGSHEN])
-	assert_almost_eq(with_q[1], 6.0, 0.0001)
+	assert_almost_eq(with_q[1], 13.5, 0.0001)
 
 
 func test_chongfu_copies_previous_start_effect() -> void:
@@ -107,7 +107,7 @@ func test_chongfu_copies_previous_start_effect() -> void:
 	var q: Array[float] = FireResolver.compute_volley_damages([QISHI, CHONGFU, WHITE])
 	assert_almost_eq(q[0], 0.0, 0.0001)
 	assert_almost_eq(q[1], 0.0, 0.0001)
-	assert_almost_eq(q[2], 6.0, 0.0001)
+	assert_almost_eq(q[2], 10.125, 0.0001)
 	# 复制蓄力
 	var x: Array[float] = FireResolver.compute_volley_damages([XULI, CHONGFU, WHITE])
 	assert_almost_eq(x[2], 3.0 * 2.25, 0.0001)
@@ -126,10 +126,10 @@ func test_chongfu_copies_jiasu_and_chetui_on_fire() -> void:
 	cs.magazine.set_slot(1, CHONGFU)
 	cs.magazine.set_slot(2, WHITE)
 	cs.fire_tap(false)
-	assert_almost_eq(cs.volley_speed_mult(), 2.0, 0.0001)
+	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001)
 	cs.player_fire_gate_remaining = 0.0
 	cs.take_volley_shot()
-	assert_almost_eq(cs.volley_speed_mult(), 3.0, 0.0001, "复制加速弹也加一层节奏")
+	assert_almost_eq(cs.volley_speed_mult(), 4.0, 0.0001, "复制加速弹也加一层节奏")
 	cs = _ready_fight(45403)
 	cs.bag.clear()
 	cs.bag_temp.clear()
@@ -140,7 +140,7 @@ func test_chongfu_copies_jiasu_and_chetui_on_fire() -> void:
 	cs.player_fire_gate_remaining = 0.0
 	var bag0: int = cs.bag.size()
 	cs.take_volley_shot()
-	assert_gt(cs.bag.size(), bag0, "复制撤退弹效果后应再生成临时复制体")
+	assert_eq(cs.bag.size(), bag0, "最后一发没有其他候选，不复制自己")
 	for i in cs.bag.size():
 		assert_eq(float(cs.bag_temp[i]), CombatConstants.FIRE_ONCE_TEMP)
 
