@@ -1,5 +1,5 @@
 extends GutTest
-## t658 + t661-t666: approved flame mechanics. The three deferred rows retain their definitions.
+## t658 + t661-t666: approved flame mechanics. t668: 总伤二分 uses actual prior totals; 传递/爆穿 keep planned post-flame rounding.
 const WHITE := 49
 const EMPTY := Magazine.EMPTY
 
@@ -264,3 +264,121 @@ func test_explosion_never_adds_element_chain_echo_or_normal_boost() -> void:
 	_settle(cs,shots)
 	for e in cs.enemies: assert_eq(e.hp,9992)
 	assert_true(cs.last_shot_buff_outlines.is_empty())
+
+func test_zhongshen_uses_actual_prior_total_not_planned_and_keeps_half_float() -> void:
+	assert_true(FireResolver.effect_replaces_own_base(43))
+	var miss := FireResolver.compute_volley_details([WHITE, 43], [], [0])
+	assert_eq(float(miss["intrinsic"][1]), 0.0)
+	var empty := FireResolver.compute_volley_details([WHITE, EMPTY, 43], [], [6, null])
+	assert_eq(float(empty["intrinsic"][2]), 3.0)
+	# Actual pierce total 21, half 10.5 stays float; two ×1.5 layers so one remains after the first shot.
+	var mul := {"id": "m", "effect_kind": "damage_mult", "remaining": 2, "effect_per_stack": 1.5}
+	var half := FireResolver.compute_volley_details([WHITE, 43], [], [21], [mul])
+	assert_eq(float(half["intrinsic"][1]), 10.5)
+	assert_almost_eq(float(half["damages"][1]), 15.75, 0.0001)
+	assert_eq(FireResolver.round_damage(15.75), 16)
+	var copied := FireResolver.compute_volley_details([WHITE, 43, 53], [], [8, 4])
+	assert_eq(FireResolver.resolve_shot_effect_id([WHITE, 43, 53], 2), 43)
+	assert_eq(float(copied["intrinsic"][2]), 6.0)
+
+func test_zhongshen_runtime_waits_and_uses_pierce_actual_total() -> void:
+	var wait_cs := _cs([WHITE, 43], true)
+	wait_cs._ensure_volley_plan()
+	assert_true(wait_cs.volley_waits_for_actual_damage())
+	var mimic_only := _cs([WHITE, 53], true)
+	mimic_only._ensure_volley_plan()
+	assert_false(mimic_only.volley_waits_for_actual_damage())
+	var copied := _cs([43, 53], true)
+	copied._ensure_volley_plan()
+	assert_true(copied.volley_waits_for_actual_damage())
+	# 爆穿计划 8，实际 8+7+6=21；剩余一层 +2.5，二分 10.5+2.5=13
+	for paced in [false, true]:
+		var cs := _cs([51, 43], paced)
+		cs._volley_muzzle_buffs = [_flat("a", 2, 2.5)]
+		if paced:
+			_settle(cs, cs.fire_tap(false))
+			assert_eq(int(cs._volley_actuals[0]), 21)
+			_settle(cs, cs.take_volley_shot())
+		else:
+			cs.fire_tap(true)
+		assert_eq(cs.last_shot_planned_damage, 13)
+		assert_eq(cs.last_shot_dealt, 13)
+
+func test_zhongshen_miss_and_copy_formula_at_runtime() -> void:
+	var cs := _cs([WHITE, 43, 53], true)
+	_settle(cs, cs.fire_tap(false))
+	_settle(cs, cs.take_volley_shot())
+	assert_eq(cs.last_shot_dealt, 2) # half of 3 -> 1.5 -> 2
+	_settle(cs, cs.take_volley_shot())
+	assert_eq(cs.last_shot_planned_damage, 3) # actual 3+2, half 2.5 -> 3
+	assert_eq(cs.last_shot_dealt, 3)
+
+func test_transfer_uses_planned_rounded_not_actual_multitarget_and_no_bootstrap() -> void:
+	var d := FireResolver.compute_volley_details([52, WHITE], [], [], [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}])
+	assert_eq(FireResolver.round_damage(float(d["damages"][0])), 5)
+	assert_eq(int(d["after"][0][0]["remaining"]), 2)
+	assert_eq(float(d["after"][0][0]["amount"]), 1.0)
+	var after := FireResolver.compute_volley_details([52, WHITE], [], [12], [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}])
+	assert_eq(int(after["after"][0][0]["remaining"]), 2)
+	# 倍伤加强传递是合法的（传递自身伤害为3）；零伤不能靠平面火焰抬起来再挂传递层
+	var boosted := FireResolver.compute_volley_details([41, 52])
+	assert_eq(float(boosted["damages"][0]), 0.0)
+	assert_eq(FireResolver.round_damage(float(boosted["damages"][1])), 5)
+	assert_eq(int(boosted["after"][1][-1]["remaining"]), 2)
+	var speed := FireResolver.compute_volley_details([52], [], [], [{"id":"s","effect_kind":"speed_pct","remaining":3,"effect_per_stack":1.0}])
+	assert_true(speed["after"][0].filter(func(f): return str(f.get("id",""))=="chuandi").is_empty())
+	var empties := FireResolver.compute_volley_details([52, EMPTY, WHITE], [], [], [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}])
+	assert_eq(int(empties["after"][0][0]["remaining"]), 2)
+	assert_eq(float(empties["damages"][1]), 0.0)
+	assert_eq(float(empties["damages"][2]), 5.0)
+
+func test_transfer_runtime_stays_on_planned_shot_not_actual_total() -> void:
+	var cs := _cs([52, WHITE], true)
+	cs._volley_muzzle_buffs = [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":4.0,"total":1}]
+	# planned 12 -> 9 layers. 传递 itself does not pierce, so actual is the single-target 12, not 33.
+	var first := cs.fire_tap(false)
+	assert_eq(int(first[0]["planned_damage"]), 12)
+	_settle(cs, first)
+	assert_eq(int(cs._volley_actuals[0]), 12)
+	assert_eq(int(cs.volley_muzzle_buffs()[0]["remaining"]), 9)
+	_settle(cs, cs.take_volley_shot())
+	assert_eq(cs.last_shot_planned_damage, 12) # 3+9
+
+func test_baochuan_threshold_7_vs_8_and_decay_to_zero() -> void:
+	assert_false(FireResolver.shot_self_pierce(51, 7))
+	assert_true(FireResolver.shot_self_pierce(51, 8))
+	assert_eq(FireResolver.compute_shot_damages([51])[0], 3)
+	var one := {"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}
+	var two := {"id":"m","effect_kind":"damage_mult","remaining":2,"effect_per_stack":1.5}
+	var three := {"id":"m","effect_kind":"damage_mult","remaining":3,"effect_per_stack":1.5}
+	assert_eq(FireResolver.round_damage(float(FireResolver.compute_volley_details([51], [], [], [one])["damages"][0])), 5)
+	assert_eq(FireResolver.round_damage(float(FireResolver.compute_volley_details([51], [], [], [two])["damages"][0])), 7)
+	assert_false(FireResolver.shot_self_pierce(51, 7))
+	assert_eq(FireResolver.round_damage(float(FireResolver.compute_volley_details([51], [], [], [three])["damages"][0])), 10)
+	assert_true(FireResolver.shot_self_pierce(51, 10))
+	assert_eq(FireResolver.resolve_shot_effect_id([51, 53], 1), 51)
+	var cs_no := _cs([51], false)
+	cs_no.fire_tap(true)
+	assert_false(cs_no.last_shot_was_pierce)
+	assert_eq(cs_no.last_shot_hit_amounts, [3])
+	var cs := _cs([51], false)
+	cs._volley_muzzle_buffs = [_flat("a", 5, 1)]
+	cs.fire_tap(true)
+	assert_true(cs.last_shot_was_pierce)
+	assert_eq(cs.last_shot_hit_amounts, [8, 7, 6])
+	assert_false(cs._muzzle_pierce)
+	var delayed := _cs([51], true)
+	delayed._volley_muzzle_buffs = [_flat("a", 5, 1)]
+	var shots := delayed.fire_tap(false)
+	assert_true(bool(shots[0]["pierce"]))
+	_settle(delayed, shots)
+	assert_eq(delayed.last_shot_hit_amounts, [8, 7, 6])
+	assert_false(FireResolver.shot_self_pierce(51, FireResolver.compute_shot_damages([41, EMPTY, 51])[2]))
+
+func test_baochuan_copied_by_mimic_uses_effect_id_threshold() -> void:
+	var cs := _cs([40, 40, 40, 51, 53], false)
+	cs.fire_tap(true)
+	assert_eq(cs.last_shot_ammo_id, 53)
+	assert_true(cs.last_shot_was_pierce)
+	assert_gt(cs.last_shot_planned_damage, 7)
+	assert_eq(cs.last_shot_hit_amounts[1], cs.last_shot_hit_amounts[0] - 1)

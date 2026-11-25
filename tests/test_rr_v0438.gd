@@ -59,10 +59,11 @@ func test_qishi_bonus_skips_start_applies_to_mid_and_end() -> void:
 	# 递增（中间）仍吃起势与蓄力：第 3 格 2+2.25=4.25，×1.5×1.5
 	var mid: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, DIZENG])
 	assert_almost_eq(mid[2], 14.34375, 0.0001)
-	# 终审（结束）仍吃两种加成
-	var end: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE, ZHONGSHEN])
-	assert_almost_eq(end[2], 15.1875, 0.0001)
-	assert_almost_eq(end[3], 17.0859375, 0.0001)
+	# 终审（结束）仍吃两种加成；自身一半只按已结算实际伤害，先不取整
+	var end := FireResolver.compute_volley_details([QISHI, XULI, WHITE, ZHONGSHEN], [], [0, 0, 15])
+	assert_almost_eq(float(end["damages"][2]), 15.1875, 0.0001)
+	assert_almost_eq(float(end["intrinsic"][3]), 7.5, 0.0001)
+	assert_almost_eq(float(end["damages"][3]), 16.875, 0.0001)
 	# 两颗起势仍对非开始弹加叠
 	var stacked: Array[float] = FireResolver.compute_volley_damages([QISHI, QISHI, WHITE])
 	assert_almost_eq(stacked[2], 10.125, 0.0001)

@@ -84,23 +84,27 @@ func test_dizeng_slot_counts_empty_chambers() -> void:
 
 
 func test_zhongshen_half_of_prior_including_buffs_and_overkill() -> void:
-	# 平庸 3 + 平庸 3，终审 = 3
-	var plain: Array[float] = FireResolver.compute_volley_damages([WHITE, WHITE, ZHONGSHEN])
-	assert_almost_eq(plain[2], 3.0, 0.0001)
-	# 起势后两发平庸各 4.5（含加成，与敌人 HP 无关）；终审基础 4.5，再吃起势 ×1.5 = 6.75
-	var buffed: Array[float] = FireResolver.compute_volley_damages([QISHI, WHITE, WHITE, ZHONGSHEN])
-	assert_almost_eq(buffed[1], 10.125, 0.0001)
-	assert_almost_eq(buffed[2], 6.75, 0.0001)
-	assert_almost_eq(buffed[3], 12.65625, 0.0001)
-	# 终审自己也吃起势与蓄力：先前只有一发平庸 3，终审基础 1.5，×1.5×1.5
-	var on_zhong: Array[float] = FireResolver.compute_volley_damages([QISHI, XULI, WHITE, ZHONGSHEN])
-	# 平庸：3 * 1.5 * 1.5 = 6.75；终审基础 6.75/2，×1.5（一颗起势）且蓄力已消耗
-	assert_almost_eq(on_zhong[2], 15.1875, 0.0001)
-	assert_almost_eq(on_zhong[3], 17.0859375, 0.0001)
-	# 蓄力直接接到终审
-	var xuli_z: Array[float] = FireResolver.compute_volley_damages([WHITE, XULI, ZHONGSHEN])
-	# 终审基础 3/2=1.5，×1.5 蓄力 = 2.25
-	assert_almost_eq(xuli_z[2], 2.25, 0.0001)
+	# 自身公式只加已结算的实际伤害；没有 actual 时不能用计划值代替。
+	var pending := FireResolver.compute_volley_details([WHITE, WHITE, ZHONGSHEN])
+	assert_almost_eq(float(pending["intrinsic"][2]), 0.0, 0.0001)
+	# 平庸各打出 3，终审一半 = 3，先不取整
+	var plain := FireResolver.compute_volley_details([WHITE, WHITE, ZHONGSHEN], [], [3, 3])
+	assert_almost_eq(float(plain["damages"][2]), 3.0, 0.0001)
+	# 两发计划 10.125 / 6.75，实际取整为 10 与 7，总和 17，一半 8.5；再吃剩余一层起势 ×1.5 = 12.75
+	var buffed := FireResolver.compute_volley_details([QISHI, WHITE, WHITE, ZHONGSHEN], [], [0, 10, 7])
+	assert_almost_eq(float(buffed["damages"][1]), 10.125, 0.0001)
+	assert_almost_eq(float(buffed["damages"][2]), 6.75, 0.0001)
+	assert_almost_eq(float(buffed["intrinsic"][3]), 8.5, 0.0001)
+	assert_almost_eq(float(buffed["damages"][3]), 12.75, 0.0001)
+	assert_eq(FireResolver.round_damage(12.75), 13)
+	# 平庸实际 15，一半 7.5，再乘剩余两层起势 1.5² = 16.875
+	var on_zhong := FireResolver.compute_volley_details([QISHI, XULI, WHITE, ZHONGSHEN], [], [0, 0, 15])
+	assert_almost_eq(float(on_zhong["damages"][2]), 15.1875, 0.0001)
+	assert_almost_eq(float(on_zhong["intrinsic"][3]), 7.5, 0.0001)
+	assert_almost_eq(float(on_zhong["damages"][3]), 16.875, 0.0001)
+	# 蓄力接到终审：前面实际 3，一半 1.5，×1.5 = 2.25
+	var xuli_z := FireResolver.compute_volley_details([WHITE, XULI, ZHONGSHEN], [], [3])
+	assert_almost_eq(float(xuli_z["damages"][2]), 2.25, 0.0001)
 
 
 func test_buffs_reset_each_volley() -> void:

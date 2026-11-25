@@ -4900,7 +4900,7 @@ func _volley_should_continue() -> bool:
 func volley_waits_for_actual_damage() -> bool:
 	# These rules must never use a forecast in place of actual damage.
 	for i in _volley_seq_snapshot.size():
-		if FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, i) in [FireResolver.ID_TOTAL_TRANSFER, FireResolver.ID_END_SHARE, FireResolver.ID_SPLIT]:
+		if FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, i) in [FireResolver.ID_ZHONGSHEN, FireResolver.ID_TOTAL_TRANSFER, FireResolver.ID_END_SHARE, FireResolver.ID_SPLIT]:
 			return true
 	return false
 

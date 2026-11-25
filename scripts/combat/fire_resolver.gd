@@ -342,11 +342,15 @@ static func compute_volley_details(order: Array[int], flat_at: Array = [], actua
 			flames.append(f)
 		after.append(flames.duplicate(true))
 		out.append(dmg)
-		var actual: float = float(actual_at[index]) if _is_actual_at(actual_at, index) else dmg
-		prior += actual
+		# 总伤二分 only totals actual settled hits (including pierce/AOE).
+		# Missing actuals must not fall back to a planned float.
 		if _is_actual_at(actual_at, index):
+			var actual: float = float(actual_at[index])
+			prior += actual
 			actual_sum += actual
-		previous = float(round_damage(actual))
+			previous = float(round_damage(actual))
+		else:
+			previous = float(round_damage(dmg))
 	return {"damages": out, "intrinsic": intrinsic_values, "before": before, "after": after, "consumed": consumed_at}
 
 
