@@ -28,7 +28,16 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh workflow run "Deploy Web to GitHub Pages" \
-            --repo "${GITHUB_REPOSITORY}" \
-            --ref main
-          echo "Dispatched Pages dual-build (root=main, /redo/=feat/gameplay-redo tip)."
+          # GitHub occasionally returns HTTP 500 on workflow_dispatch; retry.
+          for i in 1 2 3 4 5; do
+            if gh workflow run "Deploy Web to GitHub Pages" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --ref main; then
+              echo "Dispatched Pages dual-build (root=main, /redo/=feat/gameplay-redo tip)."
+              exit 0
+            fi
+            echo "Dispatch attempt ${i} failed; retrying..."
+            sleep $((i * 10))
+          done
+          echo "Failed to dispatch Pages workflow after retries."
+          exit 1
