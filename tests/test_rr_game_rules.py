@@ -62,7 +62,7 @@ class GameRulesCopyTests(unittest.TestCase):
             for part in field.split('.'):
                 cur = (cur or {}).get(part) if isinstance(cur, dict) else None
             # v0.4.85 intentionally revises these unique texts after t658/t666.
-            revised = {'倍伤弹','伤害递增弹','叠势弹','尾加倍弹','需要鼓励','模仿弹','重复开始弹'}
+            revised = {'倍伤弹','伤害递增弹','叠势弹','尾加倍弹','需要鼓励','模仿弹','重复开始弹','总伤二分弹','传递弹','爆穿'}
             if change['name'] in revised:
                 self.assertNotIn(COMMON, cur)
             else:
@@ -77,6 +77,26 @@ class GameRulesCopyTests(unittest.TestCase):
         self.assertIn('【火焰层数】1', editor['倍伤弹']['effect'])
         self.assertIn('+9、+8、+7', editor['传递弹']['effect'])
         self.assertEqual(editor['传递弹']['game_description'], '被加强时会把加强同步给后续子弹')
+        zhong = '自身伤害＝本轮此前所有子弹实际造成的总伤害÷2，再应用枪口火焰，最后四舍五入。'
+        chuan = (
+            '本发经过【枪口火焰】加成并四舍五入后的伤害减去基础伤害3（最低0），即生成的【火焰层数】；每层固定加伤1。'
+            '因此超额9后面三发加伤为+9、+8、+7；超额2后面四发为+2、+1、+0、+0，不做总和守恒。'
+            '不按穿透命中多个敌人的总伤害计算。'
+        )
+        bao = '本发经过枪口火焰加成并四舍五入后的伤害大于7时，获得穿透；每穿过一个敌人，伤害减少1，直到伤害耗尽。伤害等于或低于7时不穿透。'
+        self.assertEqual(editor['总伤二分弹']['effect'], zhong)
+        self.assertEqual(editor['总伤二分弹']['game_description'], '前面越厉害它就越厉害')
+        self.assertEqual(editor['传递弹']['effect'], chuan)
+        self.assertEqual(editor['爆穿']['effect'], bao)
+        self.assertEqual(editor['爆穿']['game_description'], '被加强到极致可以穿透！')
+        ammo = {r['name']: r for r in json.loads((ROOT / 'data/ammo.json').read_text())['items']}
+        self.assertEqual(ammo['总伤二分弹']['special'], zhong)
+        self.assertEqual(ammo['传递弹']['special'], chuan)
+        self.assertEqual(ammo['传递弹']['muzzle_status']['effect_description'], chuan)
+        self.assertEqual(ammo['爆穿']['special'], bao)
+        self.assertNotIn('仍待文案拍板', (ROOT / 'docs/game_rules.md').read_text(encoding='utf-8'))
+        self.assertNotIn('表格原文暂未改', (ROOT / 'docs/game_rules.md').read_text(encoding='utf-8'))
+        self.assertNotIn('表格原文仍待拍板', (ROOT / 'docs/game_rules.md').read_text(encoding='utf-8'))
         self.assertIn('最后一颗实弹', editor['尾加倍弹']['effect'])
         self.assertIn('发射时消耗全部层', editor['升级引爆']['effect'])
         self.assertIn('【消耗枪口火焰】', editor['升级引爆']['effect'])
