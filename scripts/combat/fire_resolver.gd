@@ -41,6 +41,16 @@ const ID_ENCOURAGE := 56
 const ID_HALF_PREV := 57
 const ID_DOUBLE_PREV := 58
 const ID_EMPTY_BEAT := 59
+# t666: approved table designs. IDs preserve the original table values (including blank explosion damage).
+const ID_TOTAL_TRANSFER := 60
+const ID_DOUBLE_LAYERS := 61
+const ID_END_SHARE := 62
+const ID_DRAIN := 63
+const ID_DETONATE := 64
+const ID_SPLIT := 65
+const ID_EMPTY_NEIGHBOR := 66
+const ID_BLACK_SIGHT := 67
+
 const XULI_MULT := 1.5
 const WEIJIABEI_MULT := 1.5
 const QISHI_BONUS := 0.5
@@ -148,15 +158,15 @@ static func compute_volley_damages(order: Array[int], flat_at: Array = [], actua
 	return compute_volley_details(order, flat_at, actual_at)["damages"]
 
 
-static func flame_applies(flame: Dictionary, intrinsic: float, last: bool) -> bool:
+static func flame_applies(flame: Dictionary, intrinsic: float, last: bool, shot_type: String = "") -> bool:
 	# Eligibility is decided BEFORE flat boosts. Utility shots cannot bootstrap damage.
-	return round_damage(intrinsic) > 0 and (str(flame.get("duration_type", "")) != "until_last" or last)
+	return round_damage(intrinsic) > 0 and (str(flame.get("duration_type", "")) != "until_last" or last) and (str(flame.get("effect_kind", "")) != "end_flat" or shot_type == "结束")
 
 
-static func apply_flames(intrinsic: float, flames: Array, last: bool = false) -> float:
+static func apply_flames(intrinsic: float, flames: Array, last: bool = false, shot_type: String = "") -> float:
 	var damage := intrinsic
 	for flame in flames:
-		if not flame_applies(flame, intrinsic, last):
+		if not flame_applies(flame, intrinsic, last, shot_type):
 			continue
 		var layers := maxi(0, int(flame.get("remaining", 1)))
 		match str(flame.get("effect_kind", "")):
@@ -164,12 +174,14 @@ static func apply_flames(intrinsic: float, flames: Array, last: bool = false) ->
 				damage *= pow(1.0 + float(flame.get("effect_per_stack", 0.5)), layers)
 			"damage_mult":
 				damage *= pow(float(flame.get("effect_per_stack", 1.5)), layers)
+			"end_flat":
+				damage += float(flame.get("amount", 0))
 			"damage_flat", "transfer_decay":
 				damage += float(flame.get("amount", 0)) * float(layers)
 	return damage
 
 
-static func consume_flame_layers(flames: Array, intrinsic: float, last: bool = false) -> Array:
+static func consume_flame_layers(flames: Array, intrinsic: float, last: bool = false, shot_type: String = "") -> Array:
 	# t640: each effect TYPE loses one layer, not one per grant or one globally.
 	# Repeated grants remain separate, ordered groups; consume oldest group of
 	# each source effect first, preserving all surviving creation order.
@@ -178,7 +190,7 @@ static func consume_flame_layers(flames: Array, intrinsic: float, last: bool = f
 	for src in flames:
 		var f: Dictionary = src.duplicate(true)
 		var effect: String = str(f.get("id", f.get("source_ammo_id", "")))
-		if not consumed.has(effect) and flame_applies(f, intrinsic, last):
+		if not consumed.has(effect) and flame_applies(f, intrinsic, last, shot_type):
 			f["remaining"] = maxi(0, int(f.get("remaining", 1)) - 1)
 			consumed[effect] = true
 		if int(f.get("remaining", 0)) > 0:
@@ -201,19 +213,37 @@ static func make_flame(source_id: int, index: int, layers: int, amount: float = 
 	return entry
 
 
+static func flame_layer_count(flames: Array) -> int:
+	var n := 0
+	for f in flames:
+		n += maxi(0, int(f.get("remaining", 0)))
+	return n
+
+
+static func _is_actual_at(actual_at: Array, index: int) -> bool:
+	return index < actual_at.size() and actual_at[index] != null
+
+
 static func compute_volley_details(order: Array[int], flat_at: Array = [], actual_at: Array = [], seed_flames: Array = [], generation: int = 0) -> Dictionary:
 	var flames: Array = seed_flames.duplicate(true)
+	var tail_pending: Array = []
 	var out: Array[float] = []
 	var intrinsic_values: Array[float] = []
 	var before: Array = []
 	var after: Array = []
+	var consumed_at: Array[int] = []
 	var prior := 0.0
+	var actual_sum := 0.0
 	var previous := 0.0
 	var old_flat := 0.0
+	var consumed_total := 0
 	var last_loaded := -1
+	var loaded_count := 0
+	var black_sight := order.has(ID_BLACK_SIGHT)
 	for i in order.size():
 		if order[i] != Magazine.EMPTY:
 			last_loaded = i
+			loaded_count += 1
 	for index in order.size():
 		var rem := 0
 		for j in range(index + 1, order.size()):
@@ -226,25 +256,62 @@ static func compute_volley_details(order: Array[int], flat_at: Array = [], actua
 				mounted["uid"] = "%d:%s" % [generation, mounted["uid"]]
 				flames.append(mounted)
 		old_flat = flat
-		before.append(flames.duplicate(true))
 		var ammo_id: int = order[index]
+		var effect_id := resolve_shot_effect_id(order, index)
+		var last := index == last_loaded
+		if last:
+			flames.append_array(tail_pending)
+			if effect_id == ID_WEIJIABEI:
+				flames.append(make_flame(ID_WEIJIABEI, index, 1))
+		before.append(flames.duplicate(true))
 		if ammo_id == Magazine.EMPTY:
 			out.append(0.0)
 			intrinsic_values.append(0.0)
+			consumed_at.append(0)
 			after.append(flames.duplicate(true))
 			continue
-		var effect_id := resolve_shot_effect_id(order, index)
+		var shot_type := type_tag(ammo_id)
 		var base := _formula_base_for_shot(ammo_id, effect_id, index + 1, prior, order, index)
 		if effect_id == ID_HALF_PREV:
 			base = ceilf(previous * 0.5)
 		elif effect_id == ID_DOUBLE_PREV:
 			base = previous * 2.0
 		elif effect_id == ID_ENCOURAGE:
-			if apply_flames(base, flames, index == last_loaded) > base:
+			# t658 changed text only: still a single 3 -> 6 rebase, never per-layer exponential growth.
+			if apply_flames(base, flames, last, shot_type) > base:
 				base = 6.0
+		elif effect_id == ID_DRAIN:
+			# Count prior ACTUALLY consumed layers. Own consumption cannot recursively amplify this shot.
+			base *= pow(2.0, consumed_total)
+		elif effect_id == ID_SPLIT:
+			# A prediction must not masquerade as previous actual damage.
+			base = previous if _previous_live_has_actual(order, actual_at, index) else 0.0
+		elif effect_id == ID_EMPTY_NEIGHBOR:
+			var empty_neighbors := 0
+			for step in [-1, 1]:
+				if black_sight or order[posmod(index + step, order.size())] == Magazine.EMPTY:
+					empty_neighbors += 1
+			base *= 1.0 + float(empty_neighbors)
 		intrinsic_values.append(base)
-		var dmg := apply_flames(base, flames, index == last_loaded)
-		flames = consume_flame_layers(flames, base, index == last_loaded)
+		var pre_count := flame_layer_count(flames)
+		var dmg := 0.0
+		var spent := 0
+		if effect_id == ID_DOUBLE_LAYERS:
+			# No application, no consumption; double each surviving group in place.
+			for flame in flames:
+				flame["remaining"] = int(flame["remaining"]) * 2
+				flame["total"] = maxi(int(flame.get("total", 0)), int(flame["remaining"]))
+			dmg = base
+		elif effect_id == ID_DETONATE:
+			spent = pre_count
+			dmg = 4.0 * float(spent)
+			flames.clear()
+		else:
+			dmg = apply_flames(base, flames, last, shot_type)
+			flames = consume_flame_layers(flames, base, last, shot_type)
+			spent = pre_count - flame_layer_count(flames)
+		consumed_total += spent
+		consumed_at.append(spent)
 		var def: Dictionary = DataRegistry.muzzle_status_of(effect_id)
 		var layers := rem
 		if str(def.get("duration_type", "")) in ["until_consumed", "until_last"]:
@@ -254,17 +321,40 @@ static func compute_volley_details(order: Array[int], flat_at: Array = [], actua
 			layers = maxi(0, round_damage(dmg) - int(CHUANDI_BASE))
 			amount = 1.0
 		elif effect_id == ID_EMPTY_BEAT:
-			layers = order.count(Magazine.EMPTY)
+			layers = order.size() if black_sight else order.count(Magazine.EMPTY)
+		elif effect_id == ID_WEIJIABEI:
+			if not last:
+				tail_pending.append(make_flame(ID_WEIJIABEI, index, 1))
+			layers = 0 # generated only on arrival at last live bullet, never immediately
+		elif effect_id == ID_TOTAL_TRANSFER:
+			layers = loaded_count if _is_actual_at(actual_at, index) else 0
+			amount = (actual_sum + float(actual_at[index])) / float(loaded_count) if layers > 0 else 0.0
+		elif effect_id == ID_END_SHARE:
+			layers = 0
+			if _is_actual_at(actual_at, index):
+				for j in range(index + 1, order.size()):
+					if order[j] != Magazine.EMPTY and type_tag(order[j]) == "结束":
+						layers += 1
+			amount = float(actual_at[index]) / float(layers) if layers > 0 else 0.0
 		var f := make_flame(effect_id, index, layers, amount)
 		if not f.is_empty() and effect_id != ID_HUIWEI:
 			f["uid"] = "%d:%s" % [generation, f["uid"]]
 			flames.append(f)
 		after.append(flames.duplicate(true))
 		out.append(dmg)
-		var actual: float = float(actual_at[index]) if index < actual_at.size() and actual_at[index] != null else dmg
+		var actual: float = float(actual_at[index]) if _is_actual_at(actual_at, index) else dmg
 		prior += actual
+		if _is_actual_at(actual_at, index):
+			actual_sum += actual
 		previous = float(round_damage(actual))
-	return {"damages": out, "intrinsic": intrinsic_values, "before": before, "after": after}
+	return {"damages": out, "intrinsic": intrinsic_values, "before": before, "after": after, "consumed": consumed_at}
+
+
+static func _previous_live_has_actual(order: Array[int], actual_at: Array, index: int) -> bool:
+	for i in range(index - 1, -1, -1):
+		if order[i] != Magazine.EMPTY:
+			return _is_actual_at(actual_at, i)
+	return false
 
 
 static func count_end_type(order: Array[int]) -> int:
@@ -322,7 +412,7 @@ static func resolve_shot_effect_id(order: Array[int], index: int) -> int:
 static func effect_replaces_own_base(effect_id: int) -> bool:
 	## 这些技能本身就是伤害公式，模仿弹获得后按公式结算，而不是先抄对方的基础伤害数字。
 	match effect_id:
-		ID_DIZENG, ID_WEIZHONG, ID_ZHONGSHEN, ID_XIANWEI, ID_DIESHI, ID_HALF_PREV, ID_DOUBLE_PREV:
+		ID_DIZENG, ID_WEIZHONG, ID_ZHONGSHEN, ID_XIANWEI, ID_DIESHI, ID_HALF_PREV, ID_DOUBLE_PREV, ID_DRAIN, ID_SPLIT, ID_EMPTY_NEIGHBOR:
 			return true
 		_:
 			return false

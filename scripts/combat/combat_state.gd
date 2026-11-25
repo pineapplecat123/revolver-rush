@@ -457,6 +457,7 @@ var _volley_muzzle_buffs: Array = []
 var _volley_details: Dictionary = {}
 var _volley_actuals: Array = []
 var _volley_seed_flames: Array = []
+var _volley_reset_after_impacts: bool = false
 var _volley_flame_generation: int = 0
 var _volley_plan_ready: bool = false
 var _volley_plan: Array[float] = []
@@ -3742,6 +3743,13 @@ func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -
 
 
 func _reset_volley_plan() -> void:
+	# The last projectile may still be in flight. Keep its snapshot/actual ledger alive until impact.
+	if not _pending_impacts.is_empty():
+		_volley_reset_after_impacts = true
+		return
+	_volley_reset_after_impacts = false
+	# Only explicitly volley-bound flames expire; every other type keeps the existing carry default.
+	_volley_muzzle_buffs = _volley_muzzle_buffs.filter(func(f): return str(f.get("duration_type", "")) not in ["until_last", "volley_end"])
 	_volley_flame_generation += 1
 	_volley_seed_flames = _volley_muzzle_buffs.duplicate(true)
 	_volley_plan_ready = false
@@ -3761,6 +3769,10 @@ func _ensure_volley_plan() -> void:
 		_volley_plan = [] as Array[float]
 	else:
 		_volley_seq_snapshot = magazine.volley_sequence()
+		# Keep the entire physical ring for empty-count and circular-neighbor formulas.
+		# Trailing empties are never extra shots; fire execution still stops at the last loaded bullet.
+		while _volley_seq_snapshot.size() < magazine.size():
+			_volley_seq_snapshot.append(Magazine.EMPTY)
 		_volley_details = FireResolver.compute_volley_details(_volley_seq_snapshot, [], [], _volley_seed_flames, _volley_flame_generation)
 		_volley_plan = _volley_details["damages"]
 	_volley_plan_index = 0
@@ -3811,15 +3823,15 @@ func _sync_flames_at_cursor() -> void:
 		_volley_muzzle_buffs = _volley_details["after"][-1].duplicate(true)
 
 
-func _maybe_mount_aftertaste_muzzle(ammo_id: int, dealt: int) -> void:
+func _maybe_mount_aftertaste_muzzle(ammo_id: int, dealt: int, shot_index: int = -1) -> void:
 	# Actual hit totals also feed alternate damage formulas, including paced misses.
-	var idx := _volley_plan_index - 1
+	var idx := shot_index if shot_index >= 0 else _volley_plan_index - 1
 	if idx < 0 or idx >= _volley_seq_snapshot.size():
 		return
 	if _volley_actuals.size() != _volley_seq_snapshot.size():
 		_volley_actuals.resize(_volley_seq_snapshot.size())
 	_volley_actuals[idx] = dealt
-	if _shot_effect_ammo_id(ammo_id) == CombatConstants.HUIWEI_AMMO_ID and dealt > 0 and _remaining_loaded_in_plan() > 0:
+	if FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, idx) == CombatConstants.HUIWEI_AMMO_ID and dealt > 0 and _remaining_loaded_in_plan() > 0:
 		if _volley_flat_adds.size() != _volley_seq_snapshot.size():
 			_volley_flat_adds.resize(_volley_seq_snapshot.size())
 		for i in range(_volley_plan_index, _volley_flat_adds.size()):
@@ -3829,12 +3841,14 @@ func _maybe_mount_aftertaste_muzzle(ammo_id: int, dealt: int) -> void:
 
 func _capture_applying_buffs(_ammo_id: int) -> void:
 	last_shot_buff_outlines = []
+	if _shot_effect_ammo_id(_ammo_id) in [FireResolver.ID_DOUBLE_LAYERS, FireResolver.ID_DETONATE]:
+		return
 	var idx := _volley_plan_index - 1
 	if idx < 0 or _volley_details.is_empty():
 		return
 	var intrinsic: float = _volley_details["intrinsic"][idx]
 	for b in _volley_details["before"][idx]:
-		if not bool(b.get("outline", true)) or not FireResolver.flame_applies(b, intrinsic, _remaining_loaded_in_plan() == 0):
+		if not bool(b.get("outline", true)) or not FireResolver.flame_applies(b, intrinsic, _remaining_loaded_in_plan() == 0, FireResolver.type_tag(_ammo_id)):
 			continue
 		last_shot_buff_outlines.append({"id": b.get("id", ""), "label": b.get("label", ""), "color": b.get("color", Color(0.32, 0.78, 0.42))})
 
@@ -4066,7 +4080,7 @@ func fire_next_shot() -> bool:
 	last_shot_planned_damage = base_dmg
 	_apply_volley_muzzle_status(ammo_id)
 	_apply_on_fire_effect(ammo_id)
-	base_dmg = _scale_outgoing_damage(base_dmg)
+	base_dmg = base_dmg if _shot_effect_ammo_id(ammo_id) == FireResolver.ID_DETONATE else _scale_outgoing_damage(base_dmg)
 	last_shot_ammo_id = ammo_id
 	last_shot_hit_cell = -1
 	last_shot_dealt = 0
@@ -4105,13 +4119,14 @@ func fire_next_shot() -> bool:
 		var more_paced: bool = _fire_index < _fire_queue.size()
 		_paced_shot = {
 			"ammo_id": ammo_id,
+			"volley_index": _volley_plan_index - 1,
 			"base_dmg": base_dmg,
 			"pierce": pierce,
 			"gas": gas,
 			"fire": fire,
 			"water": water,
-			"thunder": thunder,
-			"echo": _muzzle_echo,
+			"thunder": thunder and _shot_effect_ammo_id(ammo_id) != FireResolver.ID_DETONATE,
+			"echo": _muzzle_echo and _shot_effect_ammo_id(ammo_id) != FireResolver.ID_DETONATE,
 			"hits": plan,
 			"thunder_done": false,
 			"resolved_total": 0,
@@ -4159,6 +4174,19 @@ func _build_shot_plan(base_dmg: int, pierce: bool, ammo_id: int = -1) -> Array:
 			targets.append(e)
 	if targets.is_empty():
 		return plan
+	var effect_id := _shot_effect_ammo_id(ammo_id)
+	if effect_id in [FireResolver.ID_DETONATE, FireResolver.ID_SPLIT]:
+		var total_damage := float(base_dmg)
+		var idx := _volley_plan_index - 1
+		if effect_id == FireResolver.ID_SPLIT and idx >= 0 and idx < _volley_plan.size():
+			# Do not round the boosted total before dividing.
+			total_damage = float(_volley_plan[idx])
+			if total_damage > 0.0:
+				total_damage = maxf(0.0, total_damage * _outgoing_sin_multiplier() + float(justice_damage_bonus))
+		var per := base_dmg if effect_id == FireResolver.ID_DETONATE else int(ceil(total_damage / float(targets.size())))
+		for e in targets:
+			plan.append({"enemy": e, "cell": e.cell, "dmg": per, "resolved": false, "dealt": 0, "flame_explosion": effect_id == FireResolver.ID_DETONATE})
+		return plan
 	if ammo_id == FireResolver.ID_SCATTER:
 		var n: int = targets.size()
 		var per: int
@@ -4195,7 +4223,10 @@ func resolve_paced_hit(hit_index: int) -> int:
 	var e: EnemyInstance = h.get("enemy") as EnemyInstance
 	var dealt := 0
 	# 目标已在前一发命中时死掉：这发不扣血、不挂状态、不发伤害信号（避免空中飙血）。
-	if e != null and e.is_alive():
+	if e != null and e.is_alive() and bool(h.get("flame_explosion", false)):
+		dealt = e.apply_hit(int(h.get("dmg", 0)))
+		_notify_enemy_damage(e, dealt, "引爆")
+	elif e != null and e.is_alive():
 		dealt = _hit_enemy_with_elements(
 			e,
 			int(h.get("dmg", 0)),
@@ -4286,7 +4317,7 @@ func finalize_paced_shot() -> void:
 		last_shot_dealt = first_dealt
 		total += echo_total
 	_fire_total_damage += total
-	_maybe_mount_aftertaste_muzzle(int(_paced_shot.get("ammo_id", -1)), total)
+	_maybe_mount_aftertaste_muzzle(int(_paced_shot.get("ammo_id", -1)), total, int(_paced_shot.get("volley_index", -1)))
 	if total > 0:
 		_try_envy_copy_on_hit(int(_paced_shot.get("ammo_id", -1)))
 	_maybe_spawn_pebbles_from_stone(int(_paced_shot.get("ammo_id", -1)), total)
@@ -4348,12 +4379,14 @@ func finalize_pending_impact(impact_id: int) -> void:
 	_fire_total_damage += total
 	# 实际扣血在延后落地时才发生；回味必须在这里按实际伤害挂枪口。
 	# 同步路径在 fire_next_shot，未停车的 pace 路径在 finalize_paced_shot；这里是 CombatUI 的 defer_impacts 路径。
-	_maybe_mount_aftertaste_muzzle(ammo_id, total)
+	_maybe_mount_aftertaste_muzzle(ammo_id, total, int(_paced_shot.get("volley_index", -1)))
 	if total > 0:
 		_try_envy_copy_on_hit(ammo_id)
 	_maybe_spawn_pebbles_from_stone(ammo_id, total)
 	_pending_impacts.erase(impact_id)
 	_paced_shot = saved
+	if _volley_reset_after_impacts and _pending_impacts.is_empty():
+		_reset_volley_plan()
 	_remove_dead()
 	if not _volley_pending and _pending_impacts.is_empty():
 		if phase != Phase.WON and phase != Phase.LOST:
@@ -4398,6 +4431,26 @@ func _apply_shot_to_enemies(
 	explosive: bool = false
 ) -> int:
 	_note_last_non_sin_ammo(ammo_id)
+	var effect_id := _shot_effect_ammo_id(ammo_id)
+	if effect_id in [FireResolver.ID_DETONATE, FireResolver.ID_SPLIT]:
+		var total_area := 0
+		for hit in _build_shot_plan(base_dmg, false, ammo_id):
+			var target: EnemyInstance = hit["enemy"]
+			if target == null or not target.is_alive():
+				continue
+			var dealt := 0
+			if effect_id == FireResolver.ID_DETONATE:
+				dealt = target.apply_hit(int(hit["dmg"]))
+				_notify_enemy_damage(target, dealt, "引爆")
+			else:
+				dealt = _hit_enemy_with_elements(target, int(hit["dmg"]), ammo_id, gas, fire, water, thunder)
+			total_area += dealt
+			last_shot_hit_cells.append(target.cell)
+			last_shot_hit_amounts.append(dealt)
+		if not last_shot_hit_cells.is_empty():
+			last_shot_hit_cell = last_shot_hit_cells[0]
+			last_shot_dealt = last_shot_hit_amounts[0]
+		return total_area
 	if player_confuse_remaining > 0.0:
 		var self_dmg: int = maxi(0, base_dmg)
 		_apply_player_damage(self_dmg, "色欲")
@@ -4460,7 +4513,7 @@ func _apply_shot_with_optional_echo(
 	last_echo_hit_cells.clear()
 	last_echo_hit_amounts.clear()
 	var total: int = _apply_shot_to_enemies(ammo_id, base_dmg, pierce, gas, fire, water, thunder, explosive)
-	if not _muzzle_echo:
+	if not _muzzle_echo or _shot_effect_ammo_id(ammo_id) == FireResolver.ID_DETONATE:
 		return total
 	var first_cells: Array[int] = last_shot_hit_cells.duplicate()
 	var first_amts: Array[int] = last_shot_hit_amounts.duplicate()
@@ -4842,6 +4895,14 @@ func _volley_should_continue() -> bool:
 		return false
 	return true
 
+
+
+func volley_waits_for_actual_damage() -> bool:
+	# These rules must never use a forecast in place of actual damage.
+	for i in _volley_seq_snapshot.size():
+		if FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, i) in [FireResolver.ID_TOTAL_TRANSFER, FireResolver.ID_END_SHARE, FireResolver.ID_SPLIT]:
+			return true
+	return false
 
 
 func pending_impact_count() -> int:
@@ -7820,6 +7881,7 @@ func sandbox_damage_modifiers() -> Dictionary:
 	var xuli_mult: float = 1.0
 	var weijia_mult: float = 1.0
 	var huiwei_flat: int = 0
+	var unique_flat_notes: Array[String] = []
 	var chuandi_flat: int = 0
 	for b in _volley_muzzle_buffs:
 		if typeof(b) != TYPE_DICTIONARY:
@@ -7838,6 +7900,8 @@ func sandbox_damage_modifiers() -> Dictionary:
 			else:
 				for _i in stacks:
 					xuli_mult *= step
+		elif kind == "end_flat" or (kind == "damage_flat" and str(b.get("id", "")) == "total_transfer"):
+			unique_flat_notes.append("%s：%s" % [str(b.get("name", "")), DataRegistry.format_muzzle_status_effect(b)])
 		elif kind == "damage_flat":
 			huiwei_flat += int(b.get("amount", 0)) * stacks
 		elif kind == "transfer_decay":
@@ -7845,7 +7909,7 @@ func sandbox_damage_modifiers() -> Dictionary:
 	qishi_pct = int(round((qishi_factor - 1.0) * 100.0))
 	var plan_i: int = _sandbox_next_plan_index()
 	var is_last: bool = has_next and _is_plan_index_last_loaded(plan_i)
-	var parts: Array = []
+	var parts: Array = unique_flat_notes.duplicate()
 	var notes: Array = []
 	var qishi_name: String = DataRegistry.ammo_display_name(CombatConstants.QISHI_AMMO_ID)
 	var xuli_name: String = DataRegistry.ammo_display_name(CombatConstants.XULI_AMMO_ID)

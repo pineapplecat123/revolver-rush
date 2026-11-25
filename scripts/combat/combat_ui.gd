@@ -1713,6 +1713,10 @@ func _on_fire() -> void:
 
 
 func _run_fire_press() -> void:
+	while state != null and (state.volley_waits_for_actual_damage() or state._volley_reset_after_impacts) and state.pending_impact_count() > 0:
+		await get_tree().process_frame
+	if state == null:
+		return
 	## v0.4.26：盘面先对齐逻辑锤位 → 逻辑随机转 + 第一发当帧结算（被打仓画面上保留）→ 播预转动画
 	## → 红圈下出膛 → 打一发转一格。全程 is_shooting()：装弹键灰掉、_refresh 不按逻辑硬对齐盘面。
 	## v0.4.34：若锤位起连续小石头≥2，先播逐步合成石头，再结算开火（仍保留预转+枪花）。
@@ -1958,6 +1962,11 @@ func _run_volley_autofire(immediate_first: bool = false) -> void:
 		if state.volley_port_empty():
 			await _present_blank_beat()
 			continue
+		# Actual-total rules wait for the preceding projectile's real impact, not a predicted hit.
+		while state != null and state.volley_waits_for_actual_damage() and state.pending_impact_count() > 0:
+			await get_tree().process_frame
+		if state == null or not state.is_volley_pending():
+			break
 		var v_merge: int = state.peek_pebble_merge_run()
 		if v_merge >= 2:
 			await _play_pebble_merge_sequence(v_merge)
@@ -8427,6 +8436,10 @@ func _run_auto_continue_from_manual() -> void:
 
 
 func _run_manual_shot_press() -> void:
+	while state != null and (state.volley_waits_for_actual_damage() or state._volley_reset_after_impacts) and state.pending_impact_count() > 0:
+		await get_tree().process_frame
+	if state == null:
+		return
 	## 一次只打一发或空仓走一拍；新弹夹才预转，已开始的弹夹不重置枪口。
 	_display_hold.clear()
 	_snap_disk_to_logic()

@@ -34,7 +34,7 @@ func test_weijiabei_in_registry_and_reward_pool() -> void:
 	assert_eq(str(def.get("bullet_color", "")).to_upper(), "#BFFF00")
 	assert_eq(str(def.get("muzzle_color", "")).to_upper(), "#BFFF00")
 	assert_true(str(def.get("game_description")).begins_with("给最后一发子弹蓄力..."))
-	assert_eq(DataRegistry.all_ammo().size(), 20)
+	assert_eq(DataRegistry.all_ammo().size(), 28)
 	var status: Dictionary = DataRegistry.muzzle_status_of(WEIJIA)
 	assert_eq(str(status.get("id")), "weijiabei")
 	assert_eq(str(status.get("duration_type")), "until_last")
@@ -130,10 +130,10 @@ func test_weijiabei_muzzle_status_and_planned_damage() -> void:
 	cs.fire_next_shot()
 	assert_eq(cs.last_shot_planned_damage, 0)
 	assert_eq(cs.last_shot_dealt, 0)
-	assert_eq(_weijia_stacks(cs), 1)
+	assert_eq(_weijia_stacks(cs), 0) # t658: not generated until last bullet turn
 	var mid: Dictionary = cs.sandbox_damage_modifiers()
-	assert_almost_eq(float(mid.get("weijia_mult", 1.0)), 1.5, 0.0001)
-	assert_true(str(mid.get("text", "")).contains("留给最后一发"), str(mid.get("text", "")))
+	assert_almost_eq(float(mid.get("weijia_mult", 1.0)), 1.0, 0.0001)
+	assert_false(str(mid.get("text", "")).contains("留给最后一发"))
 	assert_true(cs.begin_fire())
 	cs.fire_next_shot()
 	assert_eq(cs.last_shot_planned_damage, 3)
@@ -154,7 +154,7 @@ func test_weijiabei_muzzle_status_and_planned_damage() -> void:
 
 func test_synced_editor_game_descriptions() -> void:
 	assert_true(str(DataRegistry.get_ammo(QISHI).get("game_description")).begins_with("给之后的子弹加伤害"))
-	assert_true(str(DataRegistry.get_ammo(XULI).get("game_description")).begins_with("给下一颗子弹蓄力..."))
+	assert_true(str(DataRegistry.get_ammo(XULI).get("game_description")).begins_with("创造蓄力火焰"))
 	assert_eq(str(DataRegistry.get_ammo(QISHI).get("muzzle_color", "")).to_upper(), "#52C76B")
 	assert_eq(str(DataRegistry.get_ammo(XULI).get("muzzle_color", "")).to_upper(), "#52C76B")
 	# 传递弹使用已确认的全额超额逐次减1规则。

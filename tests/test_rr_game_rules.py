@@ -61,14 +61,19 @@ class GameRulesCopyTests(unittest.TestCase):
             cur = row
             for part in field.split('.'):
                 cur = (cur or {}).get(part) if isinstance(cur, dict) else None
-            self.assertEqual(cur, change['new'], change)
+            # v0.4.85 intentionally revises these unique texts after t658/t666.
+            revised = {'倍伤弹','伤害递增弹','叠势弹','尾加倍弹','需要鼓励','模仿弹','重复开始弹'}
+            if change['name'] in revised:
+                self.assertNotIn(COMMON, cur)
+            else:
+                self.assertEqual(cur, change['new'], change)
 
     def test_flavor_and_unique_mechanics_preserved(self):
         editor = {b['name']: b for b in json.loads((ROOT / 'companion/bullet-editor/data.json').read_text())['bullets']}
         self.assertEqual(editor['加伤弹']['game_description'], '给之后的子弹加伤害')
         self.assertIn('×1.5', editor['加伤弹']['effect'])
         self.assertIn('本轮剩余实弹数', editor['加伤弹']['effect'])
-        self.assertEqual(editor['倍伤弹']['game_description'], '给下一颗子弹蓄力...')
+        self.assertEqual(editor['倍伤弹']['game_description'], '创造蓄力火焰，只有有伤害的子弹才会消耗它。')
         self.assertIn('【火焰层数】1', editor['倍伤弹']['effect'])
         self.assertIn('+9、+8、+7', editor['传递弹']['effect'])
         self.assertEqual(editor['传递弹']['game_description'], '被加强时会把加强同步给后续子弹')

@@ -263,7 +263,7 @@ func muzzle_status_of(ammo_id: int) -> Dictionary:
 		out["name"] = display
 	var kind: String = str(out.get("effect_kind", ""))
 	# 伤害类枪口标签跟当前子弹名走，不用数据里写死的旧称（如「起势」「蓄力」）。
-	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat" or kind == "transfer_decay":
+	if kind == "damage_pct" or kind == "damage_mult" or kind == "damage_flat" or kind == "transfer_decay" or kind == "end_flat":
 		out["name"] = display
 		out["label"] = display
 	else:
@@ -316,6 +316,10 @@ static func format_muzzle_status_effect(entry: Dictionary) -> String:
 		return "下一发×%s" % shown
 	if kind == "transfer_decay":
 		return "伤害+%d；每次消耗一层后减1，最低0" % int(entry.get("remaining", 0))
+	if kind == "end_flat":
+		return "每颗剩余结束弹伤害+%s" % _format_muzzle_mult(float(entry.get("amount", 0)))
+	if kind == "damage_flat" and str(entry.get("id", "")) == "total_transfer":
+		return "每层+%s；当前伤害+%s" % [_format_muzzle_mult(float(entry.get("amount", 0))), _format_muzzle_mult(float(entry.get("amount", 0)) * float(stacks))]
 	if kind == "damage_flat":
 		var amt: int = int(entry.get("amount", 0))
 		if amt == 0:
