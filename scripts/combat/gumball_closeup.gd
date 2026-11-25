@@ -24,6 +24,7 @@ const HOPPER_COUNT := 12
 const COMMIT_PULL := 0.88
 const LEVER_TRAVEL := 120.0
 const GATE_CLEAR := 0.22
+const METER_EXIT_SPEED := 120.0  # Physical throat brake, released once the whole ball clears the lip.
 
 var machine: GumballMachine = null
 var color_lookup: Callable = Callable()
@@ -597,6 +598,12 @@ func _physics_world(dt: float) -> void:
 		var vel: Vector2 = b["vel"]
 		vel += gvec * dt
 		vel *= AIR_DRAG
+		# The metering throat controls the existing payload's velocity, not its
+		# visibility/position. Keep bag gravity/restitution during the free fall.
+		if bool(b.get("payload", false)) and not bool(b.get("in_tray", false)) and _commit_ok:
+			var py := float(b["pos"].y)
+			if py >= gate_y() - r and py < outlet_reveal_y() + r:
+				vel.y = minf(vel.y, METER_EXIT_SPEED)
 		if not _agitating and _gate_open < 0.15:
 			vel *= 0.96
 		var pos: Vector2 = b["pos"] + vel * dt
@@ -1110,7 +1117,7 @@ func casing_top_y() -> float:
 func outlet_reveal_y() -> float:
 	# Fixed spatial aperture, NOT a per-body visible switch. The same circle and
 	# glyph are progressively clipped as they enter/leave the opaque front casing.
-	return machine_foot().y - 36.0 * machine_scale()
+	return machine_foot().y - 42.0 * machine_scale()
 
 
 func _make_ball_clip(node_name: String) -> Control:

@@ -773,7 +773,7 @@ func _ensure_muzzle_hud() -> void:
 	# v0.4.41：齐射加强图标跟在「枪口：」后面，不再贴在场上枪口旁边
 	_volley_buff_host = HBoxContainer.new()
 	_volley_buff_host.name = "VolleyBuffHost"
-	_volley_buff_host.add_theme_constant_override("separation", 1)
+	_volley_buff_host.add_theme_constant_override("separation", 5)
 	_volley_buff_host.alignment = BoxContainer.ALIGNMENT_CENTER
 	_volley_buff_host.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_volley_buff_host.mouse_filter = Control.MOUSE_FILTER_IGNORE

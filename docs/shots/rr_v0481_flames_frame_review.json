@@ -1,0 +1,78 @@
+{
+  "single": {
+    "fps": 60,
+    "events": [
+      {
+        "frame": 0,
+        "time_sec": 0.0,
+        "visible_icon_count": 0
+      },
+      {
+        "frame": 19,
+        "time_sec": 0.317,
+        "visible_icon_count": 5
+      },
+      {
+        "frame": 312,
+        "time_sec": 5.2,
+        "visible_icon_count": 4
+      },
+      {
+        "frame": 424,
+        "time_sec": 7.067,
+        "visible_icon_count": 3
+      },
+      {
+        "frame": 536,
+        "time_sec": 8.933,
+        "visible_icon_count": 2
+      },
+      {
+        "frame": 648,
+        "time_sec": 10.8,
+        "visible_icon_count": 1
+      },
+      {
+        "frame": 760,
+        "time_sec": 12.667,
+        "visible_icon_count": 0
+      }
+    ],
+    "duration_sec": 15.05
+  },
+  "projectile": {
+    "frame": 319,
+    "time_sec": 5.316666666666666
+  },
+  "mixed": {
+    "fps": 60,
+    "events": [
+      {
+        "frame": 0,
+        "time_sec": 0.0,
+        "visible_icon_count": 0
+      },
+      {
+        "frame": 19,
+        "time_sec": 0.317,
+        "visible_icon_count": 5
+      },
+      {
+        "frame": 312,
+        "time_sec": 5.2,
+        "visible_icon_count": 3
+      },
+      {
+        "frame": 424,
+        "time_sec": 7.067,
+        "visible_icon_count": 1
+      },
+      {
+        "frame": 536,
+        "time_sec": 8.933,
+        "visible_icon_count": 0
+      }
+    ],
+    "duration_sec": 11.316666666666666
+  }
+}

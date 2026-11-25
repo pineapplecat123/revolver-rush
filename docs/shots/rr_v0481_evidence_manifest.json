@@ -1,0 +1,114 @@
+[
+  {
+    "path": "docs/shots/rr_v0481_flames_mixed_closeup.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 1440,
+        "height": 960,
+        "r_frame_rate": "60/1"
+      }
+    ],
+    "format": {
+      "duration": "11.316667",
+      "size": "4940977"
+    }
+  },
+  {
+    "path": "docs/shots/rr_v0481_flames_mixed_native.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 720,
+        "height": 1280,
+        "r_frame_rate": "60/1"
+      }
+    ],
+    "format": {
+      "duration": "11.316667",
+      "size": "2354390"
+    }
+  },
+  {
+    "path": "docs/shots/rr_v0481_flames_single_closeup.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 1440,
+        "height": 960,
+        "r_frame_rate": "60/1"
+      }
+    ],
+    "format": {
+      "duration": "15.050000",
+      "size": "6332940"
+    }
+  },
+  {
+    "path": "docs/shots/rr_v0481_flames_single_native.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 720,
+        "height": 1280,
+        "r_frame_rate": "60/1"
+      }
+    ],
+    "format": {
+      "duration": "15.050000",
+      "size": "3032930"
+    }
+  },
+  {
+    "path": "docs/shots/rr_v0481_gumball_closeup_1x.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 720,
+        "height": 1080,
+        "r_frame_rate": "30/1"
+      }
+    ],
+    "format": {
+      "duration": "4.500000",
+      "size": "498637"
+    }
+  },
+  {
+    "path": "docs/shots/rr_v0481_gumball_native.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 720,
+        "height": 1280,
+        "r_frame_rate": "30/1"
+      }
+    ],
+    "format": {
+      "duration": "13.500000",
+      "size": "2846143"
+    }
+  },
+  {
+    "path": "docs/shots/rr_v0481_gumball_replay_025x.mp4",
+    "programs": [],
+    "stream_groups": [],
+    "streams": [
+      {
+        "width": 720,
+        "height": 1080,
+        "r_frame_rate": "15/2"
+      }
+    ],
+    "format": {
+      "duration": "4.933333",
+      "size": "471877"
+    }
+  }
+]
