@@ -10,7 +10,8 @@ func test_persistent_fire_has_large_envelope_and_shrinks_each_layer() -> void:
 		assert_lt(shape.y, previous.y)
 		previous = shape
 	var five := HUD.flame_envelope([{"remaining":5}])
-	assert_gte(five.y, 160.0)
+	assert_almost_eq(five.x, 67.8, 0.05)
+	assert_almost_eq(five.y, 106.8, 0.05)
 	assert_gt(five.y, five.x)
 	assert_eq(HUD.flame_envelope([]), Vector2.ZERO)
 func test_live_hud_icons_and_fire_follow_actual_consumption() -> void:
@@ -95,7 +96,8 @@ func test_animated_flame_outline_never_self_intersects() -> void:
 func test_top_hud_stays_readable_over_largest_flame() -> void:
 	# Layering only: do not shrink the owner-requested tall 🔥 silhouette.
 	var five := HUD.flame_envelope([{"remaining":5}])
-	assert_gte(five.y, 160.0)
+	assert_almost_eq(five.x, 67.8, 0.05)
+	assert_almost_eq(five.y, 106.8, 0.05)
 	assert_gt(five.y, five.x)
 	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
 	assert_not_null(ui._muzzle_status_hud)

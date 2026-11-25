@@ -116,7 +116,8 @@ static func flame_envelope(entries: Array) -> Vector2:
 		return Vector2.ZERO
 	# x = width of the rounded base, y = upward height. Taller than wide, like 🔥.
 	var weight := minf(float(count), 12.0)
-	return Vector2(48.0 + 13.0 * weight, 88.0 + 18.0 * weight)
+	# ~60% of the v0.4.82/83 envelope so a 5-layer flame is about 68×107, still 🔥-shaped.
+	return Vector2(28.8 + 7.8 * weight, 52.8 + 10.8 * weight)
 
 
 static func layer_icon_entries(entries: Array) -> Array:
