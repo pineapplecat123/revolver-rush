@@ -191,7 +191,7 @@ func test_actual_grant_finishes_after_last_deferred_impact_and_carries() -> void
 	assert_eq(int(cs.volley_muzzle_buffs()[0]["remaining"]),2)
 	assert_eq(float(cs.volley_muzzle_buffs()[0]["amount"]),2.0) # actual3+1=4, N2
 
-func test_rounding_at_end_and_encouragement_stays_one_rebase() -> void:
+func test_rounding_at_end_and_encouragement_counts_one_consumed_type() -> void:
 	var mul := {"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}
 	var d := FireResolver.compute_volley_details([EMPTY,EMPTY,EMPTY,EMPTY,EMPTY,42],[],[],[mul])
 	assert_eq(float(d["damages"][5]),9.75) # not round6.5 ->7 then x1.5

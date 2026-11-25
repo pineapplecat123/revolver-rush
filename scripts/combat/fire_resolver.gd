@@ -277,9 +277,8 @@ static func compute_volley_details(order: Array[int], flat_at: Array = [], actua
 		elif effect_id == ID_DOUBLE_PREV:
 			base = previous * 2.0
 		elif effect_id == ID_ENCOURAGE:
-			# t658 changed text only: still a single 3 -> 6 rebase, never per-layer exponential growth.
-			if apply_flames(base, flames, last, shot_type) > base:
-				base = 6.0
+			var consumed := flame_layer_count(flames) - flame_layer_count(consume_flame_layers(flames, base, last, shot_type))
+			base *= 1.0 + float(consumed)
 		elif effect_id == ID_DRAIN:
 			# Count prior ACTUALLY consumed layers. Own consumption cannot recursively amplify this shot.
 			base *= pow(2.0, consumed_total)

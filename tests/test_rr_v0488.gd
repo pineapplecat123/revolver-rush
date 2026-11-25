@@ -16,6 +16,7 @@ func _campaign() -> CombatState:
 	return cs
 
 func _clear(cs: CombatState) -> void:
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs.reward_pending = false
 	cs.pending_levelups = 0
@@ -50,6 +51,7 @@ func test_pending_hit_reward_and_enemy_do_not_count_as_cleared_wave() -> void:
 	var cs := _campaign()
 	cs.campaign_try_advance()
 	assert_eq(cs.campaign_node_clears, 0)
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs._volley_pending = true
 	cs.campaign_try_advance()
@@ -85,6 +87,7 @@ func test_trash_xp_picker_is_top_canvas_blocks_background_and_selects_once() -> 
 	cs.campaign_instant_transitions = true
 	cs.campaign_pick_opening(0)
 	cs.campaign_skip_walk()
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs.alley_force_kind = CampaignRules.ALLEY_TRASH
 	cs._begin_alley_approach()

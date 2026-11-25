@@ -30,7 +30,7 @@ func test_dump_to_hand_draws_up_to_six() -> void:
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_PLAIN_ONLY_COUNT - CombatConstants.HAND_SIZE)
 
 
-func test_dump_returns_hand_then_redraws() -> void:
+func test_dump_preserves_full_hand_and_bag() -> void:
 	var cs := CombatState.new()
 	cs.start_rush(3, FireResolver.ID_WRATH)
 	cs.dump_to_hand()
@@ -38,8 +38,9 @@ func test_dump_returns_hand_then_redraws() -> void:
 	assert_eq(first.size(), 6)
 	var bag_before_second: int = cs.bag.size()
 	var n2: int = cs.dump_to_hand()
-	assert_eq(n2, 6)
-	# 手非空先退回再抽：袋数量应回到「总数-6」
+	assert_eq(n2, 0)
+	# 新规则：满手不再退回重抽，袋和手的身份保持不变。
+	assert_eq(cs.hand, first)
 	assert_eq(cs.hand.size(), 6)
 	assert_eq(cs.bag.size(), CombatConstants.STARTER_PLAIN_ONLY_COUNT - 6)
 	assert_eq(bag_before_second + first.size() - 6, cs.bag.size())

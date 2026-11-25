@@ -153,11 +153,13 @@ func is_ammo_reward_eligible(ammo_id: int) -> bool:
 
 
 func get_ammo_rarity(ammo_id: int) -> String:
-	## common/uncommon/rare/epic；缺省 uncommon（对齐旧统一价）。
+	## 未填写保持空字符串；不再把空稀有度隐式补成 common/uncommon/rare。
 	var def: Dictionary = get_ammo(ammo_id)
+	if def.is_empty():
+		return ""
 	var r: String = str(def.get("rarity", "")).strip_edges()
 	if r.is_empty() or r == "null":
-		return "uncommon"
+		return ""
 	return r
 
 

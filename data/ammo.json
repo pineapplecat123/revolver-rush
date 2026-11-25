@@ -4,7 +4,7 @@
     {
       "id": 40,
       "name": "加伤弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
@@ -31,7 +31,7 @@
     {
       "id": 41,
       "name": "倍伤弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
@@ -58,7 +58,7 @@
     {
       "id": 42,
       "name": "伤害递增弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 2,
       "base_damage_mode": "slot",
@@ -77,7 +77,7 @@
     {
       "id": 43,
       "name": "总伤二分弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": null,
       "base_damage_mode": "formula",
@@ -96,7 +96,7 @@
     {
       "id": 44,
       "name": "加速弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
@@ -123,7 +123,7 @@
     {
       "id": 45,
       "name": "随机复制弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
@@ -156,7 +156,7 @@
     {
       "id": 46,
       "name": "尾重弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "fixed",
@@ -175,7 +175,7 @@
     {
       "id": 47,
       "name": "吃尾弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "formula",
@@ -194,7 +194,7 @@
     {
       "id": 48,
       "name": "重复开始弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 0,
       "base_damage_mode": "fixed",
@@ -213,7 +213,7 @@
     {
       "id": 49,
       "name": "白板弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "fixed",
@@ -232,7 +232,7 @@
     {
       "id": 50,
       "name": "叠势弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "formula",
@@ -251,7 +251,7 @@
     {
       "id": 51,
       "name": "爆穿",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 3,
       "base_damage_mode": "fixed",
@@ -270,7 +270,7 @@
     {
       "id": 52,
       "name": "传递弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 3,
       "base_damage_mode": "fixed",
@@ -296,7 +296,7 @@
     {
       "id": 53,
       "name": "模仿弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "通用",
       "base_damage": 3,
       "base_damage_mode": "fixed",
@@ -315,7 +315,7 @@
     {
       "id": 54,
       "name": "回味弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 2,
       "base_damage_mode": "fixed",
@@ -342,7 +342,7 @@
     {
       "id": 55,
       "name": "尾加倍弹",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "fixed",
@@ -369,13 +369,13 @@
     {
       "id": 56,
       "name": "需要鼓励",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 3,
       "base_damage_mode": "fixed",
       "enabled_in_combat": true,
       "in_reward_pool": true,
-      "special": "如果本子弹每收到一层火焰加强，则基础伤害翻倍，即进行伤害修正的基础值为6",
+      "special": "发射时，本子弹每消耗一层火焰，基础伤害+100％",
       "game_description": "普通的一个子弹...直到获得加强",
       "tags": [
         "结束",
@@ -388,7 +388,7 @@
     {
       "id": 57,
       "name": "模仿伤害",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "previous_actual",
@@ -407,7 +407,7 @@
     {
       "id": 58,
       "name": "超级放大",
-      "rarity": "common",
+      "rarity": "",
       "school": "清算",
       "base_damage": 0,
       "base_damage_mode": "previous_actual",
@@ -426,7 +426,7 @@
     {
       "id": 59,
       "name": "空拍",
-      "rarity": "common",
+      "rarity": "",
       "school": "节奏",
       "base_damage": 0,
       "base_damage_mode": "fixed",

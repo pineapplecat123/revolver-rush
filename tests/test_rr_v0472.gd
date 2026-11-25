@@ -23,6 +23,7 @@ func _force_walk_to_shop(cs: CombatState) -> void:
 		cs.campaign_skip_walk()
 	cs.campaign_wave = maxi(1, CampaignRules.wave_count(cs.campaign_floor, cs.campaign_segment))
 	cs.campaign_node_clears = 2
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs.reward_pending = false
 	cs.pending_levelups = 0
@@ -88,6 +89,7 @@ func test_third_shop_exit_starts_boss_not_during_exit() -> void:
 			cs.campaign_pick_opening(0)
 			continue
 		cs.campaign_skip_walk()
+		cs.campaign_wave_reserve.clear()
 		cs.enemies.clear()
 		cs.campaign_try_advance()
 		if cs.alley_active() or cs.campaign_phase in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
@@ -99,6 +101,7 @@ func test_third_shop_exit_starts_boss_not_during_exit() -> void:
 	assert_eq(shops, 2)
 	# 第三次：不用即时，确认出门阶段还没有首领
 	cs.campaign_instant_transitions = false
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs.campaign_try_advance()
 	var guard2 := 8
@@ -107,6 +110,7 @@ func test_third_shop_exit_starts_boss_not_during_exit() -> void:
 		if cs.alley_active() or cs.campaign_phase in [CampaignRules.PHASE_WALK_ALLEY, CampaignRules.PHASE_ALLEY, CampaignRules.PHASE_LEAVE_ALLEY]:
 			cs.campaign_simulate_alley_skip()
 		if cs.campaign_phase == CampaignRules.PHASE_COMBAT:
+			cs.campaign_wave_reserve.clear()
 			cs.enemies.clear()
 			cs.campaign_try_advance()
 	assert_true(cs.campaign_phase == CampaignRules.PHASE_WALK_SHOP or cs.shop_house_seq == CombatState.SHOP_HOUSE_APPROACH)

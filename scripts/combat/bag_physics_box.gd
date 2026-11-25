@@ -4,6 +4,7 @@ extends Control
 
 signal ball_hover(ammo_id: int)
 signal ball_hover_exit(ammo_id: int)
+signal ball_detail_press(ammo_id: int, ball_uid: int, event: InputEvent)
 signal ball_press(ammo_id: int)
 signal ball_long_press_tick(ammo_id: int)  ## 按下持续时由外部计时；本控件发 press/release
 
@@ -45,6 +46,7 @@ var _bullet_tris: PackedInt32Array = PackedInt32Array()
 var color_lookup: Callable = Callable()  ## (ammo_id) -> {bg, fg}
 var name_lookup: Callable = Callable()  ## (ammo_id) -> short glyph
 
+var _detail_uid_next: int = 1
 var _balls: Array = []  # each: {id, pos:Vector2, vel:Vector2, r:float, asleep:bool, freeze:int}
 var _hover_ammo: int = -1
 var _pressed_ammo: int = -1
@@ -432,6 +434,7 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 	x = clampf(x, aabb.position.x + cr, maxf(aabb.position.x + cr, aabb.end.x - cr))
 	y = clampf(y, aabb.position.y + r, maxf(aabb.position.y + r, aabb.end.y - r))
 	_balls.append({
+		"detail_uid": _detail_uid_next,
 		"id": ammo_id,
 		"temp": temporary or envy_copy,
 		"envy": envy_copy,
@@ -445,6 +448,8 @@ func _spawn_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = false)
 		"asleep": false,
 		"freeze": 0,
 	})
+
+	_detail_uid_next += 1
 
 
 func set_temp_lifetimes(by_id: Dictionary) -> void:
@@ -754,15 +759,14 @@ func _draw_box() -> void:
 		var seedv: float = float(aid) * 0.37 + float(b.get("seed", 0.0))
 		var h: float = float(b.get("h", r * 2.0))
 		var fx_r: float = h * 0.36
-		var masked_center: bool = _point_in_sack_interior(pos)
-		if (not masked_center) and tier != RarityFx.TIER_COMMON:
+		if tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_back(self, pos, fx_r, bg, tier, tsec, seedv)
 		var ang: float = float(b.get("ang", 0.0))
-		_draw_bag_bullet_masked(pos, h, ang, bg, interior)
-		if (not masked_center) and tier != RarityFx.TIER_COMMON:
+		_draw_bag_bullet(pos, h, ang, bg)
+		if tier != RarityFx.TIER_COMMON:
 			RarityFx.draw_ball_front(self, pos, fx_r, tier, tsec, seedv)
 		# v0.4.36：仅 TTL>0 画寿命环（幽灵/小石头）；打出即毁临时只有半透明，无环无秒数
-		if is_temp_ball and not masked_center:
+		if is_temp_ball:
 			var life: float = float(b.get("life", 0.0))
 			if life > 0.0:
 				var full: float = float(temp_full_life_by_id.get(aid, temp_full_life))
@@ -771,7 +775,7 @@ func _draw_box() -> void:
 				draw_arc(pos, fx_r + 2.5, -PI * 0.5, -PI * 0.5 + TAU * frac, 28, ring_col, 2.5, false)
 		var glyph: String = st["glyph"]
 		var fsize := label_font_size_for_height(h)
-		if font != null and not masked_center:
+		if font != null:
 			# 字永远正向对着玩家，画在子弹中心，不跟外形一起转
 			var tkey: String = "%s|%d" % [glyph, fsize]
 			var off = _text_off_cache.get(tkey)
@@ -793,7 +797,7 @@ func _draw_box() -> void:
 			draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
 			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		# v0.4.30 嫉妒一次性复制：右上角绿菱
-		if bool(b.get("envy", false)) and not masked_center:
+		if bool(b.get("envy", false)):
 			var d: float = maxf(3.5, h * 0.12)
 			var tip: Vector2 = pos + Vector2(h * 0.18, -h * 0.22)
 			draw_colored_polygon(PackedVector2Array([
@@ -843,7 +847,18 @@ func _ball_at_pointer(local_pos: Vector2 = Vector2.INF) -> Variant:
 	return best
 
 
+func detail_ball(ball_uid: int) -> Dictionary:
+	# Track the pressed physical instance, not the moving ball under the finger.
+	for b in _balls:
+		if int(b.get("detail_uid", -1)) == ball_uid and not bool(b.get("exited", false)):
+			return b
+	return {}
+
+
 func _gui_input(event: InputEvent) -> void:
+	var use_touch: bool = not bool(ProjectSettings.get_setting("input_devices/pointing/emulate_mouse_from_touch", true))
+	if event is InputEventScreenTouch and not use_touch:
+		return  # The emulated mouse is the single canonical pointer.
 	if event is InputEventMouseMotion:
 		var b = _ball_at_pointer()
 		var aid := int(b["id"]) if b != null else -1
@@ -861,6 +876,8 @@ func _gui_input(event: InputEvent) -> void:
 				if b2 != null:
 					_pressed_ammo = int(b2["id"])
 					ball_press.emit(_pressed_ammo)
+					ball_detail_press.emit(_pressed_ammo, int(b2["detail_uid"]), event)
+					accept_event()
 					# wake ball a bit
 					b2["asleep"] = false
 					b2["vel"] = Vector2(b2["vel"]) + Vector2(randf_range(-30, 30), -40)
@@ -873,6 +890,8 @@ func _gui_input(event: InputEvent) -> void:
 		if st.pressed and b3 != null:
 			_pressed_ammo = int(b3["id"])
 			ball_press.emit(_pressed_ammo)
+			ball_detail_press.emit(_pressed_ammo, int(b3["detail_uid"]), event)
+			accept_event()
 		elif not st.pressed:
 			_pressed_ammo = -1
 
@@ -1064,8 +1083,6 @@ const SACK_OUTER := Color(0.40, 0.47, 0.53, 1.0)
 const SACK_LINE := Color(0.26, 0.32, 0.37, 1.0)
 const SACK_TIE := Color(0.20, 0.24, 0.28, 1.0)
 const SACK_INTERIOR := Color(0.74, 0.76, 0.78, 1.0)
-const SACK_BALL_MASK := Color(0.27, 0.28, 0.30, 1.0)
-const SACK_BALL_MASK_OUTLINE := Color(0.14, 0.15, 0.16, 1.0)
 
 
 static func _ellipse_pts(c: Vector2, rx: float, ry: float, n: int, a0: float = 0.0, a1: float = TAU) -> PackedVector2Array:
@@ -1338,61 +1355,6 @@ func _point_in_sack_interior(pos: Vector2) -> bool:
 	if poly.size() < 3:
 		return false
 	return Geometry2D.is_point_in_polygon(pos, poly)
-
-
-func _circle_poly(pos: Vector2, rad: float, n: int = 24) -> PackedVector2Array:
-	var pts := PackedVector2Array()
-	if rad <= 0.2 or n < 5:
-		return pts
-	pts.resize(n)
-	for i in n:
-		var a: float = TAU * float(i) / float(n)
-		pts[i] = pos + Vector2(cos(a) * rad, sin(a) * rad)
-	return pts
-
-
-
-func _draw_poly_if_valid(part, col: Color) -> void:
-	if not (part is PackedVector2Array):
-		return
-	var pts: PackedVector2Array = part
-	if pts.size() < 3:
-		return
-	if Geometry2D.triangulate_polygon(pts).is_empty():
-		return
-	draw_colored_polygon(pts, col)
-
-
-func _draw_bag_bullet_masked(pos: Vector2, h: float, _ang: float, fill: Color, interior: PackedVector2Array) -> void:
-	## 空间遮罩只作用在球上：区内深灰、区外/倒出保持种类色。不改球的数据色。
-	var rad: float = circle_radius_for_height(h)
-	var mask := SACK_BALL_MASK
-	mask.a = fill.a
-	var mask_ol := SACK_BALL_MASK_OUTLINE
-	mask_ol.a = fill.a
-	if interior.size() < 3:
-		_draw_bag_bullet(pos, h, _ang, fill)
-		return
-	var circ: PackedVector2Array = _circle_poly(pos, rad, 24)
-	if circ.size() < 5:
-		_draw_bag_bullet(pos, h, _ang, fill)
-		return
-	var insides: Array = Geometry2D.intersect_polygons(circ, interior)
-	var outsides: Array = Geometry2D.clip_polygons(circ, interior)
-	var center_in: bool = Geometry2D.is_point_in_polygon(pos, interior)
-	# 先铺一层按圆心决定的底色，避免裁剪多边形无法三角化时球消失。
-	if center_in:
-		draw_circle(pos, rad, mask)
-	else:
-		draw_circle(pos, rad, fill)
-	for part in outsides:
-		_draw_poly_if_valid(part, fill)
-	for part2 in insides:
-		_draw_poly_if_valid(part2, mask)
-	if center_in:
-		draw_arc(pos, rad, 0.0, TAU, 28, mask_ol, BULLET_OUTLINE_W, true)
-	else:
-		draw_arc(pos, rad, 0.0, TAU, 28, BULLET_OUTLINE, BULLET_OUTLINE_W, true)
 
 
 func _draw_sack(off: Vector2, sz: Vector2) -> void:

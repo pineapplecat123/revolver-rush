@@ -1,6 +1,6 @@
 class_name ShopState
 ## 商店会话逻辑（纯数据）。打开时拷贝 gold/bag；离开时写回 rush! 战斗状态。
-## v0.4.15：库存按稀有度权重抽取；售价按稀有度；罪孽弹药不可去除。
+## 库存均匀随机抽取（无稀有度权重）；统一5金单价；罪孽弹药不可去除。
 
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
 
@@ -54,9 +54,8 @@ func end_session() -> Dictionary:
 
 
 func ammo_price(ammo_id: int = 0) -> int:
-	## 售价按稀有度；缺字段回退 uncommon=AMMO_PRICE。
-	var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
-	return ShopConstants.price_for_rarity(rarity)
+	## 已批准所有商店子弹统一5金；不按稀有度分级。
+	return ShopConstants.price_for_ammo(ammo_id)
 
 
 func next_remove_cost() -> int:
@@ -174,102 +173,20 @@ func reroll() -> bool:
 
 
 func _roll_stock() -> void:
-	var by_rarity: Dictionary = _pool_by_rarity()
+	var pool: Array[int] = _enabled_ammo_ids()
+	if pool.is_empty():
+		pool.append(CombatConstants.WHITE_AMMO_ID)
 	stock.clear()
 	sold.clear()
-	var used: Dictionary = {}
-	for _i in ShopConstants.STOCK_SIZE:
-		var aid: int = _pick_weighted_ammo(by_rarity, used)
-		stock.append(aid)
+	## 无稀有度权重：均匀随机；尽量不重复，池不够则允许重复。
+	var work: Array[int] = pool.duplicate()
+	_shuffle(work)
+	for i in ShopConstants.STOCK_SIZE:
+		if i < work.size():
+			stock.append(work[i])
+		else:
+			stock.append(pool[rng.randi_range(0, pool.size() - 1)])
 		sold.append(false)
-		used[aid] = true
-
-
-func _pool_by_rarity() -> Dictionary:
-	var out := {
-		ShopConstants.RARITY_COMMON: [],
-		ShopConstants.RARITY_UNCOMMON: [],
-		ShopConstants.RARITY_RARE: [],
-		ShopConstants.RARITY_EPIC: [],
-	}
-	for item in DataRegistry.all_ammo():
-		var aid: int = int(item.get("id", 0))
-		if not DataRegistry.is_ammo_reward_eligible(aid):
-			continue
-		var rarity: String = DataRegistry.get_ammo_rarity(aid)
-		if not out.has(rarity):
-			rarity = ShopConstants.RARITY_UNCOMMON
-		out[rarity].append(aid)
-	return out
-
-
-func _pick_weighted_ammo(by_rarity: Dictionary, used: Dictionary) -> int:
-	## 先按权重抽稀有度，再在该档未用尽的池中抽；档空则向下/向上找。
-	var order: Array[String] = [
-		ShopConstants.RARITY_COMMON,
-		ShopConstants.RARITY_UNCOMMON,
-		ShopConstants.RARITY_RARE,
-		ShopConstants.RARITY_EPIC,
-	]
-	var weights: Array[int] = []
-	var total := 0
-	for r in order:
-		var w: int = int(ShopConstants.RARITY_WEIGHT.get(r, 0))
-		## 该档完全没货则权重记 0，避免抽空档
-		if _available_in_tier(by_rarity, r, used).is_empty() and _any_in_tier(by_rarity, r).is_empty():
-			w = 0
-		weights.append(w)
-		total += w
-	var chosen_rarity: String = ShopConstants.RARITY_UNCOMMON
-	if total > 0:
-		var roll: int = rng.randi_range(1, total)
-		var acc := 0
-		for i in order.size():
-			acc += weights[i]
-			if roll <= acc:
-				chosen_rarity = order[i]
-				break
-	var pick: int = _pick_from_tier_with_fallback(by_rarity, chosen_rarity, used, order)
-	if pick <= 0:
-		return CombatConstants.WHITE_AMMO_ID
-	return pick
-
-
-func _any_in_tier(by_rarity: Dictionary, rarity: String) -> Array:
-	return by_rarity.get(rarity, [])
-
-
-func _available_in_tier(by_rarity: Dictionary, rarity: String, used: Dictionary) -> Array:
-	var out: Array = []
-	for aid in by_rarity.get(rarity, []):
-		if not used.has(int(aid)):
-			out.append(int(aid))
-	return out
-
-
-func _pick_from_tier_with_fallback(by_rarity: Dictionary, rarity: String, used: Dictionary, order: Array[String]) -> int:
-	var idx: int = order.find(rarity)
-	if idx < 0:
-		idx = 1
-	## 优先同档未用；再同档可重复；再向下；再向上。
-	var try_order: Array[int] = []
-	try_order.append(idx)
-	for d in range(1, order.size()):
-		if idx - d >= 0:
-			try_order.append(idx - d)
-		if idx + d < order.size():
-			try_order.append(idx + d)
-	for ti in try_order:
-		var r: String = order[ti]
-		var avail: Array = _available_in_tier(by_rarity, r, used)
-		if not avail.is_empty():
-			return int(avail[rng.randi_range(0, avail.size() - 1)])
-	for ti in try_order:
-		var r2: String = order[ti]
-		var all_tier: Array = _any_in_tier(by_rarity, r2)
-		if not all_tier.is_empty():
-			return int(all_tier[rng.randi_range(0, all_tier.size() - 1)])
-	return CombatConstants.WHITE_AMMO_ID
 
 
 func _enabled_ammo_ids() -> Array[int]:
@@ -278,7 +195,16 @@ func _enabled_ammo_ids() -> Array[int]:
 		var aid: int = int(item.get("id", 0))
 		if DataRegistry.is_ammo_reward_eligible(aid):
 			out.append(aid)
+	out.sort()
 	return out
+
+
+func _shuffle(arr: Array[int]) -> void:
+	for i in range(arr.size() - 1, 0, -1):
+		var j: int = rng.randi_range(0, i)
+		var tmp: int = arr[i]
+		arr[i] = arr[j]
+		arr[j] = tmp
 
 
 func _ammo_name(ammo_id: int) -> String:

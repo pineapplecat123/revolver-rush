@@ -29,6 +29,7 @@ func _boot_campaign(seed_v: int = 47501, instant: bool = true) -> CombatState:
 func _kill_wave(cs: CombatState) -> void:
 	# Reach one event/shop node (three cleared combat waves as of v0.4.88).
 	for i in CombatState.COMBAT_WAVES_PER_NODE:
+		cs.campaign_wave_reserve.clear()
 		cs.enemies.clear()
 		cs.reward_pending = false
 		cs.pending_levelups = 0
@@ -243,6 +244,7 @@ func test_pending_impact_and_enemies_block_event() -> void:
 	cs.campaign_try_advance()
 	assert_eq(cs.campaign_phase, CampaignRules.PHASE_COMBAT)
 	assert_false(cs.alley_active())
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs._volley_pending = true
 	assert_false(cs.campaign_field_safe())
@@ -276,6 +278,7 @@ func test_machine_starts_offscreen_and_moves_monotonically() -> void:
 	var cs := _boot_campaign(47580, false)
 	cs.campaign_node_clears = 2
 	cs.alley_force_kind = CampaignRules.ALLEY_GUMBALL
+	cs.campaign_wave_reserve.clear()
 	cs.enemies.clear()
 	cs.campaign_try_advance()
 	assert_eq(cs.alley_seq, CombatState.ALLEY_APPROACH)
@@ -305,17 +308,18 @@ func test_machine_starts_offscreen_and_moves_monotonically() -> void:
 	assert_gt(cs.alive_enemies().size(), 0)
 
 
-func test_bag_flat_cool_gray_and_interior_mask_helpers() -> void:
+func test_bag_flat_cool_gray_without_mask_and_physical_interior() -> void:
 	assert_lt(BagPhysicsBox.SACK_OUTER.r, 0.55)
 	assert_gt(BagPhysicsBox.SACK_OUTER.b, BagPhysicsBox.SACK_OUTER.r)
 	assert_gt(BagPhysicsBox.SACK_INTERIOR.r, 0.65)
-	assert_lt(BagPhysicsBox.SACK_BALL_MASK.r, 0.40)
-	# 浅灰底明显亮于深灰球
-	assert_gt(BagPhysicsBox.SACK_INTERIOR.r, BagPhysicsBox.SACK_BALL_MASK.r + 0.25)
 	var src := FileAccess.get_file_as_string("res://scripts/combat/bag_physics_box.gd")
 	assert_false("0.83, 0.65, 0.43" in src)
 	assert_false("leather_l" in src)
 	assert_true("SACK_INTERIOR" in src)
+	assert_false("_draw_bag_bullet_masked" in src)
+	assert_false("Geometry2D.intersect_polygons" in src)
+	assert_false("Geometry2D.clip_polygons" in src)
+	assert_false("masked_center" in src)
 	var box := BagPhysicsBox.new()
 	box.size = Vector2(240, 240)
 	add_child_autofree(box)

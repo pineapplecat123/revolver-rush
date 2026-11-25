@@ -58,6 +58,7 @@ var campaign_segment: int = 1
 const COMBAT_WAVES_PER_NODE := 3
 var campaign_wave: int = 1
 var campaign_node_clears: int = 0
+var campaign_wave_reserve: Array = []
 var campaign_shops_this_floor: int = 0
 var campaign_offer_choices: Array[int] = []
 var campaign_offer_pending: bool = false
@@ -677,6 +678,7 @@ func _reset_campaign_flags() -> void:
 	campaign_floor = 1
 	campaign_segment = 1
 	campaign_node_clears = 0
+	campaign_wave_reserve.clear()
 	campaign_wave = 1
 	campaign_shops_this_floor = 0
 	campaign_offer_choices.clear()
@@ -733,6 +735,7 @@ func start_campaign(seed_value: int = 0) -> void:
 	campaign_floor = 1
 	campaign_segment = 1
 	campaign_node_clears = 0
+	campaign_wave_reserve.clear()
 	campaign_wave = 1
 	campaign_shops_this_floor = 0
 	campaign_await_boss_reward = false
@@ -831,7 +834,7 @@ func campaign_field_safe() -> bool:
 		return false
 	if reward_pending or campaign_offer_pending:
 		return false
-	if not alive_enemies().is_empty():
+	if not alive_enemies().is_empty() or not campaign_wave_reserve.is_empty():
 		return false
 	if has_corpse_enemies():
 		return false
@@ -881,6 +884,7 @@ func _begin_campaign_enter() -> void:
 func _campaign_start_segment_combat() -> void:
 	campaign_transition_lock = false
 	campaign_node_clears = 0
+	campaign_wave_reserve.clear()
 	campaign_wave = 1
 	campaign_phase = CampaignRules.PHASE_COMBAT
 	encounter_kind = EncounterKind.NORMAL
@@ -888,20 +892,25 @@ func _campaign_start_segment_combat() -> void:
 
 
 func _campaign_spawn_current_wave() -> int:
-	var spawns: Array = CampaignRules.wave_spawns(campaign_floor, campaign_segment, campaign_wave)
-	var made := 0
-	for item in spawns:
+	campaign_wave_reserve.clear()
+	for item in CampaignRules.wave_spawns(campaign_floor, campaign_segment, campaign_wave):
 		if not (item is Dictionary):
 			continue
-		var eid: int = int(item.get("id", 0))
-		var count: int = maxi(1, int(item.get("count", 1)))
-		var hp_ov: int = int(item.get("hp", 0))
-		for _j in count:
-			if _campaign_spawn_enemy(eid, hp_ov, ""):
-				made += 1
-	if made > 0:
-		_log("闯关：第%d关第%d段第%d波，出现 %d 个敌人。" % [campaign_floor, campaign_segment, (campaign_wave - 1) * COMBAT_WAVES_PER_NODE + campaign_node_clears + 1, made])
+		for j in maxi(1, int(item.get("count", 1))):
+			campaign_wave_reserve.append(item.duplicate(true))
+	var total := campaign_wave_reserve.size()
+	var made := _campaign_fill_spawn_lanes()
+	_log("闯关：第%d段第%d波共%d个敌人（入场%d，待入场%d）。" % [campaign_segment, (campaign_wave - 1) * COMBAT_WAVES_PER_NODE + campaign_node_clears + 1, total, made, campaign_wave_reserve.size()])
 	_emit()
+	return total
+
+
+func _campaign_fill_spawn_lanes() -> int:
+	var made := 0
+	while not campaign_wave_reserve.is_empty() and _free_spawn_cell() >= 0:
+		var item: Dictionary = campaign_wave_reserve.pop_front()
+		if _campaign_spawn_enemy(int(item.get("id", 0)), int(item.get("hp", 0)), ""):
+			made += 1
 	return made
 
 
@@ -973,6 +982,9 @@ func campaign_try_advance() -> void:
 		_campaign_begin_floor_combat()
 		return
 	if campaign_phase == CampaignRules.PHASE_COMBAT:
+		if not reward_pending and not has_pending_impacts() and not has_corpse_enemies():
+			if _campaign_fill_spawn_lanes() > 0:
+				_emit()
 		if not campaign_field_safe():
 			return
 		if alley_seq != ALLEY_NONE:
@@ -1162,6 +1174,7 @@ func _campaign_begin_floor_combat() -> void:
 	campaign_shops_this_floor = 0
 	campaign_segment = 1
 	campaign_node_clears = 0
+	campaign_wave_reserve.clear()
 	campaign_wave = 1
 	_campaign_start_segment_combat()
 
@@ -1717,6 +1730,14 @@ func _bag_reset_pool(next_reset_count: int) -> Array:
 				k = _pool_find(pool, mid, not mt)
 			if k >= 0:
 				pool.remove_at(k)
+	for i in hand.size():
+		var hid := int(hand[i])
+		var life = hand_temp[i] if i < hand_temp.size() else 0.0
+		if not _counts_as_permanent(hid, life) or (i < hand_envy_copy.size() and bool(hand_envy_copy[i])):
+			continue
+		var k := _pool_find(pool, hid, false)
+		if k >= 0:
+			pool.remove_at(k)
 	return pool
 
 
@@ -2854,53 +2875,55 @@ func commit_unused_hand_for_fire() -> int:
 
 
 func can_dump_to_hand() -> bool:
-	## 倒出：袋有弹，且不在开火/敌方/胜负/奖励中。
-	if phase == Phase.FIRING or phase == Phase.ENEMY_TURN or phase == Phase.WON or phase == Phase.LOST:
+	if phase in [Phase.FIRING, Phase.ENEMY_TURN, Phase.WON, Phase.LOST] or reward_pending or has_pending_impacts():
 		return false
-	if reward_pending:
+	if hand.size() >= CombatConstants.HAND_SIZE:
 		return false
-	# 袋或手里还有弹：可以倒（先把手退回再抽），不因此重置。
-	if not bag.is_empty() or not hand.is_empty():
-		return true
-	# 袋和手都空：只有一整轮打光后才允许靠重置再倒。
-	return bag_cycle_ready_to_reset() and can_refill_bag()
+	return not bag.is_empty() or can_refill_bag()
+
+
+func refill_bag_for_pour() -> bool:
+	# Explicit pour may cross a bag boundary; live hand/cylinder are deducted from the pool.
+	if not bag.is_empty() or sandbox_mode or has_pending_impacts():
+		return false
+	if phase in [Phase.FIRING, Phase.ENEMY_TURN, Phase.WON, Phase.LOST] or reward_pending:
+		return false
+	if not _reset_bag_in_combat():
+		return false
+	needs_reshuffle_next_load = false
+	return true
 
 
 func dump_to_hand() -> int:
-	## 倒出：若手非空，先退回袋；再从袋随机抽最多 HAND_SIZE 发入手。
-	## 返回实际入手数量。
 	if not can_dump_to_hand():
 		return 0
-	if not hand.is_empty():
-		return_hand_to_bag()
-	if bag.is_empty():
-		ensure_bag_refilled_if_empty()
-	if bag.is_empty():
-		_emit()
-		return 0
-	var n: int = mini(CombatConstants.HAND_SIZE, bag.size())
-	var drawn: Array[int] = _draw_random_from_bag(n)
-	for i in drawn.size():
-		var tv = _last_drawn_temps[i] if i < _last_drawn_temps.size() else 0.0
-		var ev: bool = bool(_last_drawn_envy[i]) if i < _last_drawn_envy.size() else false
-		_hand_append(int(drawn[i]), tv, ev)
-	_log("倒出：%d 发入手（手 %d / 袋 %d）。" % [drawn.size(), hand.size(), bag.size()])
-	if phase == Phase.AWAIT_LOAD or phase == Phase.AWAIT_ACTION:
-		pass
+	var total := 0
+	while hand.size() < CombatConstants.HAND_SIZE:
+		if bag.is_empty() and not refill_bag_for_pour():
+			break
+		var n := mini(CombatConstants.HAND_SIZE - hand.size(), bag.size())
+		if n <= 0:
+			break
+		var drawn := _draw_random_from_bag(n)
+		for i in drawn.size():
+			_hand_append(drawn[i], _last_drawn_temps[i], _last_drawn_envy[i])
+		total += drawn.size()
+		if drawn.is_empty():
+			break
+	_log("倒出：%d 发入手（手 %d / 袋 %d）。" % [total, hand.size(), bag.size()])
 	_emit()
-	return drawn.size()
+	return total
 
 
 func dump_to_hand_items(items: Array) -> int:
 	## 把实际从袋口掉出的那些弹入手（与画面一致）；不是再随机抽。
 	if not can_dump_to_hand():
 		return 0
-	if not hand.is_empty():
-		return_hand_to_bag()
 	_sync_temp_arrays()
 	var n := 0
+	var room := CombatConstants.HAND_SIZE - hand.size()
 	for rec in items:
-		if n >= CombatConstants.HAND_SIZE:
+		if n >= room:
 			break
 		var aid: int = int(rec.get("id", -1))
 		if aid < 0:

@@ -252,7 +252,7 @@ func _process(delta: float) -> void:
 
 
 func _populate_codex() -> void:
-	## 方格网格：每格只显示弹球 + 名称 + 稀有度；点开看详情。
+	## 方格网格：每格只显示弹球 + 名称；点开看详情。
 	var list: GridContainer = %CodexList
 	for c in list.get_children():
 		list.remove_child(c)
@@ -313,14 +313,6 @@ func _make_codex_cell(ammo_id: int, def: Dictionary, cell: float) -> Control:
 	nm.add_theme_color_override("font_color", Color(0.95, 0.96, 1.0))
 	nm.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	v.add_child(nm)
-	var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
-	var rl := Label.new()
-	rl.text = ShopConstants.rarity_label(rarity)
-	rl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	rl.add_theme_font_size_override("font_size", 13)
-	rl.add_theme_color_override("font_color", Color(0.75, 0.8, 0.9))
-	rl.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	v.add_child(rl)
 	card.gui_input.connect(_on_codex_cell_gui_input.bind(ammo_id))
 	return card
 
@@ -396,8 +388,7 @@ func _on_codex_cell_pressed(ammo_id: int) -> void:
 func _show_codex_detail(ammo_id: int) -> void:
 	_codex_detail_ammo = ammo_id
 	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
-	var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
-	var price: int = ShopConstants.price_for_rarity(rarity)
+	var price: int = ShopConstants.price_for_ammo(ammo_id)
 	%CodexDetailTitle.text = str(def.get("name", ammo_id))
 	var body: VBoxContainer = %CodexDetailBody
 	for c in body.get_children():
@@ -407,7 +398,7 @@ func _show_codex_detail(ammo_id: int) -> void:
 	chip.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	body.add_child(chip)
 	var meta := Label.new()
-	meta.text = "%s · %d 金" % [ShopConstants.rarity_label(rarity), price]
+	meta.text = "%d 金" % price
 	meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	meta.add_theme_font_size_override("font_size", 18)
 	meta.add_theme_color_override("font_color", Color(0.85, 0.88, 0.95))

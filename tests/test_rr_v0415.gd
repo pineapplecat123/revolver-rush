@@ -1,5 +1,5 @@
 extends GutTest
-## v0.4.15 商店稀有度：弹药 rarity、加权货架、按档定价。
+## v0.4.15 历史快照兼容（已移除商店稀有度分级后，确认白板与基础购买仍正常）。
 
 const ShopState = preload("res://scripts/shop/shop_state.gd")
 const ShopConstants = preload("res://scripts/shop/shop_constants.gd")
@@ -16,7 +16,7 @@ func test_changelog_has_0_4_15_entry() -> void:
 
 
 func test_shop_pool_rarity_table_snapshot() -> void:
-	## 本分支商店池：清算五弹 + 加速/撤退 + 衔尾蛇/重复开始/白板（平庸已并入白板，不重复）。
+	## 28 颗现役弹药与退休平庸弹迁移保持兼容；未填稀有度保持空白。
 	assert_eq(DataRegistry.all_ammo().size(), 28)
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.XIANWEI_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.CHONGFU_KAISHI_AMMO_ID))
@@ -24,17 +24,13 @@ func test_shop_pool_rarity_table_snapshot() -> void:
 	assert_eq(CombatConstants.WHITE_AMMO_ID, CombatConstants.BAIBAN_AMMO_ID)
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WHITE_AMMO_ID))
 	assert_true(DataRegistry.is_ammo_reward_eligible(CombatConstants.WEIZHONG_AMMO_ID))
-	assert_eq(DataRegistry.get_ammo_rarity(CombatConstants.WHITE_AMMO_ID), "common")
+	assert_eq(DataRegistry.get_ammo_rarity(CombatConstants.WHITE_AMMO_ID), "")
 
 
 func test_price_formula_matches_constants() -> void:
 	var shop := ShopState.new()
-	assert_eq(shop.ammo_price(CombatConstants.WHITE_AMMO_ID), 5)
-	assert_eq(shop.ammo_price(CombatConstants.RETIRED_PINGYONG_AMMO_ID), 5)
-	assert_eq(ShopConstants.price_for_rarity("common"), 5)
-	assert_eq(ShopConstants.price_for_rarity("uncommon"), 8)
-	assert_eq(ShopConstants.price_for_rarity("rare"), 14)
-	assert_eq(ShopConstants.price_for_rarity("epic"), 22)
+	assert_eq(shop.ammo_price(CombatConstants.WHITE_AMMO_ID), ShopConstants.AMMO_PRICE)
+	assert_eq(shop.ammo_price(CombatConstants.RETIRED_PINGYONG_AMMO_ID), ShopConstants.AMMO_PRICE)
 
 
 func test_weighted_stock_has_five_slots() -> void:

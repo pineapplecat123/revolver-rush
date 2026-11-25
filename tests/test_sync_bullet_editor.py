@@ -108,5 +108,17 @@ class SyncHelpersTest(unittest.TestCase):
             self.assertEqual(ammo2["base_damage"], base_dmg)
 
 
+
+    def test_apply_clears_stale_rarity_when_editor_blank_and_maps_when_filled(self):
+        ammo = {"id": 40, "name": "加伤弹", "rarity": "common"}
+        changes = mod.apply_editor_row(ammo, {"name": "加伤弹", "rarity": ""})
+        self.assertIn("rarity", changes)
+        self.assertEqual(ammo["rarity"], "")
+
+        changes2 = mod.apply_editor_row(ammo, {"name": "加伤弹", "rarity": "稀有"})
+        self.assertIn("rarity", changes2)
+        self.assertEqual(ammo["rarity"], "rare")
+
+
 if __name__ == "__main__":
     unittest.main()

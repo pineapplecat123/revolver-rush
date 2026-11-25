@@ -29,6 +29,7 @@ func _boot_campaign(seed_v: int = 47601, instant: bool = true) -> CombatState:
 func _kill_wave(cs: CombatState) -> void:
 	# Reach one event/shop node (three cleared combat waves as of v0.4.88).
 	for i in CombatState.COMBAT_WAVES_PER_NODE:
+		cs.campaign_wave_reserve.clear()
 		cs.enemies.clear()
 		cs.reward_pending = false
 		cs.pending_levelups = 0

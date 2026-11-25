@@ -60,6 +60,15 @@ const BAG_CELL_MIN := Vector2(56, 56)
 const ACTION_BTN_FONT := 40
 ## 竖屏弹窗最大宽（720 基准视口留边）
 const MODAL_MAX_W := 690.0
+const BULLET_HOLD_MOVE_PX := 10.0  # Logical viewport pixels; jitter is not a drag.
+var _bullet_hold_kind: String = ""
+var _bullet_hold_ammo: int = -1
+var _bullet_hold_key: int = -1
+var _bullet_hold_pointer: int = -2  # -1 mouse; >=0 touch index; -2 none
+var _bullet_hold_origin := Vector2.ZERO
+var _bullet_hold_elapsed: float = 0.0
+var _bullet_drag_pointer: int = -2
+
 const LONG_PRESS_SEC := 0.45
 const DETAIL_PANEL_W := 360.0
 const DETAIL_PANEL_H := 320.0
@@ -390,7 +399,7 @@ func _ready() -> void:
 	mag_title.text = "转轮"
 	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
 	if hint_lab != null:
-		hint_lab.text = "倒出：袋→手（最多 6）。拖进空仓会吸附。射击时没装上的自动回袋，再打已装弹。"
+		hint_lab.text = "倒出：补到手中6发；余弹先倒完，袋空补袋后继续倒。射击前未装弹回袋。"
 	_style_overlay_panels()
 	_style_corner_buttons()
 	_ensure_campaign_backdrop()
@@ -1439,6 +1448,7 @@ func _exit_tree() -> void:
 
 
 func _process(delta: float) -> void:
+	_tick_bullet_hold(delta)
 	_tick_screen_punch(delta)
 	if state == null:
 		return
@@ -1540,6 +1550,16 @@ func _update_enemy_glide_visuals() -> void:
 
 
 func _input(event: InputEvent) -> void:
+	if _bullet_hold_input(event):
+		get_viewport().set_input_as_handled()
+		return
+	if _drag_active and _bullet_drag_pointer != -2:
+		if _bullet_event_pointer(event) != _bullet_drag_pointer:
+			return
+		if event is InputEventScreenTouch and event.canceled:
+			_abort_bullet_drag()
+			get_viewport().set_input_as_handled()
+			return
 	## 拖拽在控件外松开时也要落下。
 	if not _drag_active:
 		return
@@ -1569,7 +1589,7 @@ func is_magazine_interaction_locked() -> bool:
 
 
 func _on_manual_load() -> void:
-	## feat/gameplay-redo：按钮改为「倒出」——袋→手（最多 6）；手非空则先退回袋再抽。
+	## feat/gameplay-redo：按钮改为「倒出」——袋→手（最多 6）；手非空则保留并补到6发。
 	if is_magazine_interaction_locked():
 		return
 	_snap_fire_disk()
@@ -3784,6 +3804,10 @@ func _toggle_dev() -> void:
 
 
 func _update_dimmer() -> void:
+	if _bullet_hold_blocked():
+		_cancel_bullet_hold()
+		if _bullet_drag_pointer != -2:
+			_abort_bullet_drag()
 	# 悬停/长按弹药详情不盖遮罩；开发面板 / 奖励 / 商店 / 罪孽选择用遮罩
 	# v0.4.44：沙盒控制台从上方弹出，不盖遮罩，袋区始终看得见
 	var dev_dim: bool = _dev_open and not (state != null and state.sandbox_mode)
@@ -3804,6 +3828,10 @@ func is_combat_frozen() -> bool:
 
 
 func _set_combat_frozen(frozen: bool) -> void:
+	if frozen:
+		_cancel_bullet_hold()
+		if _bullet_drag_pointer != -2:
+			_abort_bullet_drag()
 	## v0.3.9：升级三选一 = 纯暂停遮罩。整个战斗场景（含本节点上的所有 Tween：转盘、弹道、飚血、飘字、
 	## 抖动、可暂停等待；弹药袋物理；_process 里的怪滑行/计时）停止处理；只有奖励面板与遮罩照常响应。
 	reward_panel.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -4788,11 +4816,8 @@ func _refresh_rush_shop_panel() -> void:
 		return
 	_shop_title.text = "闯关商店" if state != null and state.campaign_mode else "地图商店"
 	_shop_gold_label.text = "金币 %d" % _shop.gold
-	_shop_hint.text = "购买：按稀有度定价（普通%d / 精良%d / 稀有%d / 史诗%d）。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。" % [
-		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_COMMON]),
-		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_UNCOMMON]),
-		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_RARE]),
-		int(ShopConstants.RARITY_PRICE[ShopConstants.RARITY_EPIC]),
+	_shop_hint.text = "购买：单价 %d 金/发。重随：免费 %d 次，之后每次 %d 金。移除：本店递增（%d、再 +%d…），离店重置；罪孽弹药不可去除。" % [
+		ShopConstants.AMMO_PRICE,
 		ShopConstants.FREE_REROLLS,
 		ShopConstants.REROLL_COST,
 		ShopConstants.REMOVE_BASE_COST,
@@ -4813,7 +4838,7 @@ func _refresh_rush_shop_stock() -> void:
 	for c in _shop_stock.get_children():
 		c.queue_free()
 	var title := Label.new()
-	title.text = "库存（按稀有度权重）"
+	title.text = "库存（随机）"
 	_shop_stock.add_child(title)
 	for i in _shop.stock.size():
 		var ammo_id: int = _shop.stock[i]
@@ -4827,8 +4852,7 @@ func _refresh_rush_shop_stock() -> void:
 			info.text = "%s · 已售出" % str(def.get("name", ammo_id))
 			info.add_theme_color_override("font_color", Color(0.55, 0.55, 0.6))
 		else:
-			var rarity: String = DataRegistry.get_ammo_rarity(ammo_id)
-			info.text = "%s · %s · %d 金" % [str(def.get("name", ammo_id)), ShopConstants.rarity_label(rarity), price]
+			info.text = "%s · %d 金" % [str(def.get("name", ammo_id)), price]
 		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_child(info)
 		var btn := Button.new()
@@ -5350,6 +5374,143 @@ func _find_free_hand_spot(area: Vector2, h: float, taken: Array, salt: int) -> V
 	return best
 
 
+func _bullet_event_pointer(event: InputEvent) -> int:
+	if event is InputEventMouseButton:
+		return -1 if event.button_index == MOUSE_BUTTON_LEFT else -2
+	if event is InputEventMouseMotion:
+		return -1
+	if (event is InputEventScreenTouch or event is InputEventScreenDrag) and _use_screen_pointer():
+		return event.index
+	return -2
+
+
+func _bullet_hold_blocked() -> bool:
+	return state == null or _busy() or is_shooting() or _dev_open or _reward_open or _shop_open or (state != null and (state.shop_hold or state.alley_hold or state.reward_pending))
+
+
+func _start_bullet_hold(kind: String, ammo_id: int, key: int, event: InputEvent, host: Control) -> void:
+	if _bullet_hold_blocked() or _drag_active or not _pointer_down(event) or _bullet_hold_kind != "":
+		return
+	_cancel_long_press(true)
+	_hide_ammo_detail()
+	_bullet_hold_kind = kind
+	_bullet_hold_ammo = ammo_id
+	_bullet_hold_key = key
+	_bullet_hold_pointer = _bullet_event_pointer(event)
+	_bullet_hold_origin = _pointer_global(event, host)
+	_bullet_hold_elapsed = 0.0
+
+
+func _cancel_bullet_hold() -> void:
+	if _bullet_hold_kind == "":
+		return
+	_bullet_hold_kind = ""
+	_bullet_hold_pointer = -2
+	_hide_ammo_detail()
+
+
+func _bullet_hold_input(event: InputEvent) -> bool:
+	if _bullet_hold_kind == "" or _bullet_event_pointer(event) != _bullet_hold_pointer:
+		return false
+	if _bullet_hold_blocked():
+		_cancel_bullet_hold()
+		return false  # A modal gets its own input, never the underlying bullet.
+	if _pointer_up(event) or (event is InputEventScreenTouch and event.canceled):
+		_cancel_bullet_hold()
+		return true  # Release cannot click a control underneath the noninteractive popup.
+	if not _pointer_move(event):
+		return false
+	# _input events are already in viewport coordinates (unlike gui_input touch events).
+	var pos: Vector2 = event.position
+	if pos.distance_to(_bullet_hold_origin) <= BULLET_HOLD_MOVE_PX:
+		return false
+	var kind := _bullet_hold_kind
+	var key := _bullet_hold_key
+	var pointer := _bullet_hold_pointer
+	_cancel_bullet_hold()  # Never re-arm, even if the finger moves back to the origin.
+	if kind == "chamber":
+		_bullet_drag_pointer = pointer
+		_drag_begin("chamber", key, pos)
+		return true
+	return false
+
+
+func _tick_bullet_hold(delta: float) -> void:
+	if _drag_active and _bullet_drag_pointer != -2 and _bullet_hold_blocked():
+		_abort_bullet_drag()
+	if _bullet_hold_kind == "":
+		return
+	if _bullet_hold_blocked():
+		_cancel_bullet_hold()
+		return
+	var anchor := Vector2.ZERO
+	if _bullet_hold_kind == "bag":
+		if not is_instance_valid(_bag_physics):
+			_cancel_bullet_hold()
+			return
+		var ball: Dictionary = _bag_physics.detail_ball(_bullet_hold_key)
+		if ball.is_empty() or int(ball["id"]) != _bullet_hold_ammo:
+			_cancel_bullet_hold()
+			return
+		anchor = _bag_physics.get_global_transform() * Vector2(ball["pos"])
+	else:
+		if state.magazine == null or _bullet_hold_key < 0 or _bullet_hold_key >= state.magazine.slots.size() or state.magazine.slots[_bullet_hold_key] != _bullet_hold_ammo:
+			_cancel_bullet_hold()
+			return
+		anchor = chamber_visual_center(_bullet_hold_key)
+	_bullet_hold_elapsed += maxf(delta, 0.0)
+	if _bullet_hold_elapsed < LONG_PRESS_SEC:
+		return
+	if not _detail_open:
+		_show_ammo_detail(_bullet_hold_ammo, null, false, true)
+		_ammo_detail_body.text = _bullet_hold_detail_text(_bullet_hold_ammo)
+	_position_bullet_hold_detail(anchor)
+
+
+func _bullet_hold_detail_text(ammo_id: int) -> String:
+	if ammo_id == CombatConstants.INVALID_AMMO_ID:
+		return DataRegistry.format_ammo_detail_text(ammo_id)
+	var def: Dictionary = DataRegistry.get_ammo(ammo_id)
+	var damage = def.get("base_damage", null)
+	var mode := str(def.get("base_damage_mode", ""))
+	var damage_text := str(damage) if damage != null else ""
+	if mode == "previous_actual" or (mode == "formula" and (damage == null or damage == 0)):
+		damage_text = "X"
+	var description := str(def.get("game_description", "")).strip_edges()
+	var effect := str(def.get("special", "")).strip_edges()
+	return "基础伤害：%s\n\n%s\n\n效果：%s" % [damage_text, description, effect if effect != "" else "无"]
+
+
+func _position_bullet_hold_detail(anchor: Vector2) -> void:
+	var viewport_rect: Rect2 = get_viewport().get_visible_rect()
+	var panel_size := Vector2(minf(DETAIL_PANEL_W, viewport_rect.size.x - 16.0), minf(DETAIL_PANEL_H, viewport_rect.size.y - 16.0))
+	_ammo_detail_panel.size = panel_size
+	var pos := anchor - Vector2(panel_size.x * 0.5, panel_size.y + 32.0)
+	pos.x = clampf(pos.x, viewport_rect.position.x + 8.0, maxf(viewport_rect.position.x + 8.0, viewport_rect.end.x - panel_size.x - 8.0))
+	pos.y = clampf(pos.y, viewport_rect.position.y + 8.0, maxf(viewport_rect.position.y + 8.0, viewport_rect.end.y - panel_size.y - 8.0))
+	_ammo_detail_panel.global_position = pos
+
+
+func _abort_bullet_drag() -> void:
+	_drag_active = false
+	_drag_kind = ""
+	_drag_index = -1
+	_bullet_drag_pointer = -2
+	_drag_snap_chamber = -1
+	_drag_snap_hand = false
+	_set_snap_highlight(-1)
+	if is_instance_valid(_drag_ghost):
+		_drag_ghost.queue_free()
+	_drag_ghost = null
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_WINDOW_FOCUS_OUT or what == NOTIFICATION_APPLICATION_FOCUS_OUT:
+		_cancel_bullet_hold()
+		if _bullet_drag_pointer != -2:
+			_abort_bullet_drag()
+
+
 func _use_screen_pointer() -> bool:
 	return not bool(ProjectSettings.get_setting("input_devices/pointing/emulate_mouse_from_touch", true))
 
@@ -5424,7 +5585,7 @@ func _on_chamber_gui_input(event: InputEvent, slot_i: int) -> void:
 		# 只从有弹的仓开始拖
 		if state.magazine == null or state.magazine.slots[slot_i] == Magazine.EMPTY:
 			return
-		_drag_begin("chamber", slot_i, _pointer_global(event, host))
+		_start_bullet_hold("chamber", state.magazine.slots[slot_i], slot_i, event, host)
 		accept_event()
 	elif _pointer_up(event) and _drag_active:
 		_drag_end(_pointer_global(event, host))
@@ -5588,6 +5749,7 @@ func _update_drag_snap(global_pos: Vector2) -> void:
 
 
 func _drag_end(global_pos: Vector2) -> void:
+	_bullet_drag_pointer = -2
 	if not _drag_active:
 		return
 	var kind := _drag_kind
@@ -5706,7 +5868,7 @@ func _refresh_bag_list() -> void:
 		_bag_physics.name_lookup = Callable(self, "_ammo_bag_glyph")
 		_bag_physics.ball_hover.connect(_on_bag_physics_hover)
 		_bag_physics.ball_hover_exit.connect(_on_bag_physics_hover_exit)
-		_bag_physics.ball_press.connect(_on_bag_physics_press)
+		_bag_physics.ball_detail_press.connect(_on_bag_detail_press)
 		bag_list.add_child(_bag_physics)
 		_bag_refreshing = false
 	var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
@@ -5875,24 +6037,20 @@ func _ammo_bag_glyph(ammo_id: int) -> String:
 	return short.substr(0, 1)
 
 
-func _on_bag_physics_hover(ammo_id: int) -> void:
-	_hover_ammo_id = ammo_id
-	_show_ammo_detail(ammo_id, _bag_physics, true, false)
+func _on_bag_physics_hover(_ammo_id: int) -> void:
+	pass  # Details are held, never hover-opened.
 
 
-func _on_bag_physics_hover_exit(ammo_id: int) -> void:
-	if _bag_refreshing:
-		return
-	if _hover_ammo_id == ammo_id:
-		_hover_ammo_id = -1
-	if _detail_from_hover and not _detail_from_long_press and _detail_ammo_id == ammo_id:
-		_hide_ammo_detail()
+func _on_bag_physics_hover_exit(_ammo_id: int) -> void:
+	pass  # Rolling balls must not retarget/cancel a stationary press.
 
 
-func _on_bag_physics_press(ammo_id: int) -> void:
-	# 触屏/点击：走长按计时；桌面点击也弹出详情
-	_begin_long_press(ammo_id, _bag_physics)
-	_show_ammo_detail(ammo_id, _bag_physics, true, false)
+func _on_bag_physics_press(_ammo_id: int) -> void:
+	pass  # Legacy signal intentionally does not open a second tooltip.
+
+
+func _on_bag_detail_press(ammo_id: int, ball_uid: int, event: InputEvent) -> void:
+	_start_bullet_hold("bag", ammo_id, ball_uid, event, _bag_physics)
 
 
 func _on_bag_cell_hover_enter(ammo_id: int, cell: Control) -> void:
@@ -5930,6 +6088,7 @@ func _on_bag_cell_input(event: InputEvent, ammo_id: int, cell: Control) -> void:
 
 
 func _begin_long_press(ammo_id: int, cell: Control) -> void:
+	_cancel_bullet_hold()
 	_ensure_long_press_timer()
 	_ensure_enemy_auto_timer()
 	_long_press_kind = "ammo"
@@ -5973,9 +6132,9 @@ func _build_ammo_detail_panel() -> void:
 	_ammo_detail_panel.offset_right = DETAIL_PANEL_W
 	_ammo_detail_panel.offset_bottom = DETAIL_PANEL_H
 	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.12, 0.11, 0.09, 0.98)
+	style.bg_color = Color(0.10, 0.14, 0.19, 0.98)
 	style.set_border_width_all(2)
-	style.border_color = Color(0.95, 0.78, 0.4, 0.95)
+	style.border_color = Color(0.42, 0.53, 0.64, 0.95)
 	style.set_corner_radius_all(10)
 	style.content_margin_left = 14
 	style.content_margin_right = 14
@@ -5983,18 +6142,22 @@ func _build_ammo_detail_panel() -> void:
 	style.content_margin_bottom = 12
 	_ammo_detail_panel.add_theme_stylebox_override("panel", style)
 	var vbox := VBoxContainer.new()
+	vbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	vbox.add_theme_constant_override("separation", 8)
 	_ammo_detail_title = Label.new()
 	_ammo_detail_title.name = "DetailTitle"
+	_ammo_detail_title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_ammo_detail_title.text = "弹药详情"
 	_ammo_detail_title.add_theme_font_size_override("font_size", 20)
-	_ammo_detail_title.add_theme_color_override("font_color", Color(1.0, 0.92, 0.55))
+	_ammo_detail_title.add_theme_color_override("font_color", Color(0.86, 0.92, 0.98))
 	_ammo_detail_body = RichTextLabel.new()
 	_ammo_detail_body.name = "DetailBody"
+	_ammo_detail_body.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ammo_detail_body.scroll_active = false
 	_ammo_detail_body.bbcode_enabled = false
 	_ammo_detail_body.fit_content = false
 	_ammo_detail_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_ammo_detail_body.custom_minimum_size = Vector2(0, 240)
+	_ammo_detail_body.custom_minimum_size = Vector2.ZERO
 	_ammo_detail_body.add_theme_font_size_override("normal_font_size", 15)
 	_ammo_detail_body.add_theme_color_override("default_color", Color(0.96, 0.94, 0.88))
 	vbox.add_child(_ammo_detail_title)
@@ -8126,26 +8289,33 @@ func _should_play_dump_pour() -> bool:
 
 func _play_dump_pour() -> void:
 	_dump_pouring = true
-	if not state.hand.is_empty():
-		state.return_hand_to_bag()
-		_hand_scatter_dirty = true
-		_hand_from_pour = false
-		_refresh()
-		await get_tree().create_timer(0.12).timeout
+	while state.hand.size() < CombatConstants.HAND_SIZE:
+		if state.bag.is_empty():
+			if not state.refill_bag_for_pour():
+				break
+			_refresh()
+			await get_tree().create_timer(0.12).timeout
+		var previous := state.hand.size()
+		await _play_dump_pour_batch()
+		if state.hand.size() <= previous:
+			break
+	_dump_pouring = false
+	_refresh()
+
+
+func _play_dump_pour_batch() -> void:
 	if not state.can_dump_to_hand() or state.bag.is_empty():
 		if state.bag.is_empty():
-			state.ensure_bag_refilled_if_empty()
+			state.refill_bag_for_pour()
 			_refresh()
 		if state.bag.is_empty():
-			_dump_pouring = false
 			_refresh()
 			return
 	if _bag_physics == null or not is_instance_valid(_bag_physics):
-		_dump_pouring = false
 		state.dump_to_hand()
 		_refresh()
 		return
-	var n: int = mini(CombatConstants.HAND_SIZE, state.bag.size())
+	var n: int = mini(CombatConstants.HAND_SIZE - state.hand.size(), state.bag.size())
 	_clear_bag_area_chrome()
 	_bag_physics.clip_contents = false
 	_bag_physics.z_index = 40
@@ -8168,7 +8338,6 @@ func _play_dump_pour() -> void:
 		tw0.tween_property(_bag_physics, "sack_tilt", -PI, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 		await tw0.finished
 	if not is_instance_valid(_bag_physics):
-		_dump_pouring = false
 		return
 	_bag_physics.mouth_open = true
 	_bag_physics.impulse_pour_balls()
@@ -8227,7 +8396,6 @@ func _play_dump_pour() -> void:
 		tw2.parallel().tween_property(_bag_physics, "sack_shift", Vector2.ZERO, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 		await tw2.finished
 		_bag_physics.z_index = 0
-	_dump_pouring = false
 	_refresh()
 
 
@@ -8245,16 +8413,30 @@ func _apply_fallen_hand_layout(fallen: Array) -> void:
 	_hand_ball_px = maxf(8.0, h_use / 0.92 - 2.0)
 	var psz: Vector2 = _hand_bullet_wh(_hand_ball_px)
 	var inv := hand_slots.get_global_transform().affine_inverse()
-	_hand_pos_by_uid.clear()
+	var first: int = maxi(0, state.hand.size() - fallen.size())
 	var n: int = mini(fallen.size(), state.hand.size())
+	var taken: Array = []
+	var requires_reflow := false
+	for i in first:
+		var prior_uid: int = int(state.hand_uid[i])
+		if _hand_pos_by_uid.has(prior_uid):
+			taken.append(_hand_pos_by_uid[prior_uid])
 	for i in n:
 		var rec: Dictionary = fallen[i]
 		var world: Vector2 = rec.get("world_pos", Vector2.ZERO)
 		var local: Vector2 = inv * world
-		var uid: int = int(state.hand_uid[i]) if i < state.hand_uid.size() else i
-		_hand_pos_by_uid[uid] = local - psz * 0.5
-	_hand_scatter_dirty = false
-	_hand_from_pour = true
+		var uid: int = int(state.hand_uid[first + i]) if first + i < state.hand_uid.size() else first + i
+		var landed_pos: Vector2 = local - psz * 0.5
+		# A refill's second physical pour does not collide with cards already in hand.
+		# Keep those cards fixed and settle only conflicting newcomers into a free spot.
+		if first > 0 and (_hand_spot_overlaps(landed_pos, taken, _hand_ball_px) or not Rect2(Vector2.ZERO, hand_slots.size).encloses(Rect2(landed_pos, psz))):
+			landed_pos = _find_free_hand_spot(hand_slots.size, _hand_ball_px, taken, uid)
+		if first > 0 and _hand_spot_overlaps(landed_pos, taken, _hand_ball_px):
+			requires_reflow = true
+		_hand_pos_by_uid[uid] = landed_pos
+		taken.append(landed_pos)
+	_hand_scatter_dirty = requires_reflow
+	_hand_from_pour = not requires_reflow
 
 
 func _pour_layer() -> Control:

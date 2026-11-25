@@ -23,7 +23,8 @@ class GameRulesCopyTests(unittest.TestCase):
         self.assertIn('40.5', canonical)
         self.assertIn('向上燃烧', canonical)
         self.assertIn('实现默认', canonical)
-        self.assertIn('尚未确定', canonical)
+        self.assertIn('最新入库规则', canonical)
+        self.assertIn('3×(1+n)', canonical)
         self.assertIn('总伤传递弹', canonical)
 
     def test_editor_and_readme_link_the_rules_doc(self):

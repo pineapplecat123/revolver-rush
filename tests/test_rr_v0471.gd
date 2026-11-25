@@ -101,7 +101,7 @@ func test_rush_and_sandbox_starters_unchanged() -> void:
 	assert_eq(box.bag.size(), 0)
 
 
-func test_pour_last_bag_bullet_does_not_reset_while_hand_or_cylinder_held() -> void:
+func test_pour_exhausted_pool_does_not_duplicate_hand_or_cylinder() -> void:
 	var cs := _rush(47121)
 	cs.discard.clear()
 	cs.discard_temp.clear()
@@ -122,8 +122,8 @@ func test_pour_last_bag_bullet_does_not_reset_while_hand_or_cylinder_held() -> v
 	assert_eq(cs.bag_reset_count, 0)
 	var mid: int = _circulation(cs)
 	assert_eq(mid, 5)
-	# 再倒一次：把手退回再倒出，总数不变。
-	assert_eq(cs.dump_to_hand(), 5)
+	# 没有可回收的子弹：保留手牌，不能凭空补到6。
+	assert_eq(cs.dump_to_hand(), 0)
 	assert_eq(_circulation(cs), 5, "反复倒出空袋不得复制子弹")
 	assert_eq(cs.bag_reset_count, 0)
 	_load_hand_into_mag(cs)
@@ -131,7 +131,7 @@ func test_pour_last_bag_bullet_does_not_reset_while_hand_or_cylinder_held() -> v
 	assert_eq(cs.bag.size(), 0)
 	assert_eq(cs.magazine.loaded_count(), 5)
 	assert_false(cs.ensure_bag_refilled_if_empty(), "部分转轮有弹时不重置")
-	assert_false(cs.can_dump_to_hand(), "转轮未打空不得靠重置再倒出")
+	assert_false(cs.can_dump_to_hand(), "全部永久弹已在转轮中，无可回收弹")
 	assert_eq(cs.bag_reset_count, 0)
 	assert_eq(_circulation(cs), 5)
 

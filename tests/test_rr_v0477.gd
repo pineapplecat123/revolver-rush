@@ -29,6 +29,7 @@ func _boot_campaign(seed_v: int = 47701, instant: bool = true) -> CombatState:
 func _kill_wave(cs: CombatState) -> void:
 	# Reach one event/shop node (three cleared combat waves as of v0.4.88).
 	for i in CombatState.COMBAT_WAVES_PER_NODE:
+		cs.campaign_wave_reserve.clear()
 		cs.enemies.clear()
 		cs.reward_pending = false
 		cs.pending_levelups = 0
@@ -146,7 +147,7 @@ func test_each_hopper_ball_is_simulated_and_settles() -> void:
 			assert_gt(d, r * 1.35, "静置后球不应严重重叠")
 		# 种类色，不是袋内深灰遮罩
 		var fill: Color = cu._balls[i]["fill"]
-		assert_false(fill.is_equal_approx(BagPhysicsBox.SACK_BALL_MASK), "罩外球应保留种类色")
+		assert_false(fill.is_equal_approx(Color(0.27, 0.28, 0.30, 1.0)), "罩外球应保留种类色")
 
 
 func test_contacts_and_reflow_when_agitated() -> void:

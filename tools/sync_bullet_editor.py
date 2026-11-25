@@ -78,9 +78,9 @@ def apply_editor_row(ammo: dict, editor: dict) -> list[str]:
     if school and ammo.get("school") != school:
         ammo["school"] = school
         changes.append("school")
-    rarity_raw = str(editor.get("rarity") or "").strip()
-    if rarity_raw:
-        rarity = RARITY.get(rarity_raw, rarity_raw)
+    if "rarity" in editor:
+        rarity_raw = str(editor.get("rarity") or "").strip()
+        rarity = RARITY.get(rarity_raw, rarity_raw) if rarity_raw else ""
         if ammo.get("rarity") != rarity:
             ammo["rarity"] = rarity
             changes.append("rarity")
