@@ -39,7 +39,8 @@ func set_icon_host(host: Control) -> void:
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	z_index = 80
+	# Above the board actors, below top menu/status chrome and modal dimmers.
+	z_index = 50
 	_build_popup()
 	_flame = _Flame.new()
 	_flame.name = "MuzzleFlame"

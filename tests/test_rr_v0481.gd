@@ -91,3 +91,22 @@ func test_animated_flame_outline_never_self_intersects() -> void:
 			assert_false(Geometry2D.triangulate_polygon(pts).is_empty(),"flame polygon must not flicker/disappear at frame %d" % frame)
 	for frame in 160:
 		assert_false(Geometry2D.triangulate_polygon(EnhancedTracerFlame.flame_outline(float(frame)/60.0)).is_empty(),"burning tracer contour must stay drawable")
+
+func test_top_hud_stays_readable_over_largest_flame() -> void:
+	# Layering only: do not shrink the owner-requested tall 🔥 silhouette.
+	var five := HUD.flame_envelope([{"remaining":5}])
+	assert_gte(five.y, 160.0)
+	assert_gt(five.y, five.x)
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	assert_not_null(ui._muzzle_status_hud)
+	assert_lt(ui._muzzle_status_hud.z_index, ui.Z_MODAL_DIMMER)
+	assert_lt(ui._muzzle_status_hud.z_index, ui.Z_TOP_HUD)
+	for path in [
+		"Margin/RootVBox/TopPanel/TopSection/TopButtons",
+		"Margin/RootVBox/TopPanel/TopSection/TopBarPad",
+		"Margin/RootVBox/TopPanel/TopSection/BoardTitle",
+	]:
+		var c: CanvasItem = ui.get_node(path)
+		assert_false(c.z_as_relative)
+		assert_eq(c.z_index, ui.Z_TOP_HUD)
+		assert_gt(c.z_index, ui._muzzle_status_hud.z_index)

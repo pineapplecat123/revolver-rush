@@ -124,6 +124,9 @@ const Z_EXPLOSION := 72
 const Z_MODAL_DIMMER := 80
 const Z_MODAL_PANEL := 90
 const Z_WAVE_BANNER := 100
+## Top menu / 阶段 / HP must stay readable in front of the large muzzle flame,
+## but still sit under modal dimmers (80) and reward panels (90).
+const Z_TOP_HUD := 70
 ## 清场后等飙血播一会儿再弹三选一（墙钟秒，不受战斗速度滑条影响）
 const REWARD_SHOW_DELAY_SEC := 0.0  ## v0.3.9：升级立即暂停弹出（飞行中的子弹/飚血一起冻结，选完接着播）
 const WAVE_BANNER_FADE_IN := 0.28
@@ -412,6 +415,7 @@ func _ready() -> void:
 	if _dev_ci != null:
 		_dev_ci.z_index = Z_MODAL_PANEL
 	_ensure_top_labels_uncropped()
+	_ensure_top_hud_reads_over_muzzle_flame()
 	_ensure_combat_layout()
 	if not resized.is_connected(_on_combat_resized):
 		resized.connect(_on_combat_resized)
@@ -569,6 +573,34 @@ func _ensure_top_labels_uncropped() -> void:
 		lab.custom_minimum_size = Vector2(lab.custom_minimum_size.x, min_h)
 	_clear_bag_area_chrome()
 
+
+func _ensure_top_hud_reads_over_muzzle_flame() -> void:
+	## Keep the large upward muzzle flame, but draw top menu / 阶段 / HP in front of it.
+	for path in [
+		"Margin/RootVBox/TopPanel/TopSection/TopButtons",
+		"Margin/RootVBox/TopPanel/TopSection/TopBarPad",
+		"Margin/RootVBox/TopPanel/TopSection/BoardTitle",
+	]:
+		var c := get_node_or_null(path) as CanvasItem
+		if c == null:
+			continue
+		c.z_as_relative = false
+		c.z_index = Z_TOP_HUD
+	for lab in [phase_label, hp_label, bag_label, discard_label, gold_label, turn_label]:
+		if lab == null:
+			continue
+		# Existing theme colors stay; a dark outline keeps glyphs readable over bright fire.
+		if lab.get_theme_constant("outline_size") < 4:
+			lab.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.04, 0.92))
+			lab.add_theme_constant_override("outline_size", 4)
+	var title := get_node_or_null("Margin/RootVBox/TopPanel/TopSection/BoardTitle") as Label
+	if title != null and title.get_theme_constant("outline_size") < 4:
+		title.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.04, 0.92))
+		title.add_theme_constant_override("outline_size", 4)
+	var ver := get_node_or_null("%VersionLabel") as Label
+	if ver != null and ver.get_theme_constant("outline_size") < 4:
+		ver.add_theme_color_override("font_outline_color", Color(0.02, 0.03, 0.04, 0.92))
+		ver.add_theme_constant_override("outline_size", 4)
 
 
 func _ensure_combat_layout() -> void:
