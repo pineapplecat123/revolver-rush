@@ -94,5 +94,19 @@ class SyncHelpersTest(unittest.TestCase):
         self.assertEqual(ammo2["special"], "效果2")
 
 
+
+    def test_apply_skips_x_damage_without_float_or_zero_coercion(self):
+        for mode, base_dmg in [("formula", None), ("previous_actual", 0), ("fixed", 3)]:
+            ammo = {"id": 57, "name": "模仿伤害", "base_damage": base_dmg, "base_damage_mode": mode}
+            editor = {"name": "模仿伤害", "damage": "X", "notes": "X = 公式"}
+            changes = mod.apply_editor_row(ammo, editor)
+            self.assertNotIn("base_damage", changes)
+            self.assertEqual(ammo["base_damage"], base_dmg)
+            self.assertNotIn("notes", ammo)
+            ammo2 = dict(ammo)
+            self.assertEqual(mod.apply_editor_row(ammo2, {"name": "模仿伤害", "damage": "x"}), [])
+            self.assertEqual(ammo2["base_damage"], base_dmg)
+
+
 if __name__ == "__main__":
     unittest.main()

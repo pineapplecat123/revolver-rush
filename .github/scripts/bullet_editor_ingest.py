@@ -69,7 +69,9 @@ def clean_record(rec, fallback_id: str = ""):
         if k == "game_description" and "game_description" not in rec:
             continue
         clean[k] = str(rec.get(k) if rec.get(k) is not None else "").strip()[:n]
-        if k in ("effect", "game_description"):
+        if k == "damage" and clean[k].upper() == "X":
+            clean[k] = "X"
+        elif k in ("effect", "game_description"):
             clean[k] = strip_universal_flame_rules(clean[k])[:n]
     if "game_description" in clean:
         clean["game_description"] = strip_appended_effect(clean["game_description"], clean.get("effect", ""))[:TEXT_FIELDS["game_description"]]

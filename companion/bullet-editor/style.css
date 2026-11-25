@@ -85,8 +85,8 @@ button.small{min-height:40px;font-size:15px;padding:0 12px}
 .swatch{display:inline-block;width:12px;height:12px;border-radius:50%;border:1px solid rgba(255,255,255,.35);
   vertical-align:-1px;margin-right:4px;box-shadow:0 0 0 1px rgba(0,0,0,.35)}
 
-/* Only designer effect copy is italic; game_description and notes are unchanged. */
-.desc.effect{font-style:italic}
+/* Only in-game game_description copy is italic; effect and notes are normal. */
+.desc.play{font-style:italic}
 #facetCounts{white-space:pre-wrap;margin:8px 0 12px}
 #openExport{margin-bottom:12px}
 #schoolPick{margin-bottom:6px}

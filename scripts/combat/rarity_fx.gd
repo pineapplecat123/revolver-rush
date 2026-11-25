@@ -7,6 +7,8 @@ class_name RarityFx
 ##   最稀有 epic   = 四周更亮七彩辉光（沿边流动） + 字体发亮（七彩描边）
 ## 用法：RarityFx.attach(任意 Control, ammo_id)；画圆形弹球用 RarityFx.draw_ball_back / draw_ball_front。
 
+## Appearance only: rarity data, type colors, and sin-danger visuals are unchanged.
+const RARITY_APPEARANCE_ENABLED := false
 const TIER_COMMON := 0
 const TIER_UNCOMMON := 1
 const TIER_RARE := 2
@@ -32,6 +34,8 @@ static func tier_for_ammo(ammo_id: int) -> int:
 		return TIER_COMMON
 	if DataRegistry.is_sin_ammo(ammo_id):
 		return TIER_SIN
+	if not RARITY_APPEARANCE_ENABLED:
+		return TIER_COMMON
 	match DataRegistry.get_ammo_rarity(ammo_id):
 		"epic":
 			return TIER_EPIC
@@ -112,6 +116,13 @@ func clear_text_glow() -> void:
 
 
 func _process(_delta: float) -> void:
+	if not RARITY_APPEARANCE_ENABLED and tier != TIER_SIN:
+		clear_text_glow()
+		modulate = Color.WHITE
+		self_modulate = Color.WHITE
+		set_process(false)
+		queue_redraw()
+		return
 	if tier == TIER_COMMON or not is_visible_in_tree() or not visible:
 		return
 	# v0.4.32：滚动容器外的格子不 redraw，减轻图鉴滑动卡顿
@@ -303,6 +314,8 @@ static func draw_sin_front(ci: CanvasItem, shape: PackedVector2Array, t: float, 
 
 
 static func draw_rect_fx(ci: CanvasItem, rect: Rect2, col: Color, tier: int, t: float, seed: float, corner: float = 6.0) -> void:
+	if not RARITY_APPEARANCE_ENABLED and tier != TIER_SIN:
+		return
 	if tier == TIER_SIN:
 		# 外层光环在宿主背后画不了（覆盖层在前），所以只画在宿主外沿以外：光环中心镂空用宿主本身遮住大半
 		var c: Vector2 = rect.get_center()
@@ -458,6 +471,8 @@ static func draw_sin_rect_ring(ci: CanvasItem, rect: Rect2, corner: float, t: fl
 
 
 static func draw_ball_back(ci: CanvasItem, pos: Vector2, r: float, col: Color, tier: int, t: float, seed: float) -> void:
+	if not RARITY_APPEARANCE_ENABLED and tier != TIER_SIN:
+		return
 	## 球体之前画（外辉光）。
 	if tier == TIER_SIN:
 		draw_sin_aura(ci, pos, r, r, t, seed)
@@ -495,6 +510,8 @@ static func draw_ball_back(ci: CanvasItem, pos: Vector2, r: float, col: Color, t
 
 
 static func draw_ball_front(ci: CanvasItem, pos: Vector2, r: float, tier: int, t: float, seed: float) -> void:
+	if not RARITY_APPEARANCE_ENABLED and tier != TIER_SIN:
+		return
 	## 球体之后画（表面流光）。
 	if tier == TIER_SIN:
 		draw_sin_front(ci, _circle_pts(pos, r - 0.5), t, seed)
@@ -515,4 +532,6 @@ static func draw_ball_front(ci: CanvasItem, pos: Vector2, r: float, tier: int, t
 
 
 static func epic_text_outline(t: float, seed: float) -> Color:
+	if not RARITY_APPEARANCE_ENABLED:
+		return Color.TRANSPARENT
 	return Color.from_hsv(fposmod(t * 0.35 + seed, 1.0), 0.55, 1.0, 0.95)

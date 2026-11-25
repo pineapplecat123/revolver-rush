@@ -10,6 +10,8 @@ var mobility: int = 1
 var tags: Array[String] = []
 var cell: int = CombatConstants.BOARD_SIZE - 1
 var bleed_stacks: int = 0
+## 距下次流血跳伤的剩余战斗秒。0 且未流血 = 未计时；刚挂上时设为 DOT_TICK_SEC。
+var bleed_tick_left: float = 0.0
 var gas_stacks: int = 0
 var burn_stacks: int = 0
 var wet_stacks: int = 0
@@ -52,6 +54,7 @@ func _init(def: Dictionary = {}, spawn_cell: int = CombatConstants.BOARD_SIZE - 
 		tags.append(str(t))
 	cell = spawn_cell
 	bleed_stacks = 0
+	bleed_tick_left = 0.0
 	gas_stacks = 0
 	burn_stacks = 0
 	wet_stacks = 0
@@ -77,7 +80,7 @@ func is_alive() -> bool:
 func revive_to_full() -> void:
 	## 沙盒木桩死后恢复：满血并清掉状态，仍停在原格。
 	hp = max_hp
-	bleed_stacks = 0
+	clear_bleed()
 	gas_stacks = 0
 	burn_stacks = 0
 	wet_stacks = 0
@@ -109,12 +112,53 @@ func apply_damage(raw_damage: int) -> int:
 	return dmg
 
 
-## 子弹/攻击命中：扣血 + 生物流血叠层（骷髅不流血）。
+## 子弹/攻击命中：实际掉血后，血肉生物（含僵尸）挂上永久流血；不叠层、不重置跳表。
 func apply_hit(raw_damage: int) -> int:
 	var dealt := apply_damage(raw_damage)
-	if dealt > 0 and has_tag("生物") and not has_tag("骷髅"):
-		bleed_stacks += 1
+	if dealt > 0 and can_receive_bleed():
+		start_permanent_bleed()
 	return dealt
+
+
+func can_receive_bleed() -> bool:
+	## 僵尸也是主线血肉怪物，不能因旧表缺少【生物】标签而漏挂。
+	## 保留明确非血肉对象（骷髅、石头、木桩）的既有免疫。
+	return (has_tag("生物") or has_tag("僵尸")) and not has_tag("骷髅")
+
+
+func is_bleeding() -> bool:
+	return bleed_stacks > 0 and is_alive()
+
+
+func start_permanent_bleed() -> void:
+	## 首次挂上：层数视为 1，0.7s 后第一次跳伤。重复命中不叠层、不推迟、不重启跳表。
+	if bleed_stacks <= 0:
+		bleed_stacks = 1
+		bleed_tick_left = CombatConstants.DOT_TICK_SEC
+		bleed_peak = 1
+		return
+	bleed_stacks = 1
+	if bleed_tick_left <= 0.0:
+		bleed_tick_left = CombatConstants.DOT_TICK_SEC
+
+
+func clear_bleed() -> void:
+	bleed_stacks = 0
+	bleed_tick_left = 0.0
+	bleed_peak = 0
+
+
+func arm_bleed_from_sandbox(stacks: int) -> void:
+	## 沙盒直接改层数：>0 视为永久流血；若原先没有计时，从满一跳开始，避免当场跳伤。
+	var n: int = maxi(0, stacks)
+	if n <= 0:
+		clear_bleed()
+		return
+	var was: bool = bleed_stacks > 0 and bleed_tick_left > 0.0
+	bleed_stacks = 1
+	bleed_peak = 1
+	if not was:
+		bleed_tick_left = CombatConstants.DOT_TICK_SEC
 
 
 func status_text() -> String:
@@ -126,7 +170,7 @@ func status_text() -> String:
 	if wet_stacks > 0:
 		parts.append("湿%d" % wet_stacks)
 	if bleed_stacks > 0:
-		parts.append("血%d" % bleed_stacks)
+		parts.append("血")
 	if confuse_remaining > 0.0:
 		parts.append("乱%.1f" % confuse_remaining)
 	if not slow_layers.is_empty():
@@ -215,14 +259,7 @@ func status_ring_entries(dot_left: float = -1.0) -> Array:
 		b["timed"] = true
 		b["color"] = Color(1.0, 0.45, 0.12)
 		out.append(b)
-	if bleed_stacks > 0:
-		var bl := _decay_ring(bleed_stacks, bleed_peak, dot_left)
-		bl["id"] = "bleed"
-		bl["label"] = "血"
-		bl["stacks"] = bleed_stacks
-		bl["timed"] = true
-		bl["color"] = Color(0.95, 0.22, 0.28)
-		out.append(bl)
+	# 流血改为永久 buff，倒计时环不再展示；血条旁图标见 SkeletonEnemy。
 	if gas_stacks > 0:
 		out.append({
 			"id": "gas", "label": "油", "stacks": gas_stacks,

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#14161d">
 <title>子弹数据</title>
-<link rel="stylesheet" href="style.css?v=editor-ux-1">
+<link rel="stylesheet" href="style.css?v=editor-ux-2">
 </head>
 <body>
 <div class="wrap">
@@ -41,8 +41,9 @@
             <datalist id="typeList"></datalist>
           </div>
           <div>
-            <label for="f_damage">伤害</label>
-            <input id="f_damage" name="damage" maxlength="20" inputmode="decimal">
+            <label for="f_damage">基础伤害</label>
+            <input id="f_damage" name="damage" maxlength="20" inputmode="text" placeholder="数字或 X">
+            <div class="hint">另有计算公式时填 X，并在备注写公式；纯功能弹填 0 或留空。</div>
           </div>
         </div>
 
@@ -136,7 +137,7 @@
               <option value="name">名称</option>
               <option value="type">类型</option>
               <option value="school">流派</option>
-              <option value="damage">伤害</option>
+              <option value="damage">基础伤害</option>
               <option value="rarity">稀有度</option>
             </select>
           </div>
@@ -171,7 +172,7 @@
   </main>
 </div>
 <script src="bullet_colors.js?v=1"></script>
-<script src="overview.js?v=1"></script>
-<script src="app.js?v=editor-ux-1"></script>
+<script src="overview.js?v=2"></script>
+<script src="app.js?v=editor-ux-2"></script>
 </body>
 </html>

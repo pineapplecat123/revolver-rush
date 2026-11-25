@@ -194,7 +194,7 @@
     var meta = [];
     meta.push('<span>类型 <b class="typ' + typClass(b.type) + '">' + (b.type ? esc(b.type) : '—') + '</b></span>');
     meta.push('<span>流派 <b>' + (b.school ? esc(b.school) : '—') + '</b></span>');
-    meta.push('<span>伤害 <b>' + (b.damage !== '' && b.damage != null ? esc(b.damage) : '—') + '</b></span>');
+    meta.push('<span>基础伤害 <b>' + (b.damage !== '' && b.damage != null ? esc(b.damage) : '—') + '</b></span>');
     meta.push('<span>稀有度 <b>' + (b.rarity ? esc(b.rarity) : '—') + '</b></span>');
     meta.push(colorChip(b.muzzle_color || defaultMuzzleColor(b.name, b.type), '枪口火焰'));
     meta.push(colorChip(b.bullet_color || defaultBulletColor(b.type), '子弹'));
@@ -339,8 +339,18 @@
     });
     $('facetCounts').textContent = '数量仅统计已确认记录；各项数量遵循其他筛选条件（不受该项自身选择限制）。\n' + summaries.join('\n');
   }
+  function normalizeDamage(v) {
+    var s = String(v == null ? '' : v).trim();
+    return (s === 'x' || s === 'X') ? 'X' : s;
+  }
+  function isValidDamage(v) {
+    var s = normalizeDamage(v);
+    return s === '' || s === 'X' || (/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(s) && isFinite(Number(s)));
+  }
   function damageNum(v) {
-    var n = parseFloat(String(v == null ? '' : v).trim());
+    var s = String(v == null ? '' : v).trim();
+    if (!s || !/^[+-]?(?:\d+\.?\d*|\.\d+)$/.test(s)) return null;
+    var n = Number(s);
     return isFinite(n) ? n : null;
   }
   function cmpBullets(a, b) {
@@ -589,7 +599,7 @@
   function buildRec() {
     var v = formVals();
     var now = iso8(new Date());
-    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: v.damage, rarity: v.rarity, school: v.school, effect: v.effect, game_description: (v.game_description != null ? String(v.game_description) : DEFAULT_GAME_DESCRIPTION), notes: v.notes, muzzle_color: v.muzzle_color, bullet_color: v.bullet_color, in_game: false, created_at: now, updated_at: now };
+    var rec = { id: editingId || newId(), name: v.name, type: v.type, damage: normalizeDamage(v.damage), rarity: v.rarity, school: v.school, effect: v.effect, game_description: (v.game_description != null ? String(v.game_description) : DEFAULT_GAME_DESCRIPTION), notes: v.notes, muzzle_color: v.muzzle_color, bullet_color: v.bullet_color, in_game: false, created_at: now, updated_at: now };
     if (!editingId && rec.game_description === '') rec.game_description = DEFAULT_GAME_DESCRIPTION;
     if (editingId) {
       var cur = findBullet(editingId);
@@ -602,6 +612,7 @@
     e.preventDefault();
     var v = formVals();
     if (!v.name) { $('formErr').textContent = '名称必须填写'; $('formErr').classList.remove('hidden'); $('f_name').focus(); return; }
+    if (!isValidDamage(v.damage)) { $('formErr').textContent = '基础伤害请填数字、X（另有计算公式），或留空'; $('formErr').classList.remove('hidden'); $('f_damage').focus(); return; }
     var isEdit = !!editingId;
     var prevUpdated = isEdit ? ((findBullet(editingId) || {}).updated_at || '') : null;
     var rec = buildRec();

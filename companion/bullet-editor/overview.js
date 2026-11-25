@@ -5,7 +5,7 @@
 })(typeof window !== 'undefined' ? window : this, function () {
   'use strict';
   var fields = [
-    ['type', '类型'], ['school', '流派'], ['damage', '伤害'], ['rarity', '稀有度'],
+    ['type', '类型'], ['school', '流派'], ['damage', '基础伤害'], ['rarity', '稀有度'],
     ['in_game', '入库状态'], ['effect', '效果说明'], ['game_description', '游戏内描述'],
     ['notes', '备注'], ['muzzle_color', '枪口火焰颜色'], ['bullet_color', '子弹颜色'],
     ['updated_at', '更新时间'], ['created_at', '创建时间']
@@ -79,7 +79,7 @@
       }
       add((index + 1) + '. ' + (text(b.name) || '未命名'), 27, 'bold', '#ffcb7a');
       fields.forEach(function (field) {
-        if (selectedFields.indexOf(field[0]) !== -1) add(field[1] + '：' + displayValue(b, field[0]), 22, field[0] === 'effect' ? 'italic' : 'normal', '#eef0f6');
+        if (selectedFields.indexOf(field[0]) !== -1) add(field[1] + '：' + displayValue(b, field[0]), 22, field[0] === 'game_description' ? 'italic' : 'normal', '#eef0f6');
       });
       y += 16;
       lines.forEach(function (line) { line.x = pad + 16; line.y = y; commands.push(line); y += line.size + 12; });

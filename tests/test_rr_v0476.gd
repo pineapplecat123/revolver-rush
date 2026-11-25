@@ -27,10 +27,12 @@ func _boot_campaign(seed_v: int = 47601, instant: bool = true) -> CombatState:
 
 
 func _kill_wave(cs: CombatState) -> void:
-	cs.enemies.clear()
-	cs.reward_pending = false
-	cs.pending_levelups = 0
-	cs.campaign_try_advance()
+	# Reach one event/shop node (three cleared combat waves as of v0.4.88).
+	for i in CombatState.COMBAT_WAVES_PER_NODE:
+		cs.enemies.clear()
+		cs.reward_pending = false
+		cs.pending_levelups = 0
+		cs.campaign_try_advance()
 
 
 func _make_closeup() -> GumballCloseup:

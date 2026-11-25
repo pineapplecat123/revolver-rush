@@ -402,5 +402,31 @@ class IngestUpsertTest(unittest.TestCase):
         self.assertEqual(b["notes"], "内部备注")
 
 
+
+    def test_damage_x_preserved_and_idempotent_without_zero_coercion(self):
+        seed(self.base, [row("b-x", name="总伤二分弹", damage="0", notes="", in_game=True)])
+        payload = {
+            "id": "b-x",
+            "name": "总伤二分弹",
+            "damage": "x",
+            "effect": "自身伤害＝本轮此前所有子弹实际造成的总伤害÷2",
+            "game_description": "前面越厉害它就越厉害",
+            "notes": "X = 本轮此前所有子弹实际造成的总伤害 ÷ 2",
+        }
+        merged, failed = ingest.ingest(self.base, json.dumps(payload, ensure_ascii=False))
+        self.assertEqual(failed, [])
+        self.assertEqual(merged, ["总伤二分弹"])
+        b1 = load(self.base)["bullets"][0]
+        self.assertEqual(b1["damage"], "X")
+        self.assertEqual(b1["notes"], "X = 本轮此前所有子弹实际造成的总伤害 ÷ 2")
+        # Idempotent second ingest with uppercase X
+        payload["damage"] = "X"
+        merged, failed = ingest.ingest(self.base, json.dumps(payload, ensure_ascii=False))
+        self.assertEqual(failed, [])
+        b2 = load(self.base)["bullets"][0]
+        self.assertEqual(b2["damage"], "X")
+        self.assertEqual(b2["notes"], b1["notes"])
+
+
 if __name__ == "__main__":
     unittest.main()

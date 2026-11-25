@@ -44,7 +44,6 @@ func _draw() -> void:
 	_each_tile(DEPTH_FAR, func(ox: float): _far_buildings_tile(ox, gy))
 	_each_tile(DEPTH_MID, func(ox: float): _mid_tile(ox, w, h, gy))
 	_fog_veils(w, gy)
-	_each_tile(DEPTH_MID, func(ox: float): _wires_tile(ox, gy))
 	_walkway(w, gy)
 	# 压住走道以下，避免楼体画进转轮区（不参与滚动）
 	if h > gy + 80.0:
@@ -66,22 +65,12 @@ func _fill_sky(w: float, h: float, gy: float) -> void:
 	var top := Color(0.045, 0.055, 0.075, 1.0)
 	var mid := Color(0.32, 0.40, 0.48, 1.0)
 	var low := Color(0.12, 0.16, 0.20, 1.0)
-	var steps := 16
 	var sky_h: float = maxf(gy + 40.0, 80.0)
-	for i in steps:
-		var t: float = float(i) / float(steps)
-		var y0: float = sky_h * t
-		var y1: float = sky_h * (t + 1.0 / float(steps)) + 1.0
-		var col: Color
-		if t < 0.55:
-			col = top.lerp(mid, t / 0.55)
-		else:
-			col = mid.lerp(low, (t - 0.55) / 0.45)
-		draw_rect(Rect2(0.0, y0, w, y1 - y0), col)
+	var pts := PackedVector2Array([Vector2.ZERO, Vector2(w, 0), Vector2(w, sky_h * 0.55), Vector2(0, sky_h * 0.55)])
+	draw_polygon(pts, PackedColorArray([top, top, mid, mid]))
+	pts = PackedVector2Array([Vector2(0, sky_h * 0.55), Vector2(w, sky_h * 0.55), Vector2(w, sky_h), Vector2(0, sky_h)])
+	draw_polygon(pts, PackedColorArray([mid, mid, low, low]))
 	draw_rect(Rect2(0.0, sky_h, w, h - sky_h + 2.0), Color(0.05, 0.06, 0.08, 1.0))
-	var mist := Color(0.45, 0.54, 0.62, 0.28)
-	draw_rect(Rect2(w * 0.22, gy * 0.12, w * 0.56, gy * 0.7), mist)
-	draw_rect(Rect2(w * 0.28, gy * 0.16, w * 0.44, 14.0), Color(0.62, 0.70, 0.76, 0.16))
 
 
 func _far_buildings_tile(ox: float, gy: float) -> void:
@@ -100,30 +89,17 @@ func _mid_tile(ox: float, _w: float, _h: float, gy: float) -> void:
 	_building_block(ox + 48.0, gy * 0.08, 36.0, gy * 0.55, left.lightened(0.04), 0.4)
 	_building_block(ox + 210.0, gy * 0.05, 130.0, gy + 16.0, right, 0.42)
 	_building_block(ox + 250.0, gy * 0.22, 90.0, gy * 0.5, right.lightened(0.05), 0.28)
-	draw_rect(Rect2(ox + 240.0, gy - 70.0, 86.0, 70.0), Color(0.09, 0.11, 0.14, 0.7))
-	var lx: float = ox + 268.0
-	var ly: float = gy * 0.42
-	draw_rect(Rect2(lx, ly, 3.0, gy - ly - 8.0), Color(0.08, 0.09, 0.10, 0.9))
-	draw_circle(Vector2(lx + 1.5, ly), 5.0, Color(0.85, 0.78, 0.58, 0.35))
-	draw_circle(Vector2(lx + 1.5, ly), 18.0, Color(0.7, 0.62, 0.4, 0.07))
 
 
-func _building_block(x: float, y: float, bw: float, bh: float, col: Color, window_lit: float) -> void:
+func _building_block(x: float, y: float, bw: float, bh: float, col: Color, _window_lit: float) -> void:
 	draw_rect(Rect2(x, y, bw, bh), col)
-	var wy: float = y + 16.0
-	while wy < y + bh - 20.0:
-		var wx: float = x + 8.0
-		while wx < x + bw - 10.0:
-			var lit: bool = ((int(wx) * 13 + int(wy) * 7) % 11) > 7
-			var wc := Color(0.55, 0.62, 0.68, window_lit) if lit else Color(0.04, 0.05, 0.06, 0.5)
-			draw_rect(Rect2(wx, wy, 5.0, 8.0), wc)
-			wx += 12.0
-		wy += 16.0
 
 
 func _fog_veils(w: float, gy: float) -> void:
-	draw_rect(Rect2(w * 0.18, gy * 0.30, w * 0.64, gy * 0.45), Color(0.48, 0.56, 0.64, 0.14))
-	draw_rect(Rect2(0.0, gy - 36.0, w, 48.0), Color(0.10, 0.13, 0.16, 0.28))
+	# A soft horizon fade, no opaque rectangular mist patches.
+	for i in 16:
+		var t := float(i) / 16.0
+		draw_rect(Rect2(0.0, gy - 48.0 + t * 48.0, w, 4.0), Color(0.10, 0.14, 0.18, t * 0.22))
 
 
 func _wires_tile(ox: float, gy: float) -> void:

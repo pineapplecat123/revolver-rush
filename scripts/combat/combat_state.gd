@@ -55,7 +55,9 @@ var campaign_mode: bool = false
 var campaign_phase: int = CampaignRules.PHASE_INACTIVE
 var campaign_floor: int = 1
 var campaign_segment: int = 1
+const COMBAT_WAVES_PER_NODE := 3
 var campaign_wave: int = 1
+var campaign_node_clears: int = 0
 var campaign_shops_this_floor: int = 0
 var campaign_offer_choices: Array[int] = []
 var campaign_offer_pending: bool = false
@@ -674,6 +676,7 @@ func _reset_campaign_flags() -> void:
 	campaign_phase = CampaignRules.PHASE_INACTIVE
 	campaign_floor = 1
 	campaign_segment = 1
+	campaign_node_clears = 0
 	campaign_wave = 1
 	campaign_shops_this_floor = 0
 	campaign_offer_choices.clear()
@@ -729,6 +732,7 @@ func start_campaign(seed_value: int = 0) -> void:
 	_snapshot_combat_bag_baseline()
 	campaign_floor = 1
 	campaign_segment = 1
+	campaign_node_clears = 0
 	campaign_wave = 1
 	campaign_shops_this_floor = 0
 	campaign_await_boss_reward = false
@@ -759,7 +763,7 @@ func campaign_progress_text() -> String:
 			return "闯关 · 第%d关 %s · 进场" % [campaign_floor, floor_n]
 		CampaignRules.PHASE_COMBAT:
 			var wc: int = CampaignRules.wave_count(campaign_floor, campaign_segment)
-			return "闯关 · 第%d关 %s · 第%d段 · 第%d/%d波" % [campaign_floor, floor_n, campaign_segment, campaign_wave, wc]
+			return "闯关 · 第%d关 %s · 第%d段 · 第%d/%d波" % [campaign_floor, floor_n, campaign_segment, (campaign_wave - 1) * COMBAT_WAVES_PER_NODE + campaign_node_clears + 1, wc * COMBAT_WAVES_PER_NODE]
 		CampaignRules.PHASE_WALK_SHOP:
 			return "闯关 · 第%d关 %s · 走向商店（%d/3）" % [campaign_floor, floor_n, campaign_shops_this_floor + 1]
 		CampaignRules.PHASE_SHOP:
@@ -876,6 +880,7 @@ func _begin_campaign_enter() -> void:
 
 func _campaign_start_segment_combat() -> void:
 	campaign_transition_lock = false
+	campaign_node_clears = 0
 	campaign_wave = 1
 	campaign_phase = CampaignRules.PHASE_COMBAT
 	encounter_kind = EncounterKind.NORMAL
@@ -895,7 +900,7 @@ func _campaign_spawn_current_wave() -> int:
 			if _campaign_spawn_enemy(eid, hp_ov, ""):
 				made += 1
 	if made > 0:
-		_log("闯关：第%d关第%d段第%d波，出现 %d 个敌人。" % [campaign_floor, campaign_segment, campaign_wave, made])
+		_log("闯关：第%d关第%d段第%d波，出现 %d 个敌人。" % [campaign_floor, campaign_segment, (campaign_wave - 1) * COMBAT_WAVES_PER_NODE + campaign_node_clears + 1, made])
 	_emit()
 	return made
 
@@ -974,8 +979,14 @@ func campaign_try_advance() -> void:
 			return
 		if shop_house_seq != SHOP_HOUSE_NONE:
 			return
+		campaign_node_clears += 1
+		if campaign_node_clears < COMBAT_WAVES_PER_NODE:
+			_campaign_spawn_current_wave()
+			_emit()
+			return
+		campaign_node_clears = 0
 		var wc: int = CampaignRules.wave_count(campaign_floor, campaign_segment)
-		# 每波边界轮流：段内还有下一波 → 随机事件；本段打完 → 商店。第三店后打首领，事件不算店。
+		# 每三波边界轮流：段内还有下一波 → 随机事件；本段打完 → 商店。第三店后打首领，事件不算店。
 		if campaign_wave < wc:
 			_begin_alley_approach()
 			return
@@ -1150,6 +1161,7 @@ func _tick_campaign(delta_sec: float) -> bool:
 func _campaign_begin_floor_combat() -> void:
 	campaign_shops_this_floor = 0
 	campaign_segment = 1
+	campaign_node_clears = 0
 	campaign_wave = 1
 	_campaign_start_segment_combat()
 
@@ -4952,7 +4964,7 @@ func begin_gold_extra_load() -> bool:
 	return true
 
 
-## UI：射击表现与金色额外轮都结束后，再跑怪回合（含流血）。
+## UI：射击表现与金色额外轮都结束后，再跑怪回合（流血已改战斗钟跳表，不在此结算）。
 func resolve_post_fire_enemy_turn() -> void:
 	## 兼容旧 pace：有待办才跑怪回合。rush! 自动走位时用 finalize_post_fire。
 	if auto_enemy_advance:
@@ -5122,7 +5134,7 @@ func tick_enemy_auto_step(do_move: bool = true) -> bool:
 		_lose_hp()
 		_emit()
 		return false
-	# v0.4.0 bleed → tick_dot
+	# 流血由 tick_dot 每敌跳表结算，落格拍不跳。
 	_tick_zombie_regen_end_of_enemy_turn()
 	_remove_dead()
 	if _field_cleared():
@@ -5962,16 +5974,22 @@ func _resolve_burn_dot_tick() -> bool:
 
 
 func tick_dot(delta_sec: float) -> bool:
-	## v0.4.0：燃烧/流血每 DOT_TICK_SEC 跳一次（不再挂落格拍）。v0.4.3：燃烧先扩散再跳伤。
+	## 燃烧/暴食仍走全局 DOT_TICK_SEC 节拍。流血按每名敌人独立的 0.7s 跳表，每帧推进（与全局节拍脱钩）。
 	if delta_sec <= 0.0:
 		return false
+	var changed := _tick_permanent_bleed(delta_sec)
+	if phase == Phase.WON or phase == Phase.LOST:
+		if changed:
+			_emit()
+		return true
 	_dot_timer -= delta_sec
 	if _dot_timer > 0.0:
-		return false
+		if changed:
+			_emit()
+		return changed
 	_dot_timer += CombatConstants.DOT_TICK_SEC
 	if _dot_timer <= 0.0:
 		_dot_timer = CombatConstants.DOT_TICK_SEC
-	var changed := false
 	hooks.emit_hook(&"on_dot_tick", {"cs": self, "kind": "all"})
 	if gluttony_self_dot_remaining > 0.0:
 		gluttony_self_dot_remaining = maxf(0.0, gluttony_self_dot_remaining - CombatConstants.DOT_TICK_SEC)
@@ -5984,12 +6002,6 @@ func tick_dot(delta_sec: float) -> bool:
 			_lose_hp()
 	if _resolve_burn_dot_tick():
 		changed = true
-	_remove_dead()
-	if _field_cleared():
-		_enter_won()
-		_emit()
-		return true
-	_tick_bleed_end_of_enemy_turn()
 	_remove_dead()
 	if _field_cleared():
 		_enter_won()
@@ -6102,7 +6114,7 @@ func _begin_alley_approach() -> void:
 	campaign_phase = CampaignRules.PHASE_WALK_ALLEY
 	campaign_walk_left = dur
 	campaign_transition_lock = true
-	_log("闯关：第%d段第%d波清空，%s从右边过来。" % [campaign_segment, campaign_wave, CampaignRules.alley_event_title(alley_kind)])
+	_log("闯关：第%d段第%d波清空，%s从右边过来。" % [campaign_segment, campaign_wave * COMBAT_WAVES_PER_NODE, CampaignRules.alley_event_title(alley_kind)])
 	if dur <= 0.0:
 		_finish_alley_approach()
 	else:
@@ -6309,7 +6321,7 @@ func _finish_alley_exit() -> void:
 	campaign_wave += 1
 	campaign_phase = CampaignRules.PHASE_COMBAT
 	_campaign_spawn_current_wave()
-	_log("闯关：离开%s，第%d段第%d波开始。" % [kind_title, campaign_segment, campaign_wave])
+	_log("闯关：离开%s，第%d段第%d波开始。" % [kind_title, campaign_segment, (campaign_wave - 1) * COMBAT_WAVES_PER_NODE + 1])
 	_emit()
 
 
@@ -6532,6 +6544,7 @@ func _campaign_after_shop_exit() -> void:
 		_campaign_start_boss()
 	else:
 		campaign_segment += 1
+		campaign_node_clears = 0
 		campaign_wave = 1
 		_campaign_start_segment_combat()
 
@@ -6812,7 +6825,7 @@ func _run_enemy_turn() -> void:
 	if player_hp <= 0:
 		_lose_hp()
 		return
-	_tick_bleed_end_of_enemy_turn()
+	# 流血改由 tick_combat_time / tick_dot 的每敌跳表推进，怪回合不再额外跳。
 	_tick_zombie_regen_end_of_enemy_turn()
 	_remove_dead()
 	if _field_cleared():
@@ -6831,16 +6844,36 @@ func _run_enemy_turn() -> void:
 		_log("--- 请选择行动（膛内仍有弹药）---")
 
 
-func _tick_bleed_end_of_enemy_turn() -> void:
-	## 生物流血：回合结束失去等同层数生命，然后层数-1。石头对 debuff 伤害同样无视 <4。
+func _tick_permanent_bleed(delta_sec: float) -> bool:
+	## 永久流血：每 DOT_TICK_SEC 扣 BLEED_TICK_DAMAGE。重复命中不叠、不重置。石头 <4 仍可免疫这次伤害，但 buff 保留。
+	if delta_sec <= 0.0:
+		return false
+	var changed := false
+	var any_tick := false
 	for e in alive_enemies():
-		if e.bleed_stacks <= 0:
+		if e == null or e.bleed_stacks <= 0:
+			if e != null:
+				e.bleed_tick_left = 0.0
 			continue
-		var stacks: int = e.bleed_stacks
-		var dealt: int = e.apply_damage(stacks)
-		_notify_enemy_damage(e, dealt, "流血")
-		e.bleed_stacks = maxi(0, e.bleed_stacks - 1)
-		_log("%s 流血结算伤害%d（层%d→%d）" % [e.name_zh, dealt, stacks, e.bleed_stacks])
+		if e.bleed_tick_left <= 0.0:
+			e.bleed_tick_left = CombatConstants.DOT_TICK_SEC
+		e.bleed_tick_left -= delta_sec
+		while e.is_alive() and e.bleed_stacks > 0 and e.bleed_tick_left <= 0.0:
+			var dealt: int = e.apply_damage(CombatConstants.BLEED_TICK_DAMAGE)
+			_notify_enemy_damage(e, dealt, "流血")
+			e.bleed_tick_left += CombatConstants.DOT_TICK_SEC
+			any_tick = true
+			changed = true
+			_log("%s 流血结算伤害%d（永久，下次 %.2fs）" % [e.name_zh, dealt, e.bleed_tick_left])
+			if not e.is_alive():
+				break
+	if any_tick:
+		hooks.emit_hook(&"on_dot_tick", {"cs": self, "kind": "bleed"})
+	if changed:
+		_remove_dead()
+		if _field_cleared():
+			_enter_won()
+	return changed
 
 
 func _try_super_zombie_summons() -> void:
@@ -7487,11 +7520,9 @@ func sandbox_set_enemy_status(opts: Dictionary) -> bool:
 	if opts.has("wet"):
 		e.wet_stacks = maxi(0, int(opts.get("wet", 0)))
 	if opts.has("bleed"):
-		e.bleed_stacks = maxi(0, int(opts.get("bleed", 0)))
+		e.arm_bleed_from_sandbox(int(opts.get("bleed", 0)))
 	if opts.has("burn"):
 		e.burn_peak = e.burn_stacks
-	if opts.has("bleed"):
-		e.bleed_peak = e.bleed_stacks
 	if opts.has("confuse"):
 		e.set_confuse_remaining(float(opts.get("confuse", 0.0)))
 	if opts.has("slow_stacks"):

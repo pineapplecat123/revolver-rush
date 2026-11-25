@@ -163,8 +163,9 @@ const SPAWN_LANE_CELLS := 3
 ## ——— v0.4.0 语法基建 ———
 ## 装入罪孽时 20% 概率袋内 +1 同种临时罪孽（三罪孽惩罚不再加临时）。v0.4.20：0.33→0.20。
 const LOAD_TEMP_SIN_CHANCE := 0.20
-## DoT（燃烧/流血/暴食自伤）独立 0.7s 跳一次，不再挂在落格拍。
+## 燃烧/暴食自伤走全局 0.7s 节拍。流血是每名敌人独立的永久跳表，间隔同样是 0.7s，首次跳在挂上后 0.7s。
 const DOT_TICK_SEC := 0.7
+const BLEED_TICK_DAMAGE := 1
 ## 地图商店：首次出现与再次刷新间隔（战斗秒）。
 const MAP_SHOP_FIRST_SEC := 45.0
 const MAP_SHOP_RESPAWN_SEC := 90.0

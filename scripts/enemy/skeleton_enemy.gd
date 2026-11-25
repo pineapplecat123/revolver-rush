@@ -37,6 +37,10 @@ var head_anchor: Marker2D
 var _hp_label: Label
 var _hp_fill: ColorRect
 var _hp_box: Node2D
+var _bleed_icon: Node2D
+var _bleed_drips: Array = []
+var _bleed_drip_cd: float = 0.0
+var _bleeding: bool = false
 var _flash_mod: Color = Color(1, 1, 1, 1)
 var _eye_open: Node2D
 var _eye_x: Node2D
@@ -160,6 +164,7 @@ func play_death() -> void:
 		return
 	is_dead = true
 	moving = false
+	set_bleeding(false)
 	visible = false
 	if anim:
 		anim.stop()
@@ -172,6 +177,34 @@ func set_hp(hp: int, max_hp: int) -> void:
 	var r := clampf(float(hp) / float(maxi(max_hp, 1)), 0.0, 1.0)
 	_hp_fill.size.x = 30.0 * r
 	_hp_fill.color = Color(0.95, 0.35, 0.3) if r > 0.35 else Color(0.95, 0.55, 0.2)
+	if hp <= 0:
+		set_bleeding(false)
+
+
+func is_bleeding_visual() -> bool:
+	return _bleeding and _bleed_icon != null and _bleed_icon.visible
+
+
+func set_bleeding(on: bool) -> void:
+	## 血条旁流血图标：状态存在就显示，无倒计时；死亡/隐藏时清掉。
+	_bleeding = on and (not is_dead)
+	if _bleed_icon != null:
+		_bleed_icon.visible = _bleeding
+	if not _bleeding:
+		_bleed_drip_cd = 0.0
+		_clear_bleed_drips()
+
+
+func tick_bleed_visual(delta_sec: float) -> void:
+	## 由战斗钟驱动的持续滴血表现（不扣血）。暂停/商店/结算时调用方不传时间，滴血冻结。
+	if not _bleeding or is_dead or not visible or delta_sec <= 0.0:
+		return
+	_bleed_drip_cd -= delta_sec
+	_step_bleed_drips(delta_sec)
+	if _bleed_drip_cd > 0.0:
+		return
+	_bleed_drip_cd = 0.22
+	_spawn_bleed_drip()
 
 
 func current_animation() -> StringName:
@@ -601,10 +634,95 @@ func _build_hp_badge() -> void:
 	_hp_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_hp_label.text = "0"
 	_hp_box.add_child(_hp_label)
+	_build_bleed_icon()
 	status_anchor = Marker2D.new()
 	status_anchor.name = "StatusAnchor"
 	status_anchor.position = Vector2(0, -112 if is_boss else -100)
 	add_child(status_anchor)
+
+
+func _build_bleed_icon() -> void:
+	## 几何泪滴，不依赖字体。放在血条右侧。
+	_bleed_icon = Node2D.new()
+	_bleed_icon.name = "BleedIcon"
+	_bleed_icon.position = Vector2(38, 16)
+	_bleed_icon.z_index = 6
+	_bleed_icon.visible = false
+	_hp_box.add_child(_bleed_icon)
+	var drop := Polygon2D.new()
+	drop.name = "Drop"
+	drop.color = Color(0.86, 0.12, 0.18, 1.0)
+	drop.polygon = PackedVector2Array([
+		Vector2(0, -7),
+		Vector2(3.2, -2.2),
+		Vector2(3.4, 1.6),
+		Vector2(1.8, 3.6),
+		Vector2(0, 4.2),
+		Vector2(-1.8, 3.6),
+		Vector2(-3.4, 1.6),
+		Vector2(-3.2, -2.2),
+	])
+	drop.antialiased = RrAa.poly()
+	_bleed_icon.add_child(drop)
+	var hi := Polygon2D.new()
+	hi.name = "Highlight"
+	hi.color = Color(1.0, 0.62, 0.66, 0.85)
+	hi.polygon = PackedVector2Array([
+		Vector2(-1.4, -4.2),
+		Vector2(-0.2, -5.4),
+		Vector2(0.6, -3.6),
+		Vector2(-0.6, -2.8),
+	])
+	hi.antialiased = RrAa.poly()
+	_bleed_icon.add_child(hi)
+
+
+func _spawn_bleed_drip() -> void:
+	if _hp_box == null or _bleed_drips.size() >= 4:
+		return
+	var drop := ColorRect.new()
+	drop.name = "BleedDrip"
+	drop.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	drop.z_index = 4
+	var sz := randf_range(2.0, 3.5)
+	drop.size = Vector2(sz, sz * 1.25)
+	drop.color = Color(0.78, 0.08, 0.14, 0.95)
+	var origin := Vector2(randf_range(-6.0, 8.0), -36.0 if is_boss else -28.0)
+	drop.position = origin - drop.size * 0.5
+	add_child(drop)
+	_bleed_drips.append({
+		"node": drop,
+		"vx": randf_range(-8.0, 8.0),
+		"vy": randf_range(18.0, 36.0),
+		"life": randf_range(0.35, 0.55),
+		"age": 0.0,
+	})
+
+
+func _step_bleed_drips(delta_sec: float) -> void:
+	var keep: Array = []
+	for d in _bleed_drips:
+		var node: ColorRect = d.get("node") as ColorRect
+		if node == null or not is_instance_valid(node):
+			continue
+		d["age"] = float(d["age"]) + delta_sec
+		d["vy"] = float(d["vy"]) + 140.0 * delta_sec
+		node.position += Vector2(float(d["vx"]), float(d["vy"])) * delta_sec
+		var a: float = clampf(1.0 - float(d["age"]) / maxf(float(d["life"]), 0.05), 0.0, 1.0)
+		node.modulate = Color(1, 1, 1, a)
+		if a <= 0.02 or float(d["age"]) >= float(d["life"]):
+			node.queue_free()
+		else:
+			keep.append(d)
+	_bleed_drips = keep
+
+
+func _clear_bleed_drips() -> void:
+	for d in _bleed_drips:
+		var node: ColorRect = d.get("node") as ColorRect
+		if node != null and is_instance_valid(node):
+			node.queue_free()
+	_bleed_drips.clear()
 
 
 # ---------------------------------------------------------------- 几何 / 骨

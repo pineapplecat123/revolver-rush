@@ -27,10 +27,12 @@ func _boot_campaign(seed_v: int = 47501, instant: bool = true) -> CombatState:
 
 
 func _kill_wave(cs: CombatState) -> void:
-	cs.enemies.clear()
-	cs.reward_pending = false
-	cs.pending_levelups = 0
-	cs.campaign_try_advance()
+	# Reach one event/shop node (three cleared combat waves as of v0.4.88).
+	for i in CombatState.COMBAT_WAVES_PER_NODE:
+		cs.enemies.clear()
+		cs.reward_pending = false
+		cs.pending_levelups = 0
+		cs.campaign_try_advance()
 
 
 func test_version_is_at_least_0_4_75() -> void:
@@ -236,6 +238,7 @@ func test_skip_does_not_stall_or_advance_twice() -> void:
 
 func test_pending_impact_and_enemies_block_event() -> void:
 	var cs := _boot_campaign(47560, true)
+	cs.campaign_node_clears = 2
 	assert_gt(cs.alive_enemies().size(), 0)
 	cs.campaign_try_advance()
 	assert_eq(cs.campaign_phase, CampaignRules.PHASE_COMBAT)
@@ -271,6 +274,7 @@ func test_death_and_restart_clear_event_and_bag() -> void:
 
 func test_machine_starts_offscreen_and_moves_monotonically() -> void:
 	var cs := _boot_campaign(47580, false)
+	cs.campaign_node_clears = 2
 	cs.alley_force_kind = CampaignRules.ALLEY_GUMBALL
 	cs.enemies.clear()
 	cs.campaign_try_advance()

@@ -16,7 +16,7 @@ class_name CombatHooks
 ##   on_xp_gain           — 击杀经验已入账（粒子只是表现）；amount, cell
 ##   on_shop_enter        — 地图商店触碰打开；shop_cell
 ##   on_temp_sin_spawn    — 临时罪孽入袋；sin_id, source ("load33"=装入几率触发，v0.4.20 起 20%，id 沿用|"penalty_legacy")
-##   on_dot_tick          — DoT 跳（燃烧/流血）；kind
+##   on_dot_tick          — DoT 跳（燃烧走全局节拍 kind=all；流血每名敌人独立跳 kind=bleed）
 ##   on_insurance_swap    — 保险挡住第3罪孽装填；sin_id
 ##   on_stone_shatter     — 石头命中碎裂产小石头；dealt, pebbles
 ##   on_pebble_fuse       — 小石头相邻融合点射；count, damage

@@ -22,6 +22,7 @@ func _force_walk_to_shop(cs: CombatState) -> void:
 	if cs.campaign_phase == CampaignRules.PHASE_ENTER or cs.campaign_walk_left > 0.0:
 		cs.campaign_skip_walk()
 	cs.campaign_wave = maxi(1, CampaignRules.wave_count(cs.campaign_floor, cs.campaign_segment))
+	cs.campaign_node_clears = 2
 	cs.enemies.clear()
 	cs.reward_pending = false
 	cs.pending_levelups = 0

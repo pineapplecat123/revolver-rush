@@ -246,20 +246,22 @@ func test_skeleton_does_not_bleed() -> void:
 func test_bio_bleeds_and_ticks() -> void:
 	var cs := CombatState.new(4)
 	cs.start_rush(4)
-	while cs.enemies.size() > 1:
-		cs.enemies.pop_back()
+	cs.enemies.clear()
+	cs.dev_spawn_enemy(1, 9)
 	cs.enemies[0].hp = 100
 	cs.enemies[0].max_hp = 100
-	cs.enemies[0].cell = 9
-	# 命中叠流血
+	# 实际掉血后挂上永久流血，0.7s 才第一次跳伤，层数不掉。
 	cs.enemies[0].apply_hit(3)
 	assert_eq(cs.enemies[0].bleed_stacks, 1)
 	var hp_before: int = cs.enemies[0].hp
-	# v0.4.0：流血改 0.5s DoT，不再挂落格拍
-	cs._dot_timer = 0.01
-	assert_true(cs.tick_dot(0.02))
+	# 全局燃烧节拍保持满格，确认短时推进不会提前跳流血。
+	cs._dot_timer = CombatConstants.DOT_TICK_SEC
+	assert_false(cs.tick_dot(0.02))
+	assert_eq(cs.enemies[0].hp, hp_before)
+	assert_eq(cs.enemies[0].bleed_stacks, 1)
+	assert_true(cs.tick_dot(CombatConstants.DOT_TICK_SEC))
 	assert_eq(cs.enemies[0].hp, hp_before - 1)
-	assert_eq(cs.enemies[0].bleed_stacks, 0)
+	assert_eq(cs.enemies[0].bleed_stacks, 1)
 
 
 func test_stone_ignores_damage_under_4() -> void:

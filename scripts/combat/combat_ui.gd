@@ -294,6 +294,8 @@ var _shop_house: ShopHouse = null
 var _gumball_machine: GumballMachine = null
 var _trash_can: TrashCan = null
 var _alley_panel: PanelContainer = null
+var _modal_canvas: CanvasLayer
+var _modal_root: Control
 var _alley_title: Label = null
 var _alley_gold: Label = null
 var _alley_hint: Label = null
@@ -408,9 +410,14 @@ func _ready() -> void:
 	dev_panel.visible = false
 	reward_panel.visible = false
 	dimmer.visible = false
+	_ensure_modal_canvas()
+	for panel in [dimmer, reward_panel, dev_panel, _shop_panel, _sin_panel]:
+		if panel != null:
+			panel.reparent(_modal_root, false)
+	dimmer.mouse_filter = Control.MOUSE_FILTER_STOP
 	dimmer.z_index = Z_MODAL_DIMMER
 	if reward_panel != null:
-		reward_panel.z_index = Z_MODAL_PANEL
+		reward_panel.z_index = Z_MODAL_PANEL + 10
 	var _dev_ci := get_node_or_null("%DevPanel") as CanvasItem
 	if _dev_ci != null:
 		_dev_ci.z_index = Z_MODAL_PANEL
@@ -1461,6 +1468,7 @@ func _process(delta: float) -> void:
 	if state.tick_combat_time(logic_dt):
 		_consume_expired_temp_events()
 		_refresh()
+	_tick_enemy_bleed_visuals(logic_dt)
 	if state.shop_touch_pending and not _shop_open and not _reward_open and not _sin_pick_open:
 		if state.campaign_offer_pending:
 			pass
@@ -2535,6 +2543,7 @@ func _sync_skeleton_enemies(by_cell: Dictionary) -> void:
 				sk.position = Vector2(UNIT_W * 0.5, UNIT_H)
 		var shown_hp: int = display_hp(e)
 		sk.set_hp(shown_hp, e.max_hp)
+		sk.set_bleeding(e.is_alive() and shown_hp > 0 and e.bleed_stacks > 0)
 		# v0.4.32：绝不播趴地死亡动画。子弹未到（hp hold）→ 留着等命中碎块；
 		# 已是 0 血且无 hold（DoT/爆炸/贴身等）→ 当场碎块。
 		if shown_hp <= 0:
@@ -7340,6 +7349,21 @@ func _tick_alley_anim(dt: float) -> void:
 		_refresh_gumball_closeup()
 
 
+func _ensure_modal_canvas() -> void:
+	if _modal_canvas != null:
+		return
+	_modal_canvas = CanvasLayer.new()
+	_modal_canvas.name = "ModalCanvas"
+	_modal_canvas.layer = 100
+	add_child(_modal_canvas)
+	_modal_root = Control.new()
+	_modal_root.name = "ModalRoot"
+	_modal_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_modal_canvas.add_child(_modal_root)
+	_modal_root.size = size
+	resized.connect(func(): _modal_root.size = size)
+
+
 func _ensure_alley_panel() -> void:
 	if _alley_panel != null and is_instance_valid(_alley_panel):
 		return
@@ -7390,7 +7414,7 @@ func _ensure_alley_panel() -> void:
 	_alley_leave_btn.pressed.connect(_on_alley_leave)
 	UiStyle.apply_text_button(_alley_leave_btn)
 	actions.add_child(_alley_leave_btn)
-	add_child(_alley_panel)
+	_modal_root.add_child(_alley_panel)
 
 
 func _refresh_alley_panel() -> void:
@@ -7460,7 +7484,7 @@ func _ensure_gumball_closeup() -> void:
 	_gumball_closeup.ball_dispensed.connect(_on_gumball_ball_dispensed)
 	_gumball_closeup.color_lookup = Callable(self, "_ammo_colors")
 	_gumball_closeup.name_lookup = Callable(self, "_ammo_bag_glyph")
-	add_child(_gumball_closeup)
+	_modal_root.add_child(_gumball_closeup)
 
 
 func _refresh_gumball_closeup() -> void:
@@ -7758,6 +7782,15 @@ func _release_burn_vfx(fx: Node2D) -> void:
 		_burn_vfx_pool.append(fx)
 	else:
 		fx.queue_free()
+
+
+func _tick_enemy_bleed_visuals(delta_sec: float) -> void:
+	## 持续滴血只跟战斗钟走；不改既有命中飙血/碎块池上限。
+	if delta_sec <= 0.0:
+		return
+	for sk in _skel_enemies.values():
+		if sk != null and is_instance_valid(sk) and sk.has_method("tick_bleed_visual"):
+			sk.tick_bleed_visual(delta_sec)
 
 
 func _update_burn_vfx() -> void:

@@ -40,7 +40,10 @@ boxes.forEach((b, i)=>{
     assert(measure.measureText(c.text).width <= 896);
   });
 });
-assert(plan.commands.some(c=>c.style==='italic' && c.text.includes('效果说明')));
+assert(plan.commands.some(c=>c.style==='italic' && c.text.includes('游戏内描述') && c.text.includes('专用游戏内描述')));
+assert(!plan.commands.some(c=>c.style==='italic' && c.text.includes('效果说明')));
+assert(plan.commands.some(c=>c.style==='normal' && c.text.includes('效果说明')));
+assert.equal(OV.fields.find(f=>f[0]==='damage')[1], '基础伤害');
 assert(plan.commands.some(c=>c.text.includes('专用游戏内描述')));
 assert(OV.layout(measure, currentRows, OV.fields.map(f=>f[0])).height <= 16000, 'all current rows and fields fit the explicit export guard');
 const namesOnly = OV.layout(measure, rows, []);
@@ -59,7 +62,7 @@ class Element {
   get innerHTML() { return this.html||''; }
   setAttribute(name, value) { this[name]=value; }
   addEventListener(name, fn) { (this.listeners[name] ||= []).push(fn); }
-  async fire(name) { for (const fn of this.listeners[name]||[]) await fn({target:this}); }
+  async fire(name) { for (const fn of this.listeners[name]||[]) await fn({target:this, preventDefault(){}}); }
   querySelectorAll() { return this.inputs||[]; }
   focus() {} reset() {} click() { this.clicks=(this.clicks||0)+1; }
 }
@@ -75,7 +78,7 @@ function appHarness() {
     fetch(){networkCalls++; throw Error('unexpected network');}};
   // Expose closures in test memory only; production exports no debug hooks or bypass.
   const source=fs.readFileSync(path.join(dir,'app.js'),'utf8').replace(/\}\)\(\);\s*$/, `window.test={
-    apply, render, fillForm, formVals, buildRec, itemHtml, selectExport, exportSelection,
+    apply, render, fillForm, formVals, buildRec, itemHtml, selectExport, exportSelection, cmpBullets, damageNum, isValidDamage,
     setPending(p){pending=p;}, setView(v){view=Object.assign(view,v);}, getView(){return view;}
   };})();`);
   vm.runInNewContext(source,sandbox,{filename:'app.js'});
@@ -152,6 +155,43 @@ function appHarness() {
   await assert.rejects(OV.png([{name:'极长',effect:'长'.repeat(50000)}],['effect'],fakeDocument),/安全尺寸/);
   fakeDocument.createElement=()=>({getContext:()=>ctx,toBlob:fn=>fn(null)});
   await assert.rejects(OV.png(rows,[],fakeDocument),/图片生成失败/);
+  // Base damage label + X formula support in editor UI, sort, validation, and PNG export
+  assert.match(h.el.list.innerHTML, /<span>基础伤害 <b>/);
+  assert.doesNotMatch(h.el.list.innerHTML, /<span>伤害 <b>/);
+  assert.equal(h.api.damageNum('X'), null);
+  assert.equal(h.api.damageNum('0'), 0);
+  assert.equal(h.api.isValidDamage('X'), true);
+  assert.equal(h.api.isValidDamage('x'), true);
+  assert.equal(h.api.isValidDamage(''), true);
+  assert.equal(h.api.isValidDamage('3.5'), true);
+  assert.equal(h.api.isValidDamage('abc'), false);
+  h.api.fillForm({id:'fx', name:'公式弹', damage:'x', game_description:'玩法', notes:'X = 测试公式'});
+  assert.equal(h.api.buildRec().damage, 'X');
+  // Submit validation rejects invalid damage while keeping X valid
+  let prevented = false;
+  h.el.f_name.value = '校验弹';
+  h.el.f_damage.value = 'not-a-num';
+  await h.el.bulletForm.fire('submit');
+  assert.match(h.el.formErr.textContent, /基础伤害/);
+  // Sorting with X and blank must never produce NaN or coerce X to 0
+  const sortRows = [
+    {id:'a', name:'甲', damage:'3'},
+    {id:'b', name:'乙', damage:'X'},
+    {id:'c', name:'丙', damage:'0'},
+    {id:'d', name:'丁', damage:''}
+  ];
+  h.api.setView({sort:'damage', dir:'asc'});
+  const sorted = sortRows.slice().sort(h.api.cmpBullets);
+  assert.deepEqual(sorted.slice(0, 2).map(r=>r.id), ['c', 'a']);
+  assert.equal(OV.displayValue({damage:'X'}, 'damage'), 'X');
+  assert.equal(OV.displayValue({damage:''}, 'damage'), '—');
+  const xPaints = [];
+  const xCtx = {...measure, fillRect(){}, fillText(...args){xPaints.push({text:args[0], font:xCtx.font});}};
+  const xDoc = {fonts:{ready:Promise.resolve()}, createElement:()=>({getContext:()=>xCtx, toBlob:fn=>fn({size:99,type:'image/png'})})};
+  await OV.png([{name:'总伤二分弹', damage:'X', effect:'效果正体', game_description:'游戏斜体', notes:'X = 公式'}], ['damage','effect','game_description','notes'], xDoc);
+  assert(xPaints.some(p=>p.text.includes('基础伤害：X')));
+  assert(xPaints.some(p=>p.text.includes('游戏斜体') && p.font.startsWith('italic ')));
+  assert(xPaints.some(p=>p.text.includes('效果正体') && p.font.startsWith('normal ')));
   assert.equal(JSON.stringify(rows),original);
   console.log('ok: overview defaults, facets, app controls/contracts, export selection/layout/PNG/error guards (no browser/network)');
 })().catch(err=>{console.error(err);process.exitCode=1;});

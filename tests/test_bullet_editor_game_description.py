@@ -50,5 +50,31 @@ class EditorGameDescriptionTest(unittest.TestCase):
             self.assertIn("notes", b)
 
 
+
+    def test_italic_swap_base_damage_label_and_x_formula_rows(self):
+        css = (EDITOR / "style.css").read_text(encoding="utf-8")
+        self.assertIn(".desc.play{font-style:italic}", css)
+        self.assertNotIn(".desc.effect{font-style:italic}", css)
+        html = (EDITOR / "index.html").read_text(encoding="utf-8")
+        self.assertIn('<label for="f_damage">基础伤害</label>', html)
+        self.assertIn('<option value="damage">基础伤害</option>', html)
+        self.assertIn('inputmode="text"', html)
+        ov = (EDITOR / "overview.js").read_text(encoding="utf-8")
+        self.assertIn("['damage', '基础伤害']", ov)
+        self.assertIn("field[0] === 'game_description' ? 'italic' : 'normal'", ov)
+        bullets = json.loads((EDITOR / "data.json").read_text(encoding="utf-8"))["bullets"]
+        by_name = {b["name"]: b for b in bullets}
+        formula_x = {"总伤二分弹", "模仿伤害", "超级放大", "分裂尾弹"}
+        true_zero = {"加伤弹", "倍伤弹", "加速弹", "随机复制弹", "重复开始弹", "尾加倍弹", "双倍给下一个", "空拍", "黑视"}
+        for name in formula_x:
+            self.assertEqual(by_name[name]["damage"], "X", msg=name)
+            self.assertIn("X =", by_name[name]["notes"], msg=name)
+        for name in true_zero:
+            self.assertEqual(by_name[name]["damage"], "0", msg=name)
+        self.assertEqual(by_name["升级引爆"]["damage"], "")
+        for name in ("模仿伤害", "超级放大"):
+            self.assertIn("尚未结算时沿用其四舍五入后的预计伤害", by_name[name]["notes"])
+
+
 if __name__ == "__main__":
     unittest.main()

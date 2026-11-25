@@ -26,6 +26,7 @@ func _boot_ui() -> Node:
 	if ui.state.campaign_phase == CampaignRules.PHASE_ENTER or ui.state.campaign_walk_left > 0.0:
 		ui.state.campaign_skip_walk()
 	ui.state.campaign_wave = maxi(1, CampaignRules.wave_count(ui.state.campaign_floor, ui.state.campaign_segment))
+	ui.state.campaign_node_clears = 2
 	ui.state.enemies.clear()
 	ui.state.reward_pending = false
 	ui.state.pending_levelups = 0

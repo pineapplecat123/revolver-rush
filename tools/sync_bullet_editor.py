@@ -9,7 +9,7 @@ Copied when present:
   name, effect -> special, game_description -> game_description,
   school, rarity (mapped to common/rare/...),
   type tag (开始/中间/结束, other tags such as 清算 are kept),
-  damage -> base_damage only when the ammo uses fixed numeric damage,
+  damage -> base_damage only when the ammo uses fixed numeric damage (X is skipped cleanly without 0/float coercion),
   muzzle_color, bullet_color (#RRGGBB).
 
 Usage:
@@ -93,20 +93,21 @@ def apply_editor_row(ammo: dict, editor: dict) -> list[str]:
         if tags != new_tags:
             ammo["tags"] = new_tags
             changes.append("tags")
-    if str(ammo.get("base_damage_mode", "fixed")) == "fixed":
-        dmg = str(editor.get("damage") or "").strip()
-        if dmg != "":
-            try:
-                if "." in dmg:
-                    num = float(dmg)
-                    num_out = int(num) if num.is_integer() else num
-                else:
-                    num_out = int(dmg)
-                if ammo.get("base_damage") != num_out:
-                    ammo["base_damage"] = num_out
-                    changes.append("base_damage")
-            except ValueError:
-                pass
+    dmg = str(editor.get("damage") or "").strip()
+    if dmg.upper() == "X":
+        pass
+    elif str(ammo.get("base_damage_mode", "fixed")) == "fixed" and dmg != "":
+        try:
+            if "." in dmg:
+                num = float(dmg)
+                num_out = int(num) if num.is_integer() else num
+            else:
+                num_out = int(dmg)
+            if ammo.get("base_damage") != num_out:
+                ammo["base_damage"] = num_out
+                changes.append("base_damage")
+        except ValueError:
+            pass
     for key in ("muzzle_color", "bullet_color"):
         col = normalize_hex(editor.get(key))
         if col and ammo.get(key) != col:
