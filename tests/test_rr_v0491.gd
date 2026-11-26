@@ -253,6 +253,98 @@ func test_candy_exit_falls_and_bounces_on_the_tray() -> void:
 	assert_eq(cu.ball_count(), 12)
 
 
+func _run_candy_drop(cu: GumballCloseup, seed_value: int) -> void:
+	cu.drop_rng = RandomNumberGenerator.new()
+	cu.drop_rng.seed = seed_value
+	cu.present()
+	cu.begin_session_with_ids([49, 40, 41, 42, 43, 44, 45, 46, 47, 50, 51, 52])
+	for _i in 150:
+		cu.tick(1.0 / 30.0)
+	cu.set_can_commit(true, false)
+	cu.lever_commit_requested.connect(func(): cu.accept_commit(), CONNECT_ONE_SHOT)
+	cu.simulate_full_stroke()
+
+
+func test_candy_exit_kick_range_and_both_signs() -> void:
+	var cu: GumballCloseup = autofree(GumballCloseup.new())
+	cu.drop_rng = RandomNumberGenerator.new()
+	cu.drop_rng.seed = 49501
+	var left := 0
+	var right := 0
+	var seen: Dictionary = {}
+	for _i in 40:
+		var rec: Dictionary = {}
+		var vel: Vector2 = cu._apply_exit_kick(rec, Vector2.ZERO)
+		var k: float = float(rec.get("exit_kick", 0.0))
+		assert_eq(k, vel.x)
+		assert_true(bool(rec.get("exit_kicked", false)))
+		assert_gte(absf(k), GumballCloseup.EXIT_KICK_MIN - 0.001)
+		assert_lte(absf(k), GumballCloseup.EXIT_KICK_MAX + 0.001)
+		seen[snapped(k, 0.01)] = true
+		if k < 0.0:
+			left += 1
+		else:
+			right += 1
+	assert_gt(left, 0, "kick must be able to go left")
+	assert_gt(right, 0, "kick must be able to go right")
+	assert_gt(seen.size(), 8, "magnitude should vary inside the range")
+
+func test_candy_exit_kick_veers_and_still_lands() -> void:
+	## 左右两种冲量都要看得见偏转，但必须落到托盘、弹跳、不瞬移，下落时间仍接近重力自由落体。
+	var seeds := [49511, 49512, 49513, 49514, 49515, 49516, 49517, 49518]
+	var saw_left := false
+	var saw_right := false
+	for seed_value in seeds:
+		var cu := GumballCloseup.new()
+		cu.size = Vector2(720, 1280)
+		add_child_autofree(cu)
+		_run_candy_drop(cu, seed_value)
+		assert_true(cu.is_commit_accepted())
+		var mid_x: float = cu.outlet_point().x
+		var max_dx := 0.0
+		var reveal_i := -1
+		var floor_i := -1
+		var prev_y := -INF
+		var jumped := 0
+		var kick_seen := 0.0
+		for i in 300:
+			cu.tick(1.0 / 30.0)
+			var p: Vector2 = cu.ball_pos()
+			if cu.payload_exit_kick() != 0.0:
+				kick_seen = cu.payload_exit_kick()
+			max_dx = maxf(max_dx, absf(p.x - mid_x))
+			if p.y > cu.outlet_reveal_y():
+				if prev_y > -INF and p.y - prev_y > cu.ball_radius() * 3.0:
+					jumped += 1
+				if reveal_i < 0:
+					reveal_i = i
+				prev_y = p.y
+			if floor_i < 0 and cu.has_contacted_floor():
+				floor_i = i
+			if cu.is_drop_settled():
+				break
+		assert_ne(kick_seen, 0.0, "a one-shot horizontal kick must be applied after leaving the mouth")
+		assert_gte(absf(kick_seen), GumballCloseup.EXIT_KICK_MIN - 0.001)
+		assert_lte(absf(kick_seen), GumballCloseup.EXIT_KICK_MAX + 0.001)
+		assert_eq(cu.payload_exit_kick(), kick_seen, "kick is applied once and then kept")
+		if kick_seen < 0.0:
+			saw_left = true
+		else:
+			saw_right = true
+		assert_gt(max_dx, 24.0, "drop must veer sideways, not fall in a straight vertical line")
+		assert_eq(jumped, 0, "candy must not teleport from the outlet onto the tray")
+		assert_true(cu.has_contacted_floor())
+		assert_gte(cu.bounce_count(), 1)
+		assert_eq(cu.tray_count(), 1)
+		assert_gte(floor_i, reveal_i)
+		assert_lte(float(floor_i - reveal_i) / 30.0, 0.55, "mouth-to-tray time stays a gravity drop")
+		var settle: Vector2 = cu.ball_pos()
+		var tray: Rect2 = cu.drop_bounds()
+		assert_true(tray.grow(cu.ball_radius()).has_point(settle), "kicked ball must settle on the tray")
+	assert_true(saw_left, "integration drops should include a left kick")
+	assert_true(saw_right, "integration drops should include a right kick")
+
+
 func test_visible_on_screen_enemies_are_hittable_but_offscreen_spawns_are_not() -> void:
 	assert_eq(CombatConstants.WALK_IN_TARGETABLE_SLACK, 1.0)
 	var cs := CombatState.new(49104)

@@ -27,6 +27,9 @@ const LEVER_TRAVEL := 120.0
 const GATE_CLEAR := 0.22
 # 只在计量闸里限速，整球过闸后按重力下落。不要限到出球口，否则看起来像飘出来。
 const METER_EXIT_SPEED := 220.0
+# 出球口离开后给一次左右随机水平冲量，下落和托盘上会偏、会滚，不是直上直下。
+const EXIT_KICK_MIN := 180.0
+const EXIT_KICK_MAX := 300.0
 
 var machine: GumballMachine = null
 var color_lookup: Callable = Callable()
@@ -66,6 +69,8 @@ var _layout_size: Vector2 = Vector2.ZERO
 var _can_afford: bool = true
 var _already_used: bool = false
 var _frame_dt: float = 1.0 / 30.0
+var drop_rng: RandomNumberGenerator = null
+var last_exit_kick: float = 0.0
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -413,6 +418,7 @@ func begin_session_with_ids(ids: Array) -> void:
 	_agitating = false
 	_payload_idx = -1
 	_dispensed_id = 0
+	last_exit_kick = 0.0
 	_released_at = -1.0
 	_anim_age = 0.0
 	_apply_layout()
@@ -438,6 +444,8 @@ func begin_session_with_ids(ids: Array) -> void:
 			"freeze": 0,
 			"payload": false,
 			"in_tray": false,
+			"exit_kicked": false,
+			"exit_kick": 0.0,
 			"floor_hits": 0,
 			"bounce": 0,
 			"fill": style.get("bg", Color(0.85, 0.85, 0.88)),
@@ -472,6 +480,7 @@ func _clear_balls() -> void:
 	_session = false
 	_payload_idx = -1
 	_dispensed_id = 0
+	last_exit_kick = 0.0
 	_released_at = -1.0
 	_gate_open = 0.0
 	_gate_want = 0.0
@@ -591,6 +600,34 @@ func _wake_all() -> void:
 		b["freeze"] = 0
 
 
+func _ensure_drop_rng() -> RandomNumberGenerator:
+	if drop_rng == null:
+		drop_rng = RandomNumberGenerator.new()
+		drop_rng.randomize()
+	return drop_rng
+
+
+func _apply_exit_kick(b: Dictionary, vel: Vector2) -> Vector2:
+	## 出球口离开后只加一次水平冲量：方向左或右，大小在 [EXIT_KICK_MIN, EXIT_KICK_MAX]。
+	var rng := _ensure_drop_rng()
+	var mag: float = rng.randf_range(EXIT_KICK_MIN, EXIT_KICK_MAX)
+	var kick: float = mag if rng.randf() < 0.5 else -mag
+	vel.x += kick
+	b["exit_kicked"] = true
+	b["exit_kick"] = kick
+	b["asleep"] = false
+	b["freeze"] = 0
+	last_exit_kick = kick
+	return vel
+
+
+func payload_exit_kick() -> float:
+	for b in _balls:
+		if bool(b.get("payload", false)) or bool(b.get("in_tray", false)):
+			return float(b.get("exit_kick", 0.0))
+	return last_exit_kick
+
+
 func _physics_world(dt: float) -> void:
 	var r: float = ball_radius()
 	var gvec := Vector2(0.0, GRAVITY)
@@ -608,6 +645,9 @@ func _physics_world(dt: float) -> void:
 			# 整球过闸（球心过闸线 + 半径）后放开，让出球口到托盘是重力下落。
 			if py >= gate_y() - r and py < gate_y() + r:
 				vel.y = minf(vel.y, METER_EXIT_SPEED)
+			# 离开出球口、不再受计量闸限速后，只给一次左右随机冲量。
+			if py >= outlet_point().y and not bool(b.get("exit_kicked", false)):
+				vel = _apply_exit_kick(b, vel)
 		if not is_payload and not in_tray and not _agitating and _gate_open < 0.15:
 			vel *= 0.96
 		var pos: Vector2 = b["pos"] + vel * dt
@@ -699,7 +739,9 @@ func _resolve_walls(pos: Vector2, vel: Vector2, r: float, in_tray: bool, is_payl
 	var shaft_top: float = ny - r * 0.2
 	var shaft_bot: float = out.y + r * 1.2
 	var in_shaft: bool = (not in_globe) or (pos.y >= ny - 2.0 and absf(pos.x - mid) <= h + 1.0)
-	if in_shaft and pos.y >= shaft_top and pos.y <= shaft_bot + r * 2.0 and not in_tray:
+	# 出球口以下是落到托盘的开放区：payload 不再走细滑道侧壁，否则水平冲量会被立刻弹掉。
+	var past_mouth: bool = is_payload and pos.y > out.y
+	if in_shaft and pos.y >= shaft_top and pos.y <= shaft_bot + r * 2.0 and not in_tray and not past_mouth:
 		var left: float = mid - h
 		var right: float = mid + h
 		if pos.x - r < left:
