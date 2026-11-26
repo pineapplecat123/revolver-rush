@@ -464,7 +464,7 @@ func begin_session_with_ids(ids: Array) -> void:
 		_balls.append({
 			"id": aid,
 			"pos": pos,
-			"vel": Vector2(float((i % 3) - 1) * 14.0, 28.0 + float(i) * 3.0),
+			"vel": Vector2(float((i % 3) - 1) * 22.0, 90.0 + float(i) * 6.0),
 			"asleep": false,
 			"freeze": 0,
 			"payload": false,
@@ -548,10 +548,15 @@ func tick(dt: float) -> void:
 		for _s in PHYS_SUBSTEPS:
 			_physics_world(sub)
 		if not _agitating and _gate_open < 0.15:
+			# 进特写后先让重力把球落到罩底并互相碰撞；只对已经落到下半球、速度也不快的球再施加静置阻尼。
+			# 不要一进来就用强阻尼把半空的球睡死，看起来像拉杆前不会动。
+			var mid_y: float = globe_center().y
 			for b3 in _balls:
 				if bool(b3.get("in_tray", false)) or bool(b3.get("payload", false)):
 					continue
 				var v3: Vector2 = b3["vel"]
+				if float(b3["pos"].y) < mid_y or v3.y > 80.0:
+					continue
 				v3 *= 0.78
 				if v3.length() < 90.0:
 					v3 *= 0.45
@@ -872,6 +877,19 @@ func all_ball_ids() -> Array:
 
 func ball_count() -> int:
 	return _balls.size()
+
+
+
+func hopper_is_simulating() -> bool:
+	## 进特写后、拉杆之前，罩内应已在重力下活动或互相碰撞。
+	for b in _balls:
+		if bool(b.get("in_tray", false)):
+			continue
+		if not bool(b.get("asleep", false)):
+			return true
+		if (b["vel"] as Vector2).length() > 1.0:
+			return true
+	return false
 
 
 func is_hopper_settled() -> bool:
@@ -1241,16 +1259,17 @@ func _on_ball_view_draw() -> void:
 	_draw_lever(_ball_view)
 
 
+func draws_lever_travel_track() -> bool:
+	## v0.4.97：不再画拉杆旁的长条滑槽。
+	return false
+
+
 func _draw_lever(ci: Control) -> void:
 	var pivot: Vector2 = lever_pivot()
 	var handle: Vector2 = lever_handle_pos()
-	var track_a: Vector2 = lever_rest_pos()
-	var track_b: Vector2 = lever_pulled_pos()
 	var s: float = minf(_sx(), _sy())
 	var kr: float = lever_knob_radius()
-	# 滑槽略退后，粗杆从机身座接到把头，中间不断开。
-	ci.draw_line(track_a, track_b, Color(0.20, 0.23, 0.26, 0.55), 10.0 * s / 1.0, true)
-	# 机身侧壁上的金属座，把杆钉在机体上
+	# 机身侧壁上的金属座，粗杆从座接到把头。不再画旁边的长条滑槽。
 	ci.draw_circle(pivot, 11.0 * s, Color(0.30, 0.35, 0.40, 1.0))
 	ci.draw_arc(pivot, 11.0 * s, 0.0, TAU, 18, Color(0.18, 0.20, 0.22, 0.95), 2.0, true)
 	ci.draw_line(pivot, handle, Color(0.34, 0.38, 0.42, 1.0), 11.0 * s, true)

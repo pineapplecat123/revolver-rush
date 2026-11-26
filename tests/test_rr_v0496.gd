@@ -10,8 +10,9 @@ func before_each() -> void:
 	CombatState.boot_sandbox = false
 
 
-func test_version_is_0_4_96() -> void:
-	assert_eq(GameVersion.STRING, "0.4.96")
+func test_version_is_at_least_0_4_96() -> void:
+	assert_true(GameVersion.STRING.begins_with("0.4."))
+	assert_gte(int(GameVersion.STRING.split(".")[2]), 96)
 
 
 func _closeup() -> GumballCloseup:
@@ -51,6 +52,7 @@ func test_lever_is_mounted_on_body_larger_with_red_invite_knob() -> void:
 	# 把头在机身外侧，杆从枢轴连到把头，中间没有缺口。
 	assert_gt(cu.lever_rest_pos().x, pivot.x + 8.0)
 	assert_true(cu.lever_invite_active())
+	assert_false(cu.draws_lever_travel_track())
 	# 拉杆行程仍能扣到头。
 	cu.begin_session_with_ids([49, 40, 41, 42, 43, 44, 45, 46, 47, 50, 51, 52])
 	cu.set_can_commit(true, false)
@@ -99,7 +101,7 @@ func test_trash_xp_picker_buttons_are_clickable_after_freeze_and_run_does_not_st
 	DisplayServer.window_set_size(Vector2i(720, 1280))
 	await wait_process_frames(2)
 	var btn: Button = null
-	for c in ui.reward_choices.get_children():
+	for c in ui.reward_choice_buttons():
 		if c is Button and is_instance_valid(c) and not c.is_queued_for_deletion() and c.visible:
 			btn = c
 			break

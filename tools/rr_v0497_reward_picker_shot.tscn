@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tools/rr_v0497_reward_picker_shot.gd" id="1"]
+
+[node name="RewardPickerShot" type="Node"]
+script = ExtResource("1")

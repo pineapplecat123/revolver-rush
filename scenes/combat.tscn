@@ -738,11 +738,12 @@ text = "从下列三发弹药中选一加入弹药袋，或放弃换额外金币
 autowrap_mode = 3
 horizontal_alignment = 1
 
-[node name="RewardChoices" type="VBoxContainer" parent="RewardPanel/RewardMargin/RewardVBox"]
+[node name="RewardChoices" type="HBoxContainer" parent="RewardPanel/RewardMargin/RewardVBox"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_vertical = 3
 theme_override_constants/separation = 10
+alignment = 1
 
 [node name="BtnRewardSkip" type="Button" parent="RewardPanel/RewardMargin/RewardVBox"]
 unique_name_in_owner = true

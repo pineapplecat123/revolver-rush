@@ -285,6 +285,7 @@ var _blood_pool: Array = []
 var _reward_open: bool = false
 ## 胜利后延迟弹出奖励：token 用于取消过期 await
 var _reward_delaying: bool = false
+var _reward_italic_font: Font = null
 var _reward_delay_token: int = 0
 var _wave_banner_label: Label = null
 var _wave_banner_dimmer: ColorRect = null
@@ -368,7 +369,7 @@ var _btn_shop_leave: Button = null
 @onready var reward_title: Label = %RewardTitle
 @onready var reward_gold_label: Label = %RewardGoldLabel
 @onready var reward_hint: Label = %RewardHint
-@onready var reward_choices: VBoxContainer = %RewardChoices
+@onready var reward_choices: HBoxContainer = %RewardChoices
 @onready var btn_reward_skip: Button = %BtnRewardSkip
 @onready var btn_reward_next: Button = %BtnRewardNext
 @onready var dimmer: ColorRect = %Dimmer
@@ -788,7 +789,7 @@ func _fit_modal(panel: Control, w: float, h: float) -> void:
 
 
 func _fit_modals_portrait() -> void:
-	_fit_modal(reward_panel, 680.0, 760.0)
+	_fit_modal(reward_panel, 690.0, 920.0)
 	if state != null and state.sandbox_mode:
 		_fit_sandbox_panel()
 	else:
@@ -3966,24 +3967,7 @@ func _refresh_campaign_opening_panel() -> void:
 	btn_reward_skip.visible = false
 	btn_reward_next.visible = false
 	for i in state.campaign_offer_choices.size():
-		var ammo_id: int = state.campaign_offer_choices[i]
-		var def: Dictionary = DataRegistry.get_ammo(ammo_id)
-		var colors := _ammo_colors(ammo_id)
-		var btn := Button.new()
-		btn.custom_minimum_size = Vector2(0, 72)
-		btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var nm := str(def.get("name", "未知#%d" % ammo_id))
-		var blurb := DataRegistry.format_ammo_reward_blurb(ammo_id)
-		btn.text = "【%d】%s\n%s" % [i + 1, nm, blurb]
-		var desc := DataRegistry.ammo_game_description(ammo_id)
-		if not desc.is_empty():
-			btn.tooltip_text = desc
-		btn.add_theme_font_size_override("font_size", 18)
-		_style_reward_choice_button(btn, colors["bg"])
-		RarityFx.attach(btn, ammo_id, colors["bg"], 8.0)
-		var idx := i
-		btn.pressed.connect(func(): _on_reward_pick(idx))
-		reward_choices.add_child(btn)
+		_add_reward_choice_cell(int(state.campaign_offer_choices[i]), i, false)
 
 
 func _refresh_reward_panel() -> void:
@@ -4013,26 +3997,8 @@ func _refresh_reward_panel() -> void:
 		btn_reward_next.visible = false
 		for i in state.reward_choices.size():
 			var ammo_id: int = state.reward_choices[i]
-			var def: Dictionary = DataRegistry.get_ammo(ammo_id)
-			var colors := _ammo_colors(ammo_id)
-			var btn := Button.new()
-			btn.custom_minimum_size = Vector2(0, 72)
-			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			var nm := str(def.get("name", "未知#%d" % ammo_id))
-			var desc := DataRegistry.ammo_game_description(ammo_id)
-			var blurb := DataRegistry.format_ammo_reward_blurb(ammo_id)
-			btn.text = "【%d】%s\n%s" % [i + 1, nm, blurb]
-			if not desc.is_empty():
-				btn.tooltip_text = desc
-			btn.add_theme_font_size_override("font_size", 18)
-			_style_reward_choice_button(btn, colors["bg"])
-			RarityFx.attach(btn, ammo_id, colors["bg"], 8.0)
-			if state != null and not state.can_gain_ammo(1):
-				btn.disabled = true
-				btn.tooltip_text = state.ammo_full_hint()
-			var idx := i
-			btn.pressed.connect(func(): _on_reward_pick(idx))
-			reward_choices.add_child(btn)
+			var blocked: bool = state != null and not state.can_gain_ammo(1)
+			_add_reward_choice_cell(ammo_id, i, blocked)
 	elif resolved:
 		reward_hint.text = ""
 		btn_reward_skip.visible = false
@@ -5060,6 +5026,132 @@ func _apply_light_button_font(btn: Button) -> void:
 
 func _style_reward_action_button(btn: Button) -> void:
 	UiStyle.apply_text_button(btn)
+
+
+func reward_choice_buttons() -> Array:
+	## 三选一方格里的可点按钮（格子可能包在比例容器里）。
+	var out: Array = []
+	if reward_choices == null:
+		return out
+	for c in reward_choices.get_children():
+		var btn: Button = c as Button
+		if btn == null:
+			btn = c.find_child("ChoiceButton", true, false) as Button
+		if btn != null:
+			out.append(btn)
+	return out
+
+
+func _reward_italic_ui_font() -> Font:
+	if _reward_italic_font != null:
+		return _reward_italic_font
+	var base: Font = get_theme_default_font()
+	var fv := FontVariation.new()
+	fv.base_font = base
+	# 伪斜体：UI 字库没有独立斜体字重，用剪切让游戏内描述做成斜体。
+	fv.variation_transform = Transform2D(Vector2(1.0, 0.22), Vector2(0.0, 1.0), Vector2.ZERO)
+	_reward_italic_font = fv
+	return fv
+
+
+func _on_reward_bullet_draw(ci: Control) -> void:
+	if ci == null:
+		return
+	var h := 56.0
+	var pos: Vector2 = ci.size * 0.5
+	var fill: Color = ci.get_meta("fill", Color(0.85, 0.85, 0.88))
+	BagPhysicsBox.stamp_bag_bullet(ci, pos, h, 0.0, fill)
+	var glyph: String = str(ci.get_meta("glyph", ""))
+	var font: Font = get_theme_default_font()
+	if glyph.is_empty() or font == null:
+		return
+	var fg: Color = ci.get_meta("fg", Color(0.1, 0.1, 0.1))
+	var fsize: int = BagPhysicsBox.label_font_size_for_height(h)
+	var ts: Vector2 = font.get_string_size(glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize)
+	var text_pos := Vector2(-ts.x * 0.5, -ts.y * 0.5 + font.get_ascent(fsize))
+	ci.draw_set_transform(pos, 0.0, Vector2.ONE)
+	var oc := Color(0.08, 0.08, 0.1, 0.7) if fg.r + fg.g + fg.b > 1.6 else Color(1, 1, 1, 0.35)
+	ci.draw_string_outline(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, 2, oc)
+	ci.draw_string(font, text_pos, glyph, HORIZONTAL_ALIGNMENT_LEFT, -1, fsize, fg)
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+
+func _add_reward_choice_cell(ammo_id: int, index: int, disabled: bool) -> void:
+	## 左中右正方形格子：中间画子弹，下面基础伤害，再换行斜体游戏内描述（完整可换行，不省略号截断）。
+	var colors := _ammo_colors(ammo_id)
+	var wrap := AspectRatioContainer.new()
+	wrap.name = "RewardChoice_%d" % index
+	wrap.ratio = 1.0
+	wrap.stretch_mode = AspectRatioContainer.STRETCH_WIDTH_CONTROLS_HEIGHT
+	wrap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	wrap.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	wrap.custom_minimum_size = Vector2(200, 200)
+	var btn := Button.new()
+	btn.name = "ChoiceButton"
+	btn.clip_contents = false
+	btn.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_style_reward_choice_button(btn, colors["bg"])
+	if disabled:
+		btn.disabled = true
+		if state != null:
+			btn.tooltip_text = state.ammo_full_hint()
+	var idx := index
+	btn.pressed.connect(func(): _on_reward_pick(idx))
+	var margin := MarginContainer.new()
+	margin.name = "ChoiceMargin"
+	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 8)
+	margin.add_theme_constant_override("margin_right", 8)
+	margin.add_theme_constant_override("margin_top", 8)
+	margin.add_theme_constant_override("margin_bottom", 8)
+	var col := VBoxContainer.new()
+	col.name = "ChoiceCol"
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.alignment = BoxContainer.ALIGNMENT_CENTER
+	col.add_theme_constant_override("separation", 6)
+	var ball := Control.new()
+	ball.name = "RewardBullet"
+	ball.custom_minimum_size = Vector2(64, 64)
+	ball.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	ball.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ball.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ball.set_meta("ammo_id", ammo_id)
+	ball.set_meta("fill", colors.get("bg", Color(0.85, 0.85, 0.88)))
+	ball.set_meta("fg", colors.get("fg", Color(0.1, 0.1, 0.1)))
+	ball.set_meta("glyph", _ammo_bag_glyph(ammo_id))
+	ball.draw.connect(_on_reward_bullet_draw.bind(ball))
+	var dmg := Label.new()
+	dmg.name = "RewardDamage"
+	dmg.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	dmg.autowrap_mode = TextServer.AUTOWRAP_OFF
+	dmg.clip_text = false
+	dmg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	dmg.text = DataRegistry.format_ammo_base_damage_line(ammo_id)
+	dmg.add_theme_font_size_override("font_size", 15)
+	dmg.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
+	var desc := Label.new()
+	desc.name = "RewardDesc"
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	desc.text_overrun_behavior = TextServer.OVERRUN_NO_TRIMMING
+	desc.clip_text = false
+	desc.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	desc.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var game_desc: String = DataRegistry.ammo_game_description(ammo_id)
+	desc.text = game_desc if not game_desc.is_empty() else DataRegistry.DEFAULT_AMMO_GAME_DESCRIPTION
+	desc.add_theme_font_size_override("font_size", 13)
+	desc.add_theme_font_override("font", _reward_italic_ui_font())
+	desc.add_theme_color_override("font_color", Color(0.88, 0.90, 0.93))
+	desc.set_meta("reward_desc_italic", true)
+	col.add_child(ball)
+	col.add_child(dmg)
+	col.add_child(desc)
+	margin.add_child(col)
+	btn.add_child(margin)
+	wrap.add_child(btn)
+	reward_choices.add_child(wrap)
 
 
 func _style_reward_choice_button(btn: Button, ammo_bg: Color) -> void:

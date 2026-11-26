@@ -221,6 +221,19 @@ func format_ammo_detail_text(ammo_id: int) -> String:
 	lines.append(desc if desc != "" else "无")
 	return "\n".join(lines)
 
+## 奖励格用的基础伤害一行：有数值就写数字，公式弹写「公式」。
+func format_ammo_base_damage_line(ammo_id: int) -> String:
+	if ammo_id == CombatConstants.INVALID_AMMO_ID:
+		return "基础伤害：0"
+	var def: Dictionary = get_ammo(ammo_id)
+	if def.is_empty():
+		return "基础伤害：—"
+	var dmg = def.get("base_damage", null)
+	if dmg == null:
+		return "基础伤害：公式"
+	return "基础伤害：%s" % str(dmg)
+
+
 ## 奖励三选一用短摘要：取游戏内描述并截断。旁注勿整段。伤X 仍来自数值字段。
 func format_ammo_reward_blurb(ammo_id: int, max_chars: int = 28) -> String:
 	if ammo_id == CombatConstants.INVALID_AMMO_ID:

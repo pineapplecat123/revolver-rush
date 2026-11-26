@@ -8,6 +8,8 @@ const USE_X := 62.0
 const PAD := 12.0
 const GLOBE_R := 60.0
 const CAP_H := 0.0  ## v0.4.96：不再画半个盖子，整罐透明
+# 街上装饰糖：少而稀，堆在罐子底部，不要铺满或悬在半空。
+const DECOR_GLOBE_BALL_COUNT := 8
 
 var coin_t: float = 0.0
 var knob_t: float = 0.0
@@ -61,6 +63,16 @@ static func lever_mount_local() -> Vector2:
 	## 拉杆枢轴：贴在支柱右侧壁，高度约出球口上方、玻璃罐下方。
 	var ly := -58.0
 	return Vector2(WIDTH * 0.5 + pedestal_half_width_at_local_y(ly), ly)
+
+
+static func decor_globe_ball_offsets() -> PackedVector2Array:
+	## 本地偏移，Y 向下为正（朝机身/底部）。全部在下半球，8 颗成一小堆。
+	return PackedVector2Array([
+		Vector2(-20.0, 28.0), Vector2(-6.0, 32.0), Vector2(8.0, 32.0), Vector2(22.0, 28.0),
+		Vector2(-13.0, 17.0), Vector2(2.0, 19.0), Vector2(16.0, 17.0),
+		Vector2(0.0, 7.0),
+	])
+
 
 
 func reset_anim() -> void:
@@ -184,13 +196,7 @@ func _draw_globe_balls(c: Vector2) -> void:
 		Color(0.68, 0.70, 0.84),
 		Color(0.86, 0.72, 0.62),
 	]
-	var pts := [
-		Vector2(0, 8), Vector2(-16, 0), Vector2(15, 2), Vector2(-8, 18),
-		Vector2(10, 18), Vector2(-22, 14), Vector2(22, 14), Vector2(0, -10),
-		Vector2(-14, -18), Vector2(14, -16), Vector2(-6, -28), Vector2(8, -26),
-		Vector2(-20, -8), Vector2(20, -6), Vector2(0, 26), Vector2(-10, 30),
-		Vector2(12, 28), Vector2(-18, 24),
-	]
+	var pts: PackedVector2Array = decor_globe_ball_offsets()
 	var j: float = 0.0
 	if ball_t > 0.0 and ball_t < 0.6:
 		j = sin(ball_t * 18.0) * (1.0 - ball_t) * 2.0
