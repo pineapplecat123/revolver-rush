@@ -154,6 +154,9 @@ static func load_type_rank(ammo_id: int) -> int:
 	return 3
 
 
+const FLAME_LAYER_CAP := 99  ## 崩溃防护：不改变批准的授予规则，只截断异常堆叠。
+
+
 static func compute_volley_damages(order: Array[int], flat_at: Array = [], actual_at: Array = []) -> Array[float]:
 	return compute_volley_details(order, flat_at, actual_at)["damages"]
 
@@ -198,8 +201,27 @@ static func consume_flame_layers(flames: Array, intrinsic: float, last: bool = f
 	return kept
 
 
+static func clamp_layer_count(layers: int, context: String = "", source: Variant = null) -> int:
+	var n := maxi(0, layers)
+	if n <= FLAME_LAYER_CAP:
+		return n
+	SessionLogService.flame_event("cap", {"context": context, "wanted": n, "capped": FLAME_LAYER_CAP, "source": source})
+	return FLAME_LAYER_CAP
+
+
+static func clamp_flame_group(flame: Dictionary, context: String = "") -> bool:
+	var n := int(flame.get("remaining", 0))
+	var capped := clamp_layer_count(n, context, flame.get("id", flame.get("source_ammo_id", "")))
+	if capped == n:
+		return false
+	flame["remaining"] = capped
+	flame["total"] = maxi(int(flame.get("total", 0)), capped)
+	return true
+
+
 static func make_flame(source_id: int, index: int, layers: int, amount: float = 0.0) -> Dictionary:
 	var entry: Dictionary = DataRegistry.muzzle_status_of(source_id).duplicate(true)
+	layers = clamp_layer_count(layers, "grant", source_id)
 	if entry.is_empty() or layers <= 0 or str(entry.get("effect_kind", "none")) == "none":
 		return {}
 	entry["source_ammo_id"] = source_id
@@ -298,8 +320,10 @@ static func compute_volley_details(order: Array[int], flat_at: Array = [], actua
 		if effect_id == ID_DOUBLE_LAYERS:
 			# No application, no consumption; double each surviving group in place.
 			for flame in flames:
-				flame["remaining"] = int(flame["remaining"]) * 2
+				var doubled := int(flame["remaining"]) * 2
+				flame["remaining"] = clamp_layer_count(doubled, "double", flame.get("id", ""))
 				flame["total"] = maxi(int(flame.get("total", 0)), int(flame["remaining"]))
+			SessionLogService.flame_event("double", {"groups": flames.size(), "total": flame_layer_count(flames)})
 			dmg = base
 		elif effect_id == ID_DETONATE:
 			spent = pre_count

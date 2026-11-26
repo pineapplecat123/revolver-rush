@@ -36,7 +36,15 @@ window.project001ClearSiteData = async function () {
     });
     log('cookies');
   } catch (e) { log(e); }
-  try { localStorage.clear(); log('localStorage'); } catch (e) {}
+  try {
+    var keep = {};
+    ['rr.sessionLog.current','rr.sessionLog.previous','rr.sessionLog.errors'].forEach(function(k){
+      try { var v = localStorage.getItem(k); if (v != null) keep[k] = v; } catch (e) {}
+    });
+    localStorage.clear();
+    Object.keys(keep).forEach(function(k){ try { localStorage.setItem(k, keep[k]); } catch (e) {} });
+    log('localStorage (kept session logs)');
+  } catch (e) { log(e); }
   try { sessionStorage.clear(); log('sessionStorage'); } catch (e) {}
   try {
     if (window.caches && caches.keys) {

@@ -357,6 +357,7 @@ var _btn_shop_leave: Button = null
 @onready var hand_slots: Control = %HandSlots
 @onready var btn_dev: Button = %BtnDev
 @onready var btn_menu: Button = %BtnMenu
+@onready var btn_export_log: Button = %BtnExportLog
 @onready var result_label: Label = %ResultLabel
 @onready var btn_next_wave: Button = %BtnNextWave
 @onready var bag_panel: PanelContainer = %BagPanel
@@ -392,6 +393,8 @@ func _ready() -> void:
 	btn_dev.pressed.connect(_toggle_dev)
 	btn_next_wave.pressed.connect(_on_next_wave)
 	btn_menu.pressed.connect(_on_menu_pressed)
+	if btn_export_log != null:
+		btn_export_log.pressed.connect(_on_export_log_pressed)
 	btn_reward_skip.pressed.connect(_on_reward_skip)
 	btn_reward_next.pressed.connect(_on_reward_continue)
 	dimmer.gui_input.connect(_on_dimmer_input)
@@ -539,8 +542,9 @@ func _clear_bag_area_chrome() -> void:
 
 
 func _style_corner_buttons() -> void:
-	for btn in [btn_menu, btn_dev]:
-		UiStyle.apply_text_button(btn)
+	for btn in [btn_menu, btn_export_log, btn_dev]:
+		if btn != null:
+			UiStyle.apply_text_button(btn)
 
 
 func _ensure_top_labels_uncropped() -> void:
@@ -3758,6 +3762,28 @@ func _play_roll_spin_visual(logic_steps: int) -> void:
 	if _skel_player != null and is_instance_valid(_skel_player):
 		_skel_player.play_gun_twirl(dur)
 	await _animate_disk_to(_wheel_visual_steps + visual, dur)
+
+
+func _on_export_log_pressed() -> void:
+	var bundle: Dictionary = SessionLogService.offer_download(self)
+	_show_session_log_hint(bundle)
+
+
+func _on_session_log_exported(bundle: Dictionary) -> void:
+	_show_session_log_hint(bundle)
+
+
+func _show_session_log_hint(bundle: Dictionary) -> void:
+	var hint_lab: Label = get_node_or_null("%HintLabel") as Label
+	if hint_lab == null:
+		return
+	if OS.has_feature("web"):
+		hint_lab.text = "已开始下载对局日志（含当前或上一局）。"
+	else:
+		var path: String = str(bundle.get("abs_path", bundle.get("path", "")))
+		hint_lab.text = "对局日志已写入：%s" % path
+		if path != "":
+			DisplayServer.clipboard_set(path)
 
 
 func _on_menu_pressed() -> void:

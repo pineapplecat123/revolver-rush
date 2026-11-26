@@ -23,6 +23,7 @@ boot_splash/show_image=true
 [autoload]
 
 DataRegistry="*res://scripts/data/data_registry.gd"
+SessionLog="*res://scripts/session_log.gd"
 
 [display]
 

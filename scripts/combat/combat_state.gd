@@ -48,6 +48,7 @@ static var boot_sandbox: bool = false
 ## 主菜单 → 战斗：true=闯关开局（combat_ui 读取后清回 false）
 static var boot_campaign: bool = false
 ## 沙盒：可自定义枪口/袋/怪；默认暂停连续刷怪与地图商店
+var _suppress_play_log: bool = false
 var sandbox_mode: bool = false
 ## 闯关模式：独立 9 层，不启用 rush 连续刷怪 / 定时商店 / 定时 Boss。
 var campaign_mode: bool = false
@@ -648,12 +649,16 @@ func start_rush(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH) -
 		CombatConstants.STARTER_WHITE_COUNT,
 		_ammo_name(selected_sin_ammo_id), CombatConstants.STARTER_SIN_COUNT, wave_index
 	])
+	if not _suppress_play_log:
+		SessionLogService.begin_session("rush", {"seed": seed_value, "sin": selected_sin_ammo_id})
 	_emit()
 
 
 ## 沙盒：同 rush 开局构筑，但清场、暂停刷怪与地图商店，保留装弹/射击。
 func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH, default_dummies: bool = true) -> void:
+	_suppress_play_log = true
 	start_rush(seed_value, sin_ammo_id)
+	_suppress_play_log = false
 	sandbox_mode = true
 	spawn_paused = true
 	map_shop_disabled = true
@@ -668,6 +673,7 @@ func start_sandbox(seed_value: int = 0, sin_ammo_id: int = FireResolver.ID_WRATH
 		sandbox_spawn_default_dummies()
 	damage_stats_reset()
 	_log("沙盒模式：弹药袋为空；刷怪与地图商店已暂停；用控制台给袋/手加减弹药。")
+	SessionLogService.begin_session("sandbox", {"seed": seed_value, "sin": sin_ammo_id})
 	_emit()
 
 
@@ -698,7 +704,9 @@ func _reset_campaign_flags() -> void:
 func start_campaign(seed_value: int = 0) -> void:
 	## 独立闯关：不沿用 rush 开局袋/选罪/连续刷怪/定时店与 Boss。先共用重置，再改成开局白板 + 开局三选一。
 	CampaignRules.reload()
+	_suppress_play_log = true
 	start_rush(seed_value, FireResolver.ID_WRATH)
+	_suppress_play_log = false
 	campaign_mode = true
 	sandbox_mode = false
 	sandbox_hold_bag_empty = false
@@ -751,6 +759,7 @@ func start_campaign(seed_value: int = 0) -> void:
 	_clear_reward_state()
 	_set_phase(Phase.AWAIT_LOAD)
 	_log("闯关：弹药袋白板 ×%d，请从三发子弹中选一加入弹药袋（只加一次）。" % bag.size())
+	SessionLogService.begin_session("campaign", {"seed": seed_value})
 	_emit()
 
 
@@ -2550,6 +2559,7 @@ func _set_phase(p: int) -> void:
 func _log(text: String) -> void:
 	last_log.append(text)
 	log_line.emit(text)
+	SessionLogService.info("COMBAT " + text)
 
 
 func _emit() -> void:
@@ -3904,6 +3914,13 @@ func _apply_volley_muzzle_status(ammo_id: int) -> void:
 	var idx := _volley_plan_index - 1
 	if idx >= 0 and not _volley_details.is_empty():
 		_volley_muzzle_buffs = _volley_details["after"][idx].duplicate(true)
+		var spent := int(_volley_details["consumed"][idx]) if idx < _volley_details["consumed"].size() else 0
+		SessionLogService.flame_snapshot("after_shot", _volley_muzzle_buffs, {
+			"ammo_id": ammo_id,
+			"index": idx,
+			"consumed": spent,
+			"effect": FireResolver.resolve_shot_effect_id(_volley_seq_snapshot, idx) if idx < _volley_seq_snapshot.size() else 0,
+		})
 
 
 func volley_speed_mult() -> float:

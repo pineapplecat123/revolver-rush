@@ -61,6 +61,13 @@ layout_mode = 2
 theme_override_font_sizes/font_size = 15
 text = "返回主菜单"
 
+[node name="BtnExportLog" type="Button" parent="Margin/RootVBox/TopPanel/TopSection/TopButtons"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 40)
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "导出日志"
+
 [node name="BtnDev" type="Button" parent="Margin/RootVBox/TopPanel/TopSection/TopButtons"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)

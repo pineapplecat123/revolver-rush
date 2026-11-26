@@ -1,5 +1,5 @@
 extends Control
-## 主菜单（竖屏）：闯关 / rush! / 沙盒 / 更新日志 / 清理缓存 / 退出；底部版本号。
+## 主菜单（竖屏）：闯关 / rush! / 沙盒 / 更新日志 / 导出对局日志 / 清理缓存 / 退出；底部版本号。
 
 const CHANGELOG_PATH := "res://data/changelog.json"
 const COMBAT_SCENE := "res://scenes/combat.tscn"
@@ -43,6 +43,7 @@ func _style_menu() -> void:
 	%BtnSandbox.custom_minimum_size = Vector2(420, 72)
 	%BtnChangelog.custom_minimum_size = Vector2(420, 72)
 	%BtnCodex.custom_minimum_size = Vector2(420, 72)
+	%BtnExportLog.custom_minimum_size = Vector2(420, 64)
 	%BtnClearCache.custom_minimum_size = Vector2(420, 64)
 	%BtnQuit.custom_minimum_size = Vector2(420, 64)
 	%TitleLabel.add_theme_font_size_override("font_size", 64)
@@ -50,7 +51,7 @@ func _style_menu() -> void:
 	%Subtitle.add_theme_color_override("font_color", UiStyle.TEXT_DIM)
 	%HintLabel.add_theme_color_override("font_color", UiStyle.TEXT_DIM)
 	%VersionLabel.add_theme_color_override("font_color", UiStyle.TEXT_DIM)
-	for path in ["BtnCampaign", "BtnStart", "BtnSandbox", "BtnChangelog", "BtnCodex", "BtnClearCache", "BtnQuit"]:
+	for path in ["BtnCampaign", "BtnStart", "BtnSandbox", "BtnChangelog", "BtnCodex", "BtnExportLog", "BtnClearCache", "BtnQuit"]:
 		if has_node("%" + path):
 			UiStyle.apply_text_button(get_node("%" + path) as Button)
 	_ensure_menu_backdrop()
@@ -118,6 +119,8 @@ func _set_changelog_open(open: bool) -> void:
 	%BtnChangelog.disabled = open
 	if has_node("%BtnCodex"):
 		%BtnCodex.disabled = open
+	if has_node("%BtnExportLog"):
+		%BtnExportLog.disabled = open
 	%BtnClearCache.disabled = open
 	%BtnQuit.disabled = open
 	if open and has_node("%CodexPanel"):
@@ -356,6 +359,8 @@ func _set_codex_open(open: bool) -> void:
 	%BtnSandbox.disabled = open
 	%BtnChangelog.disabled = open
 	%BtnCodex.disabled = open
+	if has_node("%BtnExportLog"):
+		%BtnExportLog.disabled = open
 	%BtnClearCache.disabled = open
 	%BtnQuit.disabled = open
 	if open:
@@ -545,6 +550,28 @@ func _on_quit_pressed() -> void:
 	get_tree().quit()
 
 
+
+func _on_export_log_pressed() -> void:
+	var bundle: Dictionary = SessionLogService.offer_download(self)
+	_show_session_log_hint(bundle)
+
+
+func _on_session_log_exported(bundle: Dictionary) -> void:
+	_show_session_log_hint(bundle)
+
+
+func _show_session_log_hint(bundle: Dictionary) -> void:
+	if OS.has_feature("web"):
+		%HintLabel.text = "已开始下载对局日志（含当前或上一局）。浏览器里还留着 rr.sessionLog.current / previous，清理缓存不会删掉它们。"
+	else:
+		var path: String = str(bundle.get("abs_path", bundle.get("path", "")))
+		if path.strip_edges() == "":
+			path = str(bundle.get("dir", "user://session_logs"))
+		%HintLabel.text = "对局日志目录：%s（最多保留最近 5 份）。路径已复制到剪贴板。" % path
+		if path != "":
+			DisplayServer.clipboard_set(path)
+
+
 func _on_clear_cache_pressed() -> void:
 	## Web/Pages：清本站 cookie / storage / Cache Storage / SW / IndexedDB，再带 nocache 强制刷新。
 	if OS.has_feature("web"):
@@ -571,7 +598,15 @@ func _web_clear_cache_js() -> String:
     });
     log('cookies');
   } catch (e) { log(e); }
-  try { localStorage.clear(); log('localStorage'); } catch (e) {}
+  try {
+    var keep = {};
+    ['rr.sessionLog.current','rr.sessionLog.previous','rr.sessionLog.errors'].forEach(function(k){
+      try { var v = localStorage.getItem(k); if (v != null) keep[k] = v; } catch (e) {}
+    });
+    localStorage.clear();
+    Object.keys(keep).forEach(function(k){ try { localStorage.setItem(k, keep[k]); } catch (e) {} });
+    log('localStorage (kept session logs)');
+  } catch (e) { log(e); }
   try { sessionStorage.clear(); log('sessionStorage'); } catch (e) {}
   try {
     if (window.caches && caches.keys) {

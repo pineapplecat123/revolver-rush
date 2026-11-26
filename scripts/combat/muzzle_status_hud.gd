@@ -90,9 +90,11 @@ func _process(delta: float) -> void:
 	var hosted := icon_host != null and is_instance_valid(icon_host)
 	if not hosted:
 		var origin := muzzle + MUZZLE_OFFSET if muzzle != Vector2.ZERO else Vector2(-9999, -9999)
+		var x := 0.0
 		for i in _icons.size():
 			var ic: Control = _icons[i]
-			ic.position = origin + Vector2(float(i) * (ICON_SIZE + ICON_GAP), 0.0)
+			ic.position = origin + Vector2(x, 0.0)
+			x += maxf(ic.size.x, ic.custom_minimum_size.x) + ICON_GAP
 	if entries.is_empty():
 		_flame.visible = false
 		_flame.layers = []
@@ -120,13 +122,37 @@ static func flame_envelope(entries: Array) -> Vector2:
 	return Vector2(28.8 + 7.8 * weight, 52.8 + 10.8 * weight)
 
 
+static func layer_type_key(entry: Dictionary) -> String:
+	var kind := str(entry.get("effect_kind", "")).strip_edges()
+	if kind != "":
+		return kind
+	return str(entry.get("id", entry.get("name", "")))
+
+
+static func icon_count_mark(stack: int) -> String:
+	# ×1 is omitted; N>1 uses the typographic multiplication sign.
+	return "×%d" % stack if stack > 1 else ""
+
+
 static func layer_icon_entries(entries: Array) -> Array:
-	# Every actual layer gets its own flame icon; groups are never collapsed ×N.
+	# Same-type remaining layers share one small icon + ×N, in first-seen type order.
+	# The large upright muzzle flame is independent and is not collapsed here.
 	var icons: Array = []
+	var index: Dictionary = {}
 	for e in entries:
-		for i in maxi(0, int(e.get("remaining", 0))):
+		var n := maxi(0, int(e.get("remaining", 0)))
+		if n <= 0:
+			continue
+		var key := layer_type_key(e)
+		if index.has(key):
+			var icon: Dictionary = icons[int(index[key])]
+			icon["remaining"] = int(icon.get("remaining", 0)) + n
+			icon["stack"] = int(icon["remaining"])
+		else:
 			var icon: Dictionary = e.duplicate()
-			icon["layer_index"] = i
+			icon["remaining"] = n
+			icon["stack"] = n
+			index[key] = icons.size()
 			icons.append(icon)
 	return icons
 
@@ -151,6 +177,7 @@ func _sync_icons(entries: Array) -> void:
 	for i in entries.size():
 		var ic: _Icon = _icons[i]
 		ic.entry = entries[i]
+		ic.set_stack(int(entries[i].get("stack", entries[i].get("remaining", 1))))
 		ic.queue_redraw()
 
 
@@ -176,7 +203,7 @@ func _toggle_popup(ic: _Icon) -> void:
 	_popup_name.text = DataRegistry.muzzle_buff_display_label(ic.entry)
 	if _popup_name.text.strip_edges().is_empty():
 		_popup_name.text = str(ic.entry.get("name", ic.entry.get("label", "")))
-	_popup_dur.text = "【火焰层数】%d" % int(ic.entry.get("remaining", 0))
+	_popup_dur.text = "【火焰层数】%d" % int(ic.entry.get("stack", ic.entry.get("remaining", 0)))
 	_popup_eff.text = DataRegistry.format_muzzle_status_effect(ic.entry)
 	_popup.visible = true
 	_catcher.visible = true
@@ -279,13 +306,43 @@ func _popup_label(size_px: int, col: Color, bold: bool) -> Label:
 class _Icon extends Control:
 	const FONT := preload("res://assets/fonts/NotoSansSC-UI.ttf")
 	var entry: Dictionary = {}
+	var stack_count: int = 1
+	var _mark: Label
 
 	func _ready() -> void:
-		custom_minimum_size = Vector2(18, 24)
+		_ensure_mark()
+		set_stack(stack_count)
+
+	func count_text() -> String:
+		return "×%d" % stack_count if stack_count > 1 else ""
+
+	func set_stack(n: int) -> void:
+		stack_count = maxi(0, n)
+		_ensure_mark()
+		_mark.text = "×%d" % stack_count if stack_count > 1 else ""
+		_mark.visible = stack_count > 1
+		var extra := 22.0 if stack_count > 1 else 0.0
+		custom_minimum_size = Vector2(18.0 + extra, 24.0)
+		size = custom_minimum_size
+		queue_redraw()
+
+	func _ensure_mark() -> void:
+		if _mark != null and is_instance_valid(_mark):
+			return
+		_mark = Label.new()
+		_mark.name = "CountMark"
+		_mark.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_mark.position = Vector2(16, 1)
+		_mark.add_theme_font_override("font", FONT)
+		_mark.add_theme_font_size_override("font_size", 13)
+		_mark.add_theme_color_override("font_color", Color(0.96, 0.94, 0.86))
+		_mark.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.08, 0.9))
+		_mark.add_theme_constant_override("outline_size", 3)
+		add_child(_mark)
 
 	func _draw() -> void:
 		var c: Color = entry.get("color", Color(0.32, 0.78, 0.42))
-		var cx := size * 0.5
+		var cx := Vector2(9.0, size.y * 0.5)
 		var pts := PackedVector2Array([Vector2(-6, 7), Vector2(-7, 1), Vector2(-3, -5), Vector2(-2, 0), Vector2(3, -11), Vector2(7, 0), Vector2(6, 7), Vector2(0, 9)])
 		for i in pts.size():
 			pts[i] += cx

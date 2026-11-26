@@ -103,6 +103,14 @@ size_flags_horizontal = 4
 theme_override_font_sizes/font_size = 24
 text = "图鉴"
 
+[node name="BtnExportLog" type="Button" parent="Center"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(420, 64)
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 22
+text = "导出对局日志"
+
 [node name="BtnClearCache" type="Button" parent="Center"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(420, 64)
@@ -346,6 +354,7 @@ size_flags_horizontal = 3
 theme_override_constants/separation = 8
 
 [connection signal="pressed" from="Center/BtnCodex" to="." method="_on_codex_pressed"]
+[connection signal="pressed" from="Center/BtnExportLog" to="." method="_on_export_log_pressed"]
 [connection signal="pressed" from="Center/BtnClearCache" to="." method="_on_clear_cache_pressed"]
 [connection signal="pressed" from="Center/BtnQuit" to="." method="_on_quit_pressed"]
 [connection signal="gui_input" from="ChangelogDimmer" to="." method="_on_changelog_dimmer_gui_input"]

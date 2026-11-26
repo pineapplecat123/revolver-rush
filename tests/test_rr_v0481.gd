@@ -21,17 +21,25 @@ func test_live_hud_icons_and_fire_follow_actual_consumption() -> void:
 	hud.setup(cs, func() -> Vector2: return Vector2(120,160))
 	cs._volley_muzzle_buffs = [FireResolver.make_flame(52,0,5,1.0)]
 	hud._process(2.0)
-	assert_eq(hud._icons.size(),5)
+	assert_eq(hud._icons.size(),1)
+	assert_eq(int(hud._icons[0].stack_count),5)
+	assert_eq(hud._icons[0].count_text(),"×5")
 	assert_true(hud._flame.visible)
 	var original_size: Vector2 = hud._flame.envelope
 	cs._volley_muzzle_buffs = FireResolver.consume_flame_layers(cs._volley_muzzle_buffs,0.0)
 	hud._process(2.0)
-	assert_eq(hud._icons.size(),5)
+	assert_eq(hud._icons.size(),1)
+	assert_eq(int(hud._icons[0].stack_count),5)
 	assert_eq(hud._flame.envelope,original_size)
 	for n in range(4,-1,-1):
 		cs._volley_muzzle_buffs = FireResolver.consume_flame_layers(cs._volley_muzzle_buffs,3.0)
 		hud._process(0.1)
-		assert_eq(hud._icons.size(),n)
+		if n == 0:
+			assert_eq(hud._icons.size(),0)
+		else:
+			assert_eq(hud._icons.size(),1)
+			assert_eq(int(hud._icons[0].stack_count),n)
+			assert_eq(hud._icons[0].count_text(), "" if n == 1 else "×%d" % n)
 		assert_eq(hud._flame.visible,n>0)
 func test_payload_progressively_emerges_for_readable_multiple_frames() -> void:
 	var cu := GumballCloseup.new()

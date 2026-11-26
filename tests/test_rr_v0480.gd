@@ -81,16 +81,18 @@ func test_same_type_grants_decay_one_oldest_layer_not_each_group() -> void:
 	assert_eq(int(after[1]["remaining"]), 1)
 	assert_eq(int(after[2]["remaining"]), 3)
 
-func test_layer_icons_are_individual_colored_and_ordered() -> void:
+func test_layer_icons_merge_same_type_with_count_and_keep_order() -> void:
 	var a := _flame("a", "damage_flat", 5, 1.0)
 	var b := _flame("b", "damage_mult", 2, 2.0)
 	b["color"] = Color.BLUE
 	var icons := HUD.layer_icon_entries([a, b])
-	assert_eq(icons.size(), 7)
+	assert_eq(icons.size(), 2)
+	assert_eq(int(icons[0]["stack"]), 5)
+	assert_eq(int(icons[1]["stack"]), 2)
 	assert_eq(icons[0]["color"], Color.RED)
-	assert_eq(icons[4]["color"], Color.RED)
-	assert_eq(icons[5]["color"], Color.BLUE)
-	assert_eq(icons[6]["color"], Color.BLUE)
+	assert_eq(icons[1]["color"], Color.BLUE)
+	assert_eq(HUD.icon_count_mark(5), "×5")
+	assert_eq(HUD.icon_count_mark(1), "")
 
 func test_wait_does_not_decay_flames() -> void:
 	var cs := CombatState.new(48000)
