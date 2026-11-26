@@ -126,16 +126,21 @@ func ball_count() -> int:
 
 
 func bag_body_count() -> int:
-	## 仍算在弹药袋里的球，不含已经倒到手上、留在物理世界里当碰撞体的 catch_body。
+	## 仍算在弹药袋里的球，不含已出袋或留在手区的物理球。
 	var n := 0
 	for b in _balls:
-		if not bool(b.get("catch_body", false)):
-			n += 1
+		if bool(b.get("catch_body", false)) or bool(b.get("exited", false)):
+			continue
+		n += 1
 	return n
 
 
 func catch_body_count() -> int:
-	return _balls.size() - bag_body_count()
+	var n := 0
+	for b in _balls:
+		if bool(b.get("catch_body", false)):
+			n += 1
+	return n
 
 
 func clear_balls() -> void:
@@ -159,7 +164,8 @@ func sync_ammo_ids(ammo_ids: Array, temps: Array = [], envies: Array = []) -> vo
 		want[key] = int(want.get(key, 0)) + 1
 	var have: Dictionary = {}
 	for b in _balls:
-		if bool(b.get("catch_body", false)):
+		# 已出袋或入手的球不再算袋内存货，避免倒出后 refresh/sync 把它们删掉。
+		if bool(b.get("catch_body", false)) or bool(b.get("exited", false)):
 			continue
 		var key2: String = "%d:%d:%d" % [int(b["id"]), 1 if bool(b.get("temp", false)) else 0, 1 if bool(b.get("envy", false)) else 0]
 		have[key2] = int(have.get(key2, 0)) + 1
@@ -515,7 +521,7 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = f
 	var best_top := INF
 	for i in _balls.size():
 		var b: Dictionary = _balls[i]
-		if bool(b.get("catch_body", false)):
+		if bool(b.get("catch_body", false)) or bool(b.get("exited", false)):
 			continue
 		if int(b["id"]) != ammo_id:
 			continue
@@ -565,6 +571,8 @@ func _physics_step(delta: float) -> void:
 			tomb_anchors.append(tb["pos"])
 	var any_awake := false
 	for b in _balls:
+		if bool(b.get("held", false)):
+			continue
 		if bool(b["asleep"]) and not mouth_open:
 			# 幽灵不睡死在底：轻推回漂浮
 			if int(b.get("id", -1)) == FireResolver.ID_GHOST:
@@ -667,6 +675,8 @@ func _physics_step(delta: float) -> void:
 			var c: Dictionary = _balls[j]
 			if float(c["pos"].x) - ax > max_r * 2.0 + 1.0:
 				break
+			if bool(a.get("held", false)) or bool(c.get("held", false)):
+				continue
 			if bool(a["asleep"]) and bool(c["asleep"]):
 				continue
 			# 一发已出袋、一发还在袋里时不要互撞，免得把袋内的弹带出去
@@ -763,6 +773,8 @@ func _draw_box() -> void:
 	var tsec: float = Time.get_ticks_msec() * 0.001
 	var font := get_theme_default_font()
 	for b in _balls:
+		if bool(b.get("held", false)):
+			continue
 		var aid: int = int(b["id"])
 		var pos: Vector2 = b["pos"]
 		var r: float = float(b["r"])
@@ -1349,13 +1361,20 @@ func snapshot_exited_pour_balls() -> Array:
 	return out
 
 
-func promote_exited_to_catch_bodies() -> int:
-	## 已经逻辑入手的球留在手区当碰撞体，下次倒出仍能撞到它们。
+func promote_exited_to_catch_bodies(hand_uids: Array = []) -> int:
+	## 已经逻辑入手的球留在手区当碰撞体，倒完后继续受重力碰撞。
 	var n := 0
+	var limit: int = hand_uids.size() if not hand_uids.is_empty() else 9999
 	for b in _balls:
+		if n >= limit:
+			break
 		if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)):
 			b["catch_body"] = true
 			b["pouring"] = false
+			b["held"] = false
+			b["asleep"] = false
+			if n < hand_uids.size():
+				b["hand_uid"] = int(hand_uids[n])
 			n += 1
 	return n
 
@@ -1381,6 +1400,101 @@ func take_catch_bodies() -> Array:
 	if not out.is_empty():
 		_update_radii_for_count()
 	return out
+
+
+func remove_catch_bodies_not_in(live_uids: Dictionary) -> int:
+	var n := 0
+	var i := _balls.size() - 1
+	while i >= 0:
+		var b: Dictionary = _balls[i]
+		if bool(b.get("catch_body", false)) and not bool(live_uids.get(int(b.get("hand_uid", -1)), false)):
+			_balls.remove_at(i)
+			_dirty = true
+			n += 1
+		i -= 1
+	if n > 0:
+		_update_radii_for_count()
+	return n
+
+
+func catch_body_at_global(global_pos: Vector2) -> Dictionary:
+	var local: Vector2 = get_global_transform().affine_inverse() * global_pos
+	var best: Dictionary = {}
+	var best_d := INF
+	for b in _balls:
+		if not bool(b.get("catch_body", false)) or bool(b.get("held", false)):
+			continue
+		var rad: float = float(b.get("r", circle_radius_for_height(float(b.get("h", DEFAULT_HEIGHT)))))
+		var d: float = local.distance_to(b["pos"])
+		if d <= rad and d < best_d:
+			best_d = d
+			best = b
+	return best
+
+
+func set_catch_body_held(hand_uid: int, held: bool) -> void:
+	for b in _balls:
+		if bool(b.get("catch_body", false)) and int(b.get("hand_uid", -1)) == hand_uid:
+			b["held"] = held
+			if held:
+				b["vel"] = Vector2.ZERO
+				b["asleep"] = true
+			else:
+				b["asleep"] = false
+				b["freeze"] = 0
+			_dirty = true
+
+
+func has_held_catch_body() -> bool:
+	for b in _balls:
+		if bool(b.get("catch_body", false)) and bool(b.get("held", false)):
+			return true
+	return false
+
+
+func drop_held_catch_bodies_at_global(global_pos: Vector2) -> void:
+	var local: Vector2 = get_global_transform().affine_inverse() * global_pos
+	for b in _balls:
+		if not (bool(b.get("catch_body", false)) and bool(b.get("held", false))):
+			continue
+		b["held"] = false
+		b["asleep"] = false
+		b["freeze"] = 0
+		b["pos"] = local
+		b["vel"] = Vector2(0.0, 40.0)
+		_dirty = true
+	# 仍标着 held、但已经不在手里的球由 remove_catch_bodies_not_in 收掉。
+
+
+func spawn_hand_catch_body(ammo_id: int, temporary, envy_copy: bool, hand_uid: int, global_pos: Vector2) -> void:
+	var h: float = DEFAULT_HEIGHT
+	var r: float = circle_radius_for_height(h)
+	var local: Vector2 = get_global_transform().affine_inverse() * global_pos
+	_balls.append({
+		"detail_uid": _detail_uid_next,
+		"id": int(ammo_id),
+		"temp": bool(temporary) or envy_copy,
+		"envy": envy_copy,
+		"pos": local,
+		"vel": Vector2(0.0, 80.0),
+		"r": r,
+		"h": h,
+		"cr": r,
+		"ang": 0.0,
+		"omega": 0.0,
+		"asleep": false,
+		"freeze": 0,
+		"exited": true,
+		"catch_body": true,
+		"held": false,
+		"landed": false,
+		"pouring": false,
+		"hand_uid": hand_uid,
+	})
+	_detail_uid_next += 1
+	hand_catch_active = true
+	_dirty = true
+	queue_redraw()
 
 
 func aim_mouth_above_global(target: Vector2) -> Vector2:

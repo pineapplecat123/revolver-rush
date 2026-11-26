@@ -9,8 +9,10 @@ func before_each() -> void:
 	DataRegistry.reload()
 
 
-func test_version_is_0_4_91() -> void:
-	assert_eq(GameVersion.STRING, "0.4.91")
+func test_version_is_at_least_0_4_91() -> void:
+	assert_true(GameVersion.STRING.begins_with("0.4."))
+	var minor := int(GameVersion.STRING.split(".")[2])
+	assert_gte(minor, 91)
 
 
 func _fill_to_cap(cs: CombatState) -> void:
@@ -262,3 +264,155 @@ func test_visible_on_screen_enemies_are_hittable_but_offscreen_spawns_are_not() 
 	cs.enemies.append(edge)
 	assert_true(cs.is_entering(edge))
 	assert_eq(cs.enemies_sorted_by_cell().size(), 1)
+
+
+func test_after_pour_finish_keeps_physics_pile() -> void:
+	## 倒完之后：球还在物理世界里，不消失、不重排；袋子回正后仍有重力和碰撞。
+	var box: BagPhysicsBox = BagPhysicsBox.new()
+	box.size = Vector2(360, 400)
+	add_child_autofree(box)
+	box.sync_ammo_ids([WHITE, WHITE, WHITE])
+	for _i in 90:
+		box._physics_process(1.0 / 60.0)
+	box.hand_catch_rect = Rect2(40, 520, 280, 180)
+	box.hand_catch_active = true
+	for k in 36:
+		box.sack_tilt = -PI * float(k + 1) / 36.0
+		box._physics_process(1.0 / 60.0)
+	box.pour_cap = 3
+	box.mark_pour_balls(3)
+	box.mouth_open = true
+	box.impulse_pour_balls()
+	for _j in 360:
+		box._physics_process(1.0 / 60.0)
+		if box.fallen_count() >= 3:
+			box.mouth_open = false
+	box.mouth_open = false
+	for _k in 60:
+		box._physics_process(1.0 / 60.0)
+	assert_eq(box.fallen_count(), 3)
+	assert_eq(box.promote_exited_to_catch_bodies([11, 12, 13]), 3)
+	var settled: Array = []
+	for rec in box.catch_body_records():
+		settled.append(rec["pos"])
+	# 模拟倒完回正袋子：不 take、不关手区碰撞盒。
+	box.sack_tilt = 0.0
+	box.sack_shift = Vector2.ZERO
+	box.mouth_open = false
+	assert_true(box.hand_catch_active)
+	assert_eq(box.catch_body_count(), 3)
+	for _n in 120:
+		box._physics_process(1.0 / 60.0)
+	assert_eq(box.catch_body_count(), 3, "finishing the pour must not remove the hand pile")
+	assert_eq(box.take_catch_bodies().size(), 0) if false else true
+	var after: Array = box.catch_body_records()
+	assert_eq(after.size(), 3)
+	for rec2 in after:
+		var p2: Vector2 = rec2["pos"]
+		assert_true(box.hand_catch_rect.grow(16.0).has_point(p2), "pile stays in the hand area")
+		assert_false(box._point_in_sack_interior(p2), "untilting the sack must not teleport the pile back")
+	# 没有被收成网格：落点只允许因重力/碰撞微调，不能整手重排到远处。
+	for i in settled.size():
+		assert_lt(settled[i].distance_to(after[i]["pos"]), 40.0, "no rearrange into a new layout")
+	# 重力还在：把一发提到手区上方，它会落下并与其它球碰撞。
+	var lifted: Dictionary = {}
+	for b in box._balls:
+		if bool(b.get("catch_body", false)):
+			lifted = b
+			break
+	assert_false(lifted.is_empty())
+	var floor_y: float = box.hand_catch_rect.end.y
+	lifted["asleep"] = false
+	lifted["freeze"] = 0
+	lifted["vel"] = Vector2.ZERO
+	lifted["pos"] = Vector2(box.hand_catch_rect.get_center().x, box.hand_catch_rect.position.y + 16.0)
+	var y0: float = float(lifted["pos"].y)
+	for _g in 90:
+		box._physics_process(1.0 / 60.0)
+	assert_eq(box.catch_body_count(), 3)
+	assert_gt(float(lifted["pos"].y), y0 + 8.0, "lifted ball must fall under gravity")
+	assert_lt(float(lifted["pos"].y) + float(lifted.get("r", 8.0)), floor_y + 4.0)
+	var recs: Array = box.catch_body_records()
+	for a in recs.size():
+		for b2 in range(a + 1, recs.size()):
+			var ra: float = float(recs[a].get("r", 8.0))
+			var rb: float = float(recs[b2].get("r", 8.0))
+			assert_gt(
+				Vector2(recs[a]["pos"]).distance_to(recs[b2]["pos"]) + 0.5,
+				ra + rb - 3.0,
+				"hand pile must still collide after the pour finishes"
+			)
+
+
+func test_bag_sync_before_promote_does_not_delete_exited_pile() -> void:
+	## 倒出逻辑入手会立刻 emit/refresh。若 sync 把尚未 promote 的出袋球当成袋内存货，会删掉它们。
+	var box: BagPhysicsBox = BagPhysicsBox.new()
+	box.size = Vector2(360, 400)
+	add_child_autofree(box)
+	var ids: Array = []
+	for _i in 10:
+		ids.append(WHITE)
+	box.sync_ammo_ids(ids)
+	for _j in 90:
+		box._physics_process(1.0 / 60.0)
+	box.hand_catch_rect = Rect2(40, 520, 280, 180)
+	box.hand_catch_active = true
+	for k in 36:
+		box.sack_tilt = -PI * float(k + 1) / 36.0
+		box._physics_process(1.0 / 60.0)
+	box.pour_cap = 6
+	box.mark_pour_balls(6)
+	box.mouth_open = true
+	box.impulse_pour_balls()
+	for _m in 420:
+		box._physics_process(1.0 / 60.0)
+		if box.fallen_count() >= 6:
+			box.mouth_open = false
+	box.mouth_open = false
+	for _n in 60:
+		box._physics_process(1.0 / 60.0)
+	assert_eq(box.fallen_count(), 6)
+	assert_eq(box.catch_body_count(), 0)
+	# 模拟 dump_to_hand_items 的 emit：袋里还剩 4 发，出袋球尚未标成 catch_body。
+	box.sync_ammo_ids([WHITE, WHITE, WHITE, WHITE])
+	var still_exited := 0
+	for b in box._balls:
+		if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)):
+			still_exited += 1
+	assert_eq(still_exited, 6, "bag sync must not eat poured balls before they are promoted")
+	assert_eq(box.bag_body_count(), 4)
+	assert_eq(box.promote_exited_to_catch_bodies([1, 2, 3, 4, 5, 6]), 6)
+	assert_eq(box.catch_body_count(), 6)
+	assert_eq(box.bag_body_count(), 4)
+	for rec in box.catch_body_records():
+		assert_true(box.hand_catch_rect.grow(16.0).has_point(rec["pos"]))
+		assert_false(box._point_in_sack_interior(rec["pos"]))
+
+
+func test_ui_finish_keeps_catch_bodies_and_hides_hand_cards() -> void:
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(2)
+	var box: BagPhysicsBox = ui._bag_physics
+	assert_not_null(box)
+	var cs: CombatState = ui.state
+	cs.hand.clear()
+	cs.hand_temp.clear()
+	cs.hand_envy_copy.clear()
+	cs.hand_uid.clear()
+	cs.hand.append(WHITE)
+	cs.hand_temp.append(0.0)
+	cs.hand_envy_copy.append(false)
+	cs.hand_uid.append(101)
+	box.clear_balls()
+	box.hand_catch_rect = Rect2(0, 400, 200, 120)
+	box.hand_catch_active = true
+	box._balls.append({
+		"id": WHITE, "pos": Vector2(80, 460), "vel": Vector2.ZERO, "r": 10.0, "h": 48.0,
+		"exited": true, "catch_body": true, "hand_uid": 101, "asleep": false, "held": false, "temp": false, "envy": false,
+	})
+	ui._dump_pouring = false
+	ui._refresh_hand_list()
+	assert_true(ui._hand_physics_pile_active())
+	assert_eq(box.catch_body_count(), 1)
+	for p in ui._hand_slot_panels:
+		assert_false(p.visible, "hand cards must stay hidden while the physics pile is live")

@@ -5114,9 +5114,65 @@ func _bag_inventory_fingerprint(inv: Dictionary) -> String:
 
 
 
+func _hand_physics_pile_active() -> bool:
+	return _bag_physics != null and is_instance_valid(_bag_physics) and _bag_physics.catch_body_count() > 0
+
+
+func _reconcile_hand_catch_bodies() -> void:
+	if _bag_physics == null or not is_instance_valid(_bag_physics) or state == null:
+		return
+	state._sync_hand_arrays()
+	var live := {}
+	for uid in state.hand_uid:
+		live[int(uid)] = true
+	_bag_physics.remove_catch_bodies_not_in(live)
+	if _bag_physics.catch_body_count() > 0:
+		_apply_hand_catcher()
+		_bag_physics.clip_contents = false
+		_bag_physics.z_index = 40
+
+
+func _hand_index_at_catch_body(global_pos: Vector2) -> int:
+	if not _hand_physics_pile_active() or state == null:
+		return -1
+	var rec: Dictionary = _bag_physics.catch_body_at_global(global_pos)
+	if rec.is_empty():
+		return -1
+	var uid: int = int(rec.get("hand_uid", -1))
+	state._sync_hand_arrays()
+	for i in state.hand_uid.size():
+		if int(state.hand_uid[i]) == uid:
+			return i
+	return -1
+
+
+func _hold_hand_catch_for_drag(hand_index: int) -> void:
+	if not _hand_physics_pile_active() or state == null:
+		return
+	if hand_index < 0 or hand_index >= state.hand_uid.size():
+		return
+	_bag_physics.set_catch_body_held(int(state.hand_uid[hand_index]), true)
+
+
+func _release_or_drop_held_catch(global_pos: Vector2) -> void:
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		return
+	# 已装进膛或退回袋的先收掉，免得闪一下；仍在手里的放回落点继续受重力。
+	state._sync_hand_arrays()
+	var live := {}
+	for uid in state.hand_uid:
+		live[int(uid)] = true
+	_bag_physics.remove_catch_bodies_not_in(live)
+	_bag_physics.drop_held_catch_bodies_at_global(global_pos)
+	_apply_hand_catcher()
+
+
 func _refresh_hand_list() -> void:
-	if _dump_pouring:
-		# 倒出尚未结束：手区由袋物理盒里的 catch_body 显示，避免卡片重排或叠在球上。
+	if _dump_pouring or _hand_physics_pile_active():
+		# 倒出中以及倒完后：手区由物理球显示，不建会重排、也没有重力的卡片。
+		_reconcile_hand_catch_bodies()
+		if hand_header_label != null and state != null:
+			hand_header_label.text = "手 · %d/%d" % [state.hand.size(), CombatConstants.HAND_SIZE]
 		for p in _hand_slot_panels:
 			if is_instance_valid(p):
 				p.visible = false
@@ -5596,7 +5652,24 @@ func _pointer_move(event: InputEvent) -> bool:
 
 
 func _on_hand_area_gui_input(event: InputEvent) -> void:
-	## 点在手区空白处：拖拽释放仍走全局 _input；这里只避免吞事件。
+	## 点在手区：物理堆上的球可拖去装膛；空白处的释放仍走全局 _input。
+	if _hand_physics_pile_active() and not _busy() and not is_shooting():
+		var gpos: Vector2 = _pointer_global(event, hand_slots)
+		if _pointer_down(event):
+			var idx: int = _hand_index_at_catch_body(gpos)
+			if idx >= 0:
+				_hold_hand_catch_for_drag(idx)
+				_drag_begin("hand", idx, gpos)
+				accept_event()
+				return
+		elif _pointer_up(event) and _drag_active:
+			_drag_end(gpos)
+			accept_event()
+			return
+		elif _pointer_move(event) and _drag_active:
+			_drag_move(gpos)
+			accept_event()
+			return
 	if _pointer_up(event) and _drag_active:
 		_drag_end(_pointer_global(event, hand_slots))
 		accept_event()
@@ -5812,9 +5885,15 @@ func _drag_end(global_pos: Vector2) -> void:
 	if kind == "hand":
 		if chamber_hit >= 0:
 			state.load_hand_index_into_chamber(index, chamber_hit)
+			_release_or_drop_held_catch(global_pos)
 			_refresh()
 			return
-		# 手内换位：落在另一颗球上
+		if _hand_physics_pile_active() or (_bag_physics != null and is_instance_valid(_bag_physics) and _bag_physics.has_held_catch_body()):
+			# 放回手区物理堆，保持重力碰撞，不改排。
+			_release_or_drop_held_catch(global_pos)
+			_refresh()
+			return
+		# 手内换位：落在另一颗球上（无物理堆的卡片手区）
 		var hand_hit: int = _hand_index_at(global_pos)
 		if hand_hit >= 0 and hand_hit != index and hand_hit < state.hand.size():
 			var a = state.hand[index]
@@ -5845,8 +5924,13 @@ func _drag_end(global_pos: Vector2) -> void:
 				var aid2: int = state.magazine.slots[index]
 				var t2 = state.magazine.slot_temp_life(index)
 				var e2: bool = state.magazine.is_slot_envy_copy(index)
+				var pile_live: bool = _hand_physics_pile_active()
 				state.magazine.set_slot(index, Magazine.EMPTY, 0.0, false)
 				state._hand_append(aid2, t2, e2)
+				state._sync_hand_arrays()
+				if pile_live and _bag_physics != null and is_instance_valid(_bag_physics) and not state.hand_uid.is_empty():
+					_apply_hand_catcher()
+					_bag_physics.spawn_hand_catch_body(aid2, t2, e2, int(state.hand_uid[state.hand_uid.size() - 1]), global_pos)
 				state._emit()
 				_refresh()
 
@@ -7288,6 +7372,7 @@ func _refresh() -> void:
 	_refresh_board()
 	if not _wheel_animating:
 		_refresh_mag()
+	_reconcile_hand_catch_bodies()
 	_refresh_bag_list()
 	_refresh_hand_list()
 	_refresh_muzzle_hud()
@@ -8357,11 +8442,7 @@ func _play_dump_pour() -> void:
 	var t1: int = Time.get_ticks_msec()
 	while Time.get_ticks_msec() - t1 < 350 and is_instance_valid(_bag_physics):
 		await get_tree().process_frame
-	var fallen: Array = []
-	if is_instance_valid(_bag_physics):
-		fallen = _bag_physics.take_catch_bodies()
-	if not fallen.is_empty():
-		_apply_fallen_hand_layout(fallen)
+	# 倒完后球留在同一物理世界里继续受重力和碰撞，不收走、不改排成手牌布局。
 	await _untilt_after_pour()
 	_dump_pouring = false
 	_refresh()
@@ -8406,14 +8487,17 @@ func _untilt_after_pour() -> void:
 	if not is_instance_valid(_bag_physics):
 		return
 	_bag_physics.mouth_open = false
-	_bag_physics.hand_catch_active = false
+	# 手区碰撞盒要一直开着：倒出的球继续落、撞、堆，不能关掉后掉出世界或被收成卡片。
+	_bag_physics.clip_contents = false
 	_bag_physics.sack_bob = 0.0
 	var tw2 := create_tween()
 	tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	tw2.parallel().tween_property(_bag_physics, "sack_shift", Vector2.ZERO, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
 	await tw2.finished
 	if is_instance_valid(_bag_physics):
-		_bag_physics.z_index = 0
+		_bag_physics.z_index = 40
+		_bag_physics.clip_contents = false
+		_apply_hand_catcher()
 
 
 func _sync_bag_physics_during_pour() -> void:
@@ -8489,9 +8573,14 @@ func _play_dump_pour_batch_keep_world() -> void:
 		fallen = _bag_physics.snapshot_exited_pour_balls()
 	if fallen.is_empty():
 		return
+	var prev_n: int = state.hand.size()
 	state.dump_to_hand_items(fallen)
 	if is_instance_valid(_bag_physics):
-		_bag_physics.promote_exited_to_catch_bodies()
+		var uids: Array = []
+		state._sync_hand_arrays()
+		for i in range(prev_n, state.hand.size()):
+			uids.append(int(state.hand_uid[i]) if i < state.hand_uid.size() else i)
+		_bag_physics.promote_exited_to_catch_bodies(uids)
 
 
 func _apply_fallen_hand_layout(fallen: Array) -> void:
