@@ -6000,6 +6000,9 @@ func _refresh_bag_list() -> void:
 	var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
 	if stats != null:
 		stats.visible = false
+	if _dump_pouring:
+		# 倒出过程中球正在出袋，state.bag 往往还没扣。这时 sync 会按袋内存货再生成一轮，随后又删掉。
+		return
 	if fp == _bag_inv_fingerprint and _bag_physics != null and _bag_physics.bag_body_count() == bag_n:
 		return
 	_bag_inv_fingerprint = fp

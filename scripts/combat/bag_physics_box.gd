@@ -163,12 +163,18 @@ func sync_ammo_ids(ammo_ids: Array, temps: Array = [], envies: Array = []) -> vo
 		var key: String = "%d:%d:%d" % [aid, 1 if is_temp else 0, 1 if is_envy else 0]
 		want[key] = int(want.get(key, 0)) + 1
 	var have: Dictionary = {}
+	var in_flight: Dictionary = {}
 	for b in _balls:
-		# 已出袋或入手的球不再算袋内存货，避免倒出后 refresh/sync 把它们删掉。
-		if bool(b.get("catch_body", false)) or bool(b.get("exited", false)):
+		# 已入手的 catch_body 不再算袋内存货，避免倒出后 refresh 把它们删掉。
+		# 已出袋、尚未 promote 的球仍对应 state.bag 里还没扣掉的那几发：
+		# 只计 have 会把它们当成「缺货」再生成一轮，dump 后又立刻删掉，造成袋内闪现。
+		if bool(b.get("catch_body", false)):
 			continue
 		var key2: String = "%d:%d:%d" % [int(b["id"]), 1 if bool(b.get("temp", false)) else 0, 1 if bool(b.get("envy", false)) else 0]
-		have[key2] = int(have.get(key2, 0)) + 1
+		if bool(b.get("exited", false)):
+			in_flight[key2] = int(in_flight.get(key2, 0)) + 1
+		else:
+			have[key2] = int(have.get(key2, 0)) + 1
 	for key3 in have.keys():
 		var extra: int = int(have[key3]) - int(want.get(key3, 0))
 		while extra > 0:
@@ -176,7 +182,7 @@ func sync_ammo_ids(ammo_ids: Array, temps: Array = [], envies: Array = []) -> vo
 			_remove_one_ball(int(parts[0]), parts.size() > 1 and parts[1] == "1", parts.size() > 2 and parts[2] == "1")
 			extra -= 1
 	for key4 in want.keys():
-		var miss: int = int(want[key4]) - int(have.get(key4, 0))
+		var miss: int = int(want[key4]) - int(have.get(key4, 0)) - int(in_flight.get(key4, 0))
 		var parts2: PackedStringArray = str(key4).split(":")
 		var aid4: int = int(parts2[0])
 		var t4: bool = parts2.size() > 1 and parts2[1] == "1"

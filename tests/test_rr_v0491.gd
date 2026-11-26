@@ -416,3 +416,125 @@ func test_ui_finish_keeps_catch_bodies_and_hides_hand_cards() -> void:
 	assert_eq(box.catch_body_count(), 1)
 	for p in ui._hand_slot_panels:
 		assert_false(p.visible, "hand cards must stay hidden while the physics pile is live")
+
+
+func _pour_all_to_catcher(box: BagPhysicsBox, n: int) -> void:
+	box.hand_catch_rect = Rect2(40, 520, 280, 180)
+	box.hand_catch_active = true
+	for k in 36:
+		box.sack_tilt = -PI * float(k + 1) / 36.0
+		box._physics_process(1.0 / 60.0)
+	box.pour_cap = n
+	box.mark_pour_balls(n)
+	box.mouth_open = true
+	box.impulse_pour_balls()
+	for _j in 420:
+		box._physics_process(1.0 / 60.0)
+		if box.fallen_count() >= n:
+			box.mouth_open = false
+	box.mouth_open = false
+	for _k in 60:
+		box._physics_process(1.0 / 60.0)
+
+
+func test_full_bag_pour_sync_does_not_respawn_then_delete() -> void:
+	## 把袋里全部倒出后、逻辑袋还没扣时，sync 不得在袋内再生成一闪即删的球。
+	var box: BagPhysicsBox = BagPhysicsBox.new()
+	box.size = Vector2(360, 400)
+	add_child_autofree(box)
+	box.sync_ammo_ids([WHITE, WHITE, WHITE, WHITE, WHITE, WHITE])
+	for _i in 90:
+		box._physics_process(1.0 / 60.0)
+	assert_eq(box.bag_body_count(), 6)
+	_pour_all_to_catcher(box, 6)
+	assert_eq(box.fallen_count(), 6)
+	assert_eq(box.bag_body_count(), 0)
+	assert_eq(box.catch_body_count(), 0)
+	var before: int = box._balls.size()
+	# 模拟 dump 前的 refresh：state.bag 仍是 6 发。
+	box.sync_ammo_ids([WHITE, WHITE, WHITE, WHITE, WHITE, WHITE])
+	assert_eq(box.bag_body_count(), 0, "must not flash-spawn bag balls for already poured ammo")
+	assert_eq(box._balls.size(), before)
+	var still_exited := 0
+	for b in box._balls:
+		if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)):
+			still_exited += 1
+	assert_eq(still_exited, 6)
+	# dump 之后袋空，再 sync 也不能删掉这些出袋球。
+	box.sync_ammo_ids([])
+	assert_eq(box.promote_exited_to_catch_bodies([1, 2, 3, 4, 5, 6]), 6)
+	assert_eq(box.catch_body_count(), 6)
+	assert_eq(box.bag_body_count(), 0)
+	box.sync_ammo_ids([])
+	assert_eq(box.catch_body_count(), 6)
+	assert_eq(box.bag_body_count(), 0)
+
+
+func test_partial_bag_remaining_sync_does_not_duplicate_exited() -> void:
+	## 10 发倒出 6 发时，dump 前 sync 不得把已出袋的 6 发再在袋里复制出来。
+	var box: BagPhysicsBox = BagPhysicsBox.new()
+	box.size = Vector2(360, 400)
+	add_child_autofree(box)
+	var ids: Array = []
+	for _i in 10:
+		ids.append(WHITE)
+	box.sync_ammo_ids(ids)
+	for _j in 90:
+		box._physics_process(1.0 / 60.0)
+	_pour_all_to_catcher(box, 6)
+	assert_eq(box.fallen_count(), 6)
+	assert_eq(box.bag_body_count(), 4)
+	box.sync_ammo_ids(ids)
+	assert_eq(box.bag_body_count(), 4, "remaining bag balls stay; poured ones must not respawn")
+	assert_eq(box.fallen_count(), 6)
+	box.sync_ammo_ids([WHITE, WHITE, WHITE, WHITE])
+	assert_eq(box.bag_body_count(), 4)
+	assert_eq(box.promote_exited_to_catch_bodies([1, 2, 3, 4, 5, 6]), 6)
+	assert_eq(box.catch_body_count(), 6)
+	assert_eq(box.bag_body_count(), 4)
+
+
+func test_ui_refresh_during_full_dump_does_not_flash_bag_balls() -> void:
+	## 倒出全部时，即使 UI refresh 插入在 dump 之前，袋内也不能闪出再被删掉的球。
+	var ui = add_child_autofree(load("res://scenes/combat.tscn").instantiate())
+	await wait_process_frames(2)
+	var box: BagPhysicsBox = ui._bag_physics
+	assert_not_null(box)
+	var cs: CombatState = ui.state
+	cs.hand.clear()
+	cs.hand_temp.clear()
+	cs.hand_envy_copy.clear()
+	cs.hand_uid.clear()
+	cs.bag.clear()
+	cs.bag_temp.clear()
+	cs.bag_envy_copy.clear()
+	for _i in 6:
+		cs._bag_append(WHITE, false, false)
+	box.clear_balls()
+	box.sync_ammo_ids(cs.bag.duplicate())
+	for _j in 40:
+		box._physics_process(1.0 / 60.0)
+	_pour_all_to_catcher(box, 6)
+	assert_eq(box.fallen_count(), 6)
+	assert_eq(box.bag_body_count(), 0)
+	assert_eq(cs.bag.size(), 6)
+	ui._dump_pouring = true
+	ui._refresh_bag_list()
+	assert_eq(box.bag_body_count(), 0, "refresh during pour must not respawn a full bag")
+	# 即使倒出标记已关（dump 前误刷新），sync 本身也不能生成。
+	ui._dump_pouring = false
+	ui._refresh_bag_list()
+	assert_eq(box.bag_body_count(), 0, "sync before logical dump must not flash bag balls")
+	var prev_n: int = cs.hand.size()
+	var fallen: Array = box.snapshot_exited_pour_balls()
+	cs.dump_to_hand_items(fallen)
+	var uids: Array = []
+	cs._sync_hand_arrays()
+	for i in range(prev_n, cs.hand.size()):
+		uids.append(int(cs.hand_uid[i]) if i < cs.hand_uid.size() else i)
+	assert_eq(box.promote_exited_to_catch_bodies(uids), 6)
+	ui._refresh()
+	assert_eq(cs.bag.size(), 0)
+	assert_eq(cs.hand.size(), 6)
+	assert_eq(box.bag_body_count(), 0)
+	assert_eq(box.catch_body_count(), 6)
