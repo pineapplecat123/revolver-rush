@@ -25,7 +25,8 @@ const HOPPER_COUNT := 12
 const COMMIT_PULL := 0.88
 const LEVER_TRAVEL := 120.0
 const GATE_CLEAR := 0.22
-const METER_EXIT_SPEED := 120.0  # Physical throat brake, released once the whole ball clears the lip.
+# 只在计量闸里限速，整球过闸后按重力下落。不要限到出球口，否则看起来像飘出来。
+const METER_EXIT_SPEED := 220.0
 
 var machine: GumballMachine = null
 var color_lookup: Callable = Callable()
@@ -599,13 +600,15 @@ func _physics_world(dt: float) -> void:
 		var vel: Vector2 = b["vel"]
 		vel += gvec * dt
 		vel *= AIR_DRAG
-		# The metering throat controls the existing payload's velocity, not its
-		# visibility/position. Keep bag gravity/restitution during the free fall.
-		if bool(b.get("payload", false)) and not bool(b.get("in_tray", false)) and _commit_ok:
+		# 计量闸只在过闸前限速；出闸后用重力自由下落到托盘，不再用 0.96 阻尼把出球拖成飘落。
+		var is_payload: bool = bool(b.get("payload", false))
+		var in_tray: bool = bool(b.get("in_tray", false))
+		if is_payload and not in_tray and _commit_ok:
 			var py := float(b["pos"].y)
-			if py >= gate_y() - r and py < outlet_reveal_y() + r:
+			# 整球过闸（球心过闸线 + 半径）后放开，让出球口到托盘是重力下落。
+			if py >= gate_y() - r and py < gate_y() + r:
 				vel.y = minf(vel.y, METER_EXIT_SPEED)
-		if not _agitating and _gate_open < 0.15:
+		if not is_payload and not in_tray and not _agitating and _gate_open < 0.15:
 			vel *= 0.96
 		var pos: Vector2 = b["pos"] + vel * dt
 		var hit: Dictionary = _resolve_walls(pos, vel, r, bool(b.get("in_tray", false)), bool(b.get("payload", false)))

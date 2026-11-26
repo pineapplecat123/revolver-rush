@@ -217,23 +217,37 @@ func test_candy_exit_falls_and_bounces_on_the_tray() -> void:
 	var saw_below_outlet := false
 	var prev_y := -INF
 	var jumped := 0
+	var reveal_i := -1
+	var floor_i := -1
+	var max_dy := 0.0
 	for i in 300:
 		cu.tick(1.0 / 30.0)
 		var y: float = cu.ball_pos().y
 		if y > cu.outlet_reveal_y():
 			if saw_below_outlet:
 				ys.append(y)
-				if prev_y > -INF and y - prev_y > cu.ball_radius():
-					jumped += 1
+				if prev_y > -INF:
+					var dy: float = y - prev_y
+					max_dy = maxf(max_dy, dy)
+					# 重力下落末速约 30–40px/帧，超过半径不算瞬移；整段跳到托盘才会超过 3 倍半径。
+					if dy > cu.ball_radius() * 3.0:
+						jumped += 1
 			else:
 				saw_below_outlet = true
+				reveal_i = i
 			prev_y = y
+		if floor_i < 0 and cu.has_contacted_floor():
+			floor_i = i
 		if cu.is_drop_settled():
 			break
 	assert_true(saw_below_outlet)
 	assert_gte(ys.size(), 8, "candy must travel below the outlet across many frames")
 	assert_eq(jumped, 0, "candy must not teleport from the outlet onto the tray")
 	assert_true(cu.has_contacted_floor())
+	assert_gte(floor_i, reveal_i)
+	# 旧路径出球口限速+闸门关闭后 0.96 阻尼，出球口到托盘要飘 0.7s 以上。重力下落应明显更快。
+	assert_lte(float(floor_i - reveal_i) / 30.0, 0.55, "drop from mouth to tray must be gravity, not a float")
+	assert_gt(max_dy, 12.0, "falling candy must accelerate under gravity")
 	assert_gte(cu.bounce_count(), 1)
 	assert_eq(cu.tray_count(), 1)
 	assert_eq(cu.ball_count(), 12)
