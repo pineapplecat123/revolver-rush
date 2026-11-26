@@ -278,27 +278,51 @@ func is_drop_region_unobstructed() -> bool:
 
 
 func lever_pivot() -> Vector2:
+	## 枢轴落在机身右侧壁上，杆从这里伸出，不再悬空。
 	var foot: Vector2 = machine_foot()
 	var sc: float = machine_scale()
-	return Vector2(foot.x + 36.0 * sc, foot.y - 58.0 * sc)
+	var loc: Vector2 = GumballMachine.lever_mount_local()
+	return Vector2(foot.x + (loc.x - GumballMachine.WIDTH * 0.5) * sc, foot.y + loc.y * sc)
 
 
 func lever_rest_pos() -> Vector2:
-	return lever_pivot() + Vector2(18.0 * _sx(), -36.0 * _sy())
+	return lever_pivot() + Vector2(34.0 * _sx(), -48.0 * _sy())
 
 
 func lever_pulled_pos() -> Vector2:
-	return lever_pivot() + Vector2(22.0 * _sx(), LEVER_TRAVEL * _sy())
+	return lever_pivot() + Vector2(38.0 * _sx(), LEVER_TRAVEL * _sy())
 
 
 func lever_handle_pos() -> Vector2:
 	return lever_rest_pos().lerp(lever_pulled_pos(), clampf(_pull, 0.0, 1.0))
 
 
+func lever_knob_radius() -> float:
+	return 26.0 * minf(_sx(), _sy())
+
+
+func lever_invite_active() -> bool:
+	return (not _already_used) and _can_afford and not _commit_ok
+
+
+func lever_is_mounted_on_body() -> bool:
+	var foot: Vector2 = machine_foot()
+	var sc: float = machine_scale()
+	var pivot: Vector2 = lever_pivot()
+	var local_y: float = (pivot.y - foot.y) / maxf(sc, 0.001)
+	var half: float = GumballMachine.pedestal_half_width_at_local_y(local_y)
+	var body_right: float = foot.x + half * sc
+	return pivot.x <= body_right + 4.0 and pivot.x >= foot.x + (half * sc) - 8.0
+
+
+func draws_globe_lid() -> bool:
+	return false
+
+
 func lever_grab_rect() -> Rect2:
 	var a: Vector2 = lever_rest_pos()
 	var b: Vector2 = lever_pulled_pos()
-	var pad := 36.0 * minf(_sx(), _sy())
+	var pad := 48.0 * minf(_sx(), _sy())
 	var x0: float = minf(a.x, b.x) - pad
 	var y0: float = minf(a.y, b.y) - pad
 	var x1: float = maxf(a.x, b.x) + pad
@@ -393,6 +417,7 @@ func set_copy(title: String, gold_text: String, hint: String, result: String, us
 func set_can_commit(can: bool, already_used: bool) -> void:
 	_can_afford = can
 	_already_used = already_used
+	_commit_enabled = can and not already_used
 
 
 func begin_session(rng: RandomNumberGenerator, count: int = HOPPER_COUNT) -> void:
@@ -1207,24 +1232,12 @@ func _on_ball_view_draw() -> void:
 	_outlet_ball_clip.size = Vector2(_ref_size().x, maxf(0, _ref_size().y - outlet_reveal_y()))
 	_hopper_ball_clip.queue_redraw()
 	_outlet_ball_clip.queue_redraw()
-	# 玻璃罩画在球上面，半透明，能看见里面在滚
+	# 全透明玻璃罩画在球上面，没有半个盖子。
 	var gc: Vector2 = globe_center()
 	var gR: float = globe_radius() + 8.0
+	_ball_view.draw_circle(gc, gR, Color(0.62, 0.72, 0.78, 0.16))
 	_ball_view.draw_arc(gc, gR, 0.0, TAU, 48, Color(0.70, 0.78, 0.84, 0.9), 3.0, true)
-	_ball_view.draw_arc(gc, gR * 0.82, -2.4, -1.15, 12, Color(0.85, 0.90, 0.93, 0.28), 2.2, true)
-	# 穹顶盖
-	var cap_pts := PackedVector2Array()
-	var cap_n := 14
-	var cap_h: float = GumballMachine.CAP_H * machine_scale()
-	for i in cap_n:
-		var a: float = PI + PI * float(i) / float(cap_n - 1)
-		cap_pts.append(gc + Vector2(cos(a) * (gR + 2.0), sin(a) * (gR + 2.0)) + Vector2(0.0, -2.0))
-	var cap_top: Vector2 = gc + Vector2(0.0, -gR - cap_h)
-	cap_pts.insert(cap_n / 2, cap_top)
-	if cap_pts.size() >= 3:
-		_ball_view.draw_colored_polygon(cap_pts, Color(0.55, 0.61, 0.66, 1.0))
-	_ball_view.draw_circle(cap_top + Vector2(0.0, 6.0), 8.0 * machine_scale() / MACHINE_SCALE, Color(0.38, 0.52, 0.56, 1.0))
-	# 拉杆
+	# 拉杆接到机身上
 	_draw_lever(_ball_view)
 
 
@@ -1233,23 +1246,33 @@ func _draw_lever(ci: Control) -> void:
 	var handle: Vector2 = lever_handle_pos()
 	var track_a: Vector2 = lever_rest_pos()
 	var track_b: Vector2 = lever_pulled_pos()
-	ci.draw_line(track_a, track_b, Color(0.22, 0.26, 0.30, 0.7), 8.0, true)
-	ci.draw_line(pivot, handle, Color(0.32, 0.38, 0.42, 1.0), 7.0, true)
-	var col := Color(0.70, 0.76, 0.80, 1.0)
+	var s: float = minf(_sx(), _sy())
+	var kr: float = lever_knob_radius()
+	# 滑槽略退后，粗杆从机身座接到把头，中间不断开。
+	ci.draw_line(track_a, track_b, Color(0.20, 0.23, 0.26, 0.55), 10.0 * s / 1.0, true)
+	# 机身侧壁上的金属座，把杆钉在机体上
+	ci.draw_circle(pivot, 11.0 * s, Color(0.30, 0.35, 0.40, 1.0))
+	ci.draw_arc(pivot, 11.0 * s, 0.0, TAU, 18, Color(0.18, 0.20, 0.22, 0.95), 2.0, true)
+	ci.draw_line(pivot, handle, Color(0.34, 0.38, 0.42, 1.0), 11.0 * s, true)
+	ci.draw_circle(pivot, 6.0 * s, Color(0.48, 0.52, 0.56, 1.0))
+	var invite: bool = lever_invite_active()
+	var col := Color(0.55, 0.18, 0.14, 1.0)
 	if _dragging:
-		col = Color(0.86, 0.90, 0.84, 1.0)
-	elif not _already_used and _can_afford:
-		col = Color(0.78, 0.84, 0.72, 1.0)
+		col = Color(1.0, 0.22, 0.12, 1.0)
+	elif invite:
+		col = Color(1.0, 0.16, 0.10, 1.0)
 	elif _already_used:
-		col = Color(0.45, 0.48, 0.50, 1.0)
-	ci.draw_circle(handle, 16.0 * minf(_sx(), _sy()), col)
-	ci.draw_arc(handle, 16.0 * minf(_sx(), _sy()), 0.0, TAU, 20, Color(0.18, 0.20, 0.22, 0.9), 2.0, true)
-	# 方向提示
-	if not _already_used and not _commit_ok and _pull < 0.15:
-		var tip: Vector2 = handle + Vector2(0.0, 28.0 * _sy())
-		ci.draw_colored_polygon(PackedVector2Array([
-			tip + Vector2(-8, -10), tip + Vector2(8, -10), tip + Vector2(0, 8)
-		]), Color(0.86, 0.90, 0.72, 0.9))
+		col = Color(0.42, 0.20, 0.18, 1.0)
+	if invite or _dragging:
+		var pulse: float = 0.55 + 0.45 * sin(_anim_age * 4.2)
+		if _dragging:
+			pulse = 1.0
+		ci.draw_circle(handle, kr * 2.25, Color(1.0, 0.18, 0.06, 0.14 * pulse))
+		ci.draw_circle(handle, kr * 1.60, Color(1.0, 0.28, 0.08, 0.26 * pulse))
+		ci.draw_circle(handle, kr * 1.18, Color(1.0, 0.45, 0.18, 0.38 * pulse))
+	ci.draw_circle(handle, kr, col)
+	ci.draw_arc(handle, kr, 0.0, TAU, 24, Color(0.45, 0.05, 0.04, 0.95), 2.6, true)
+	ci.draw_circle(handle + Vector2(-kr * 0.28, -kr * 0.30), kr * 0.28, Color(1.0, 0.85, 0.75, 0.55))
 
 
 func _draw() -> void:

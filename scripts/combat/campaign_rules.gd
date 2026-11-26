@@ -370,15 +370,15 @@ static func alley_event_title(kind: String) -> String:
 
 
 static func gumball_width() -> float:
-	return 118.0
+	return GumballMachine.WIDTH
 
 
 static func gumball_height() -> float:
-	return 208.0
+	return GumballMachine.HEIGHT
 
 
 static func gumball_use_x() -> float:
-	return 59.0
+	return GumballMachine.USE_X
 
 
 static func gumball_visual_pad() -> float:

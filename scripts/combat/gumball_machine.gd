@@ -2,12 +2,12 @@ class_name GumballMachine
 extends Node2D
 ## 巷边糖果机：透明圆罩、冷灰座、投币板和出球口。原点在左下角贴走道顶边。
 
-const WIDTH := 118.0
+const WIDTH := 124.0
 const HEIGHT := 208.0
-const USE_X := 59.0
+const USE_X := 62.0
 const PAD := 12.0
-const GLOBE_R := 50.0
-const CAP_H := 16.0
+const GLOBE_R := 60.0
+const CAP_H := 0.0  ## v0.4.96：不再画半个盖子，整罐透明
 
 var coin_t: float = 0.0
 var knob_t: float = 0.0
@@ -51,6 +51,18 @@ static func globe_center_local() -> Vector2:
 	return Vector2(WIDTH * 0.5, -78.0 - GLOBE_R + 4.0)
 
 
+static func pedestal_half_width_at_local_y(ly: float) -> float:
+	## 锥形支柱在本地 y（向上为负）处的半宽，用来把拉杆座落在机身侧壁上。
+	var t: float = clampf((ly - (-10.0)) / ((-78.0) - (-10.0)), 0.0, 1.0)
+	return lerpf(28.0, 22.0, t)
+
+
+static func lever_mount_local() -> Vector2:
+	## 拉杆枢轴：贴在支柱右侧壁，高度约出球口上方、玻璃罐下方。
+	var ly := -58.0
+	return Vector2(WIDTH * 0.5 + pedestal_half_width_at_local_y(ly), ly)
+
+
 func reset_anim() -> void:
 	coin_t = 0.0
 	knob_t = 0.0
@@ -88,13 +100,10 @@ func is_dispense_done() -> bool:
 
 func _draw() -> void:
 	# 本地：原点在左下角，Y 向上为负（与店铺房屋一致，贴地后往上画）。
+	# v0.4.96：罐子更大、全透明无盖；机身少装饰；拉杆从机身侧壁伸出。
 	var foot := Vector2(WIDTH * 0.5, 0.0)
 	var steel := Color(0.42, 0.48, 0.54, 1.0)
 	var steel_d := Color(0.30, 0.35, 0.40, 1.0)
-	var steel_l := Color(0.55, 0.61, 0.66, 1.0)
-	var accent := Color(0.38, 0.52, 0.56, 1.0)
-	var plate := Color(0.48, 0.52, 0.56, 1.0)
-	var slot := Color(0.12, 0.13, 0.15, 1.0)
 	# 底座外撇
 	var foot_w := 58.0
 	var foot_pts := PackedVector2Array([
@@ -104,7 +113,7 @@ func _draw() -> void:
 		foot + Vector2(-44.0, -10.0),
 	])
 	draw_colored_polygon(foot_pts, steel_d)
-	# 锥形支柱
+	# 锥形支柱（不再描一圈装饰边）
 	var ped := PackedVector2Array([
 		foot + Vector2(-28.0, -10.0),
 		foot + Vector2(28.0, -10.0),
@@ -112,47 +121,31 @@ func _draw() -> void:
 		foot + Vector2(-22.0, -78.0),
 	])
 	draw_colored_polygon(ped, steel)
-	draw_polyline(PackedVector2Array(ped) + PackedVector2Array([ped[0]]), Color(0.22, 0.26, 0.30, 0.9), 1.6, true)
-	# 出球口（支柱上部下方，开口要能看清球出来）
+	# 出球口
 	var out_c := foot + Vector2(0.0, -36.0)
 	draw_rect(Rect2(out_c.x - 16.0, out_c.y - 9.0, 32.0, 18.0), steel_d)
-	draw_rect(Rect2(out_c.x - 16.0, out_c.y - 9.0, 32.0, 18.0), Color(0.20, 0.24, 0.28, 1.0), false, 1.4)
 	draw_arc(out_c + Vector2(0.0, 7.0), 12.0, PI, TAU, 18, Color(0.08, 0.09, 0.10, 1.0), 7.0, true)
 	draw_arc(out_c + Vector2(0.0, 7.0), 7.0, PI, TAU, 14, Color(0.05, 0.05, 0.06, 1.0), 3.0, true)
-	# 前面金属板：投币口 + 摇把
-	var plate_r := Rect2(foot.x - 22.0, foot.y - 78.0, 44.0, 34.0)
-	draw_rect(plate_r, plate)
-	draw_rect(plate_r, Color(0.28, 0.32, 0.36, 1.0), false, 1.4)
-	# 投币口
-	var slot_r := Rect2(plate_r.position.x + 7.0, plate_r.position.y + 8.0, 12.0, 4.0)
-	draw_rect(slot_r, slot)
-	# 摇把（特写改用玩家拉的杆，街上小机器仍画装饰把）
+	# 简单投币口，不再单独做一块装饰板
+	var slot_r := Rect2(foot.x - 16.0, foot.y - 70.0, 12.0, 4.0)
+	draw_rect(slot_r, Color(0.12, 0.13, 0.15, 1.0))
+	# 街上小机器：侧壁拉杆（特写自己画更大的可拉杆，这里藏掉）
 	if not hide_knob:
-		var knob_c := Vector2(plate_r.position.x + 32.0, plate_r.position.y + 18.0)
-		var knob_a: float = -0.35 - knob_t * 4.2
-		var knob_end: Vector2 = knob_c + Vector2(cos(knob_a), sin(knob_a)) * 13.0
-		draw_circle(knob_c, 5.5, accent)
-		draw_line(knob_c, knob_end, Color(0.22, 0.26, 0.28, 1.0), 3.0, true)
-		draw_circle(knob_end, 4.2, Color(0.62, 0.66, 0.70, 1.0))
+		var mount: Vector2 = foot + Vector2(lever_mount_local().x - WIDTH * 0.5, lever_mount_local().y)
+		var knob_a: float = -0.55 - knob_t * 1.15
+		var arm_len := 22.0
+		var knob_end: Vector2 = mount + Vector2(cos(knob_a), sin(knob_a)) * arm_len
+		draw_circle(mount, 5.0, steel_d)
+		draw_line(mount, knob_end, Color(0.28, 0.30, 0.33, 1.0), 4.0, true)
+		draw_circle(knob_end, 6.5, Color(1.0, 0.16, 0.10, 1.0))
 	# 圆罩中心
 	var globe_c := Vector2(foot.x, foot.y - 78.0 - GLOBE_R + 4.0)
-	# 玻璃圆罩。特写自己画罩和物理球，街上小机器仍画装饰球。
+	# 全透明玻璃圆罩，不要半个盖子。特写自己画罩和物理球。
 	if not hide_glass:
-		draw_circle(globe_c, GLOBE_R, Color(0.62, 0.72, 0.78, 0.28))
+		draw_circle(globe_c, GLOBE_R, Color(0.62, 0.72, 0.78, 0.22))
 		if not hide_interior_balls:
 			_draw_globe_balls(globe_c)
-		draw_arc(globe_c, GLOBE_R, 0.0, TAU, 40, Color(0.70, 0.78, 0.84, 0.85), 2.0, true)
-		draw_arc(globe_c, GLOBE_R * 0.82, -2.4, -1.15, 12, Color(0.85, 0.90, 0.93, 0.28), 2.2, true)
-		var cap_pts := PackedVector2Array()
-		var cap_n := 14
-		for i in cap_n:
-			var a: float = PI + PI * float(i) / float(cap_n - 1)
-			cap_pts.append(globe_c + Vector2(cos(a) * (GLOBE_R + 2.0), sin(a) * (GLOBE_R + 2.0)) + Vector2(0.0, -2.0))
-		var cap_top := globe_c + Vector2(0.0, -GLOBE_R - CAP_H)
-		cap_pts.insert(cap_n / 2, cap_top)
-		if cap_pts.size() >= 3:
-			draw_colored_polygon(cap_pts, steel_l)
-		draw_circle(cap_top + Vector2(0.0, 4.0), 7.0, accent)
+		draw_arc(globe_c, GLOBE_R, 0.0, TAU, 48, Color(0.70, 0.78, 0.84, 0.85), 2.0, true)
 	elif not hide_interior_balls:
 		_draw_globe_balls(globe_c)
 	# 出球动画：仅在非物理特写时画补间球（特写由 GumballCloseup 做真实掉落）。
@@ -172,7 +165,7 @@ func _draw() -> void:
 		draw_arc(p, 8.5, 0.0, TAU, 20, Color(0.12, 0.12, 0.14, 0.9), 1.4, true)
 	# 投币：金币飞向投币口
 	if coin_t > 0.0 and coin_t < 1.0:
-		var c0 := Vector2(plate_r.position.x - 22.0, plate_r.position.y - 18.0)
+		var c0 := Vector2(slot_r.position.x - 22.0, slot_r.position.y - 18.0)
 		var c1 := Vector2(slot_r.position.x + 6.0, slot_r.position.y + 2.0)
 		var cp: Vector2 = c0.lerp(c1, coin_t)
 		var ca: float = 1.0 - coin_t * 0.3

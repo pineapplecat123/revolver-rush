@@ -1466,6 +1466,9 @@ func _process(delta: float) -> void:
 	if state.alley_hold or (state.alley_seq == CombatState.ALLEY_HOLD):
 		_tick_alley_anim(delta)
 		_refresh_alley_panel()
+		# 巷内翻出经验升级时必须弹出三选一；不要因为提前 return 漏掉而卡死。
+		if (state.reward_pending or state.campaign_offer_pending) and not _reward_open and not _reward_delaying:
+			_start_reward_show_delay()
 		return
 	if _shop_open or state.shop_hold:
 		return
@@ -3860,8 +3863,14 @@ func _set_combat_frozen(frozen: bool) -> void:
 			_abort_bullet_drag()
 	## v0.3.9：升级三选一 = 纯暂停遮罩。整个战斗场景（含本节点上的所有 Tween：转盘、弹道、飚血、飘字、
 	## 抖动、可暂停等待；弹药袋物理；_process 里的怪滑行/计时）停止处理；只有奖励面板与遮罩照常响应。
+	## v0.4.96：模态 CanvasLayer 也必须 ALWAYS。父节点 DISABLED 时，INHERIT 的层可能不再派发 GUI 输入，
+	## 垃圾桶翻出升级三选一就会点不中、流程卡死。
 	reward_panel.process_mode = Node.PROCESS_MODE_ALWAYS
 	dimmer.process_mode = Node.PROCESS_MODE_ALWAYS
+	if _modal_canvas != null and is_instance_valid(_modal_canvas):
+		_modal_canvas.process_mode = Node.PROCESS_MODE_ALWAYS
+	if _modal_root != null and is_instance_valid(_modal_root):
+		_modal_root.process_mode = Node.PROCESS_MODE_ALWAYS
 	process_mode = Node.PROCESS_MODE_DISABLED if frozen else Node.PROCESS_MODE_INHERIT
 
 
@@ -3869,6 +3878,9 @@ func _set_reward_open(open: bool) -> void:
 	if open:
 		_cancel_reward_show_delay()
 	_reward_open = open
+	# 先清掉巷事件面板再冻结：_process 冻结后 _sync_alley_prop 不会再跑，
+	# 残留的垃圾桶翻找面板会挡住三选一，点不中还会把「继续」锁住。
+	_sync_alley_over_reward()
 	_set_combat_frozen(open)
 	reward_panel.visible = open
 	if open:
@@ -3877,10 +3889,28 @@ func _set_reward_open(open: bool) -> void:
 		_hide_ammo_detail()
 		_hide_muzzle_tip()
 		_refresh_reward_panel()
+		if reward_panel.get_parent() != null:
+			reward_panel.move_to_front()
 	else:
 		# 关面板时若仍在等弹奖，一并取消，避免晚到的 await 再打开
 		_cancel_reward_show_delay()
+		_sync_alley_over_reward()
 	_update_dimmer()
+
+
+func _sync_alley_over_reward() -> void:
+	## 升级三选一盖在巷事件之上时，隐藏并忽略翻找面板输入；关掉后再按巷状态恢复。
+	if _alley_panel == null or not is_instance_valid(_alley_panel):
+		return
+	if _reward_open:
+		_alley_panel.visible = false
+		_alley_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		return
+	_alley_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	if state != null and state.alley_seq == CombatState.ALLEY_HOLD and state.alley_kind != CampaignRules.ALLEY_GUMBALL:
+		_alley_panel.visible = true
+	else:
+		_alley_panel.visible = false
 
 
 
@@ -7856,6 +7886,7 @@ func _on_alley_use() -> void:
 			_trash_can.play_rummage(state.alley_award_kind)
 	_refresh()
 	_refresh_alley_panel()
+	_sync_alley_over_reward()
 	_update_dimmer()
 
 
