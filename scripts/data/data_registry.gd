@@ -317,7 +317,7 @@ static func format_muzzle_status_effect(entry: Dictionary) -> String:
 			return "最后一发×%s" % shown
 		return "下一发×%s" % shown
 	if kind == "transfer_decay":
-		return "伤害+%d；每次消耗一层后减1，最低0" % int(entry.get("remaining", 0))
+		return "加强量 +%s" % _format_muzzle_mult(float(entry.get("amount", 0)))
 	if kind == "end_flat":
 		return "每颗剩余结束弹伤害+%s" % _format_muzzle_mult(float(entry.get("amount", 0)))
 	if kind == "damage_flat" and str(entry.get("id", "")) == "total_transfer":

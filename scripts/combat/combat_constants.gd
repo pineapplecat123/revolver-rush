@@ -40,6 +40,8 @@ const STARTER_BAG_TOTAL := STARTER_WHITE_COUNT + 5 * STARTER_CLEARING_EACH
 ## 「手」区容量；倒出最多抽这么多。
 const HAND_SIZE := 6
 const STARTER_PLAIN_ONLY_COUNT := STARTER_BAG_TOTAL
+## 袋+手+膛（已装填）合计上限。闯关/无尽生效；沙盒不加。商店、奖励、事件、糖果机、复制等新增在满时拒收，不删已有弹药。袋/手/膛之间搬运不受限。
+const OWNED_AMMO_CAP := 30
 
 
 static func starter_clearing_ids() -> Array[int]:
@@ -109,8 +111,9 @@ const MAX_EXTRA_AUTOFIREs_PER_CHAIN := 10
 ## v0.3.2 为 1.15s/格一跳；v0.3.3 改平滑连续并放慢约 30%（1.65s/格 ≈ 41 px/s @CELL_W 68）。
 ## v0.4.26：所有敌人移动速度 ×0.5（1.65 → 3.3 s/格，≈41 → ≈21 px/s）。攻击/伤害/血量不变。
 ## v0.4.28 自由行走：刷在最右格再往外 1.6 格（视野外）；走进到右侧 0.45 格内才能被打到；个体速度 ±13%。
+## v0.4.91：可见即能挨打。最右格中心=9、棋盘右沿≈9.5、屏幕右沿≈9.79；松弛 1.0 使 pos_x≤10.0 可被锁定。刷点最少 10.6，仍在屏外打不到。
 const WALK_IN_SPAWN_OFFSET_CELLS := 1.6
-const WALK_IN_TARGETABLE_SLACK := 0.45
+const WALK_IN_TARGETABLE_SLACK := 1.0
 const ENEMY_SPEED_VARIATION := 0.13
 const ENEMY_AUTO_STEP_SEC := 3.3
 ## v0.4.64：仅普通僵尸（含召唤出的）基础移速更慢；超级僵尸和其他敌人仍用 ENEMY_AUTO_STEP_SEC。

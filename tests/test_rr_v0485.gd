@@ -316,31 +316,37 @@ func test_zhongshen_miss_and_copy_formula_at_runtime() -> void:
 func test_transfer_uses_planned_rounded_not_actual_multitarget_and_no_bootstrap() -> void:
 	var d := FireResolver.compute_volley_details([52, WHITE], [], [], [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}])
 	assert_eq(FireResolver.round_damage(float(d["damages"][0])), 5)
-	assert_eq(int(d["after"][0][0]["remaining"]), 2)
-	assert_eq(float(d["after"][0][0]["amount"]), 1.0)
+	# 预览无结算时用预计伤害 5−3=2，只一层。
+	assert_eq(int(d["after"][0][0]["remaining"]), 1)
+	assert_eq(float(d["after"][0][0]["amount"]), 2.0)
 	var after := FireResolver.compute_volley_details([52, WHITE], [], [12], [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}])
-	assert_eq(int(after["after"][0][0]["remaining"]), 2)
+	# 有实际伤害时用 12−3=9，仍然只一层，不按穿透总伤以外的其它口径。
+	assert_eq(int(after["after"][0][0]["remaining"]), 1)
+	assert_eq(float(after["after"][0][0]["amount"]), 9.0)
 	# 倍伤加强传递是合法的（传递自身伤害为3）；零伤不能靠平面火焰抬起来再挂传递层
 	var boosted := FireResolver.compute_volley_details([41, 52])
 	assert_eq(float(boosted["damages"][0]), 0.0)
 	assert_eq(FireResolver.round_damage(float(boosted["damages"][1])), 5)
-	assert_eq(int(boosted["after"][1][-1]["remaining"]), 2)
+	assert_eq(int(boosted["after"][1][-1]["remaining"]), 1)
+	assert_eq(float(boosted["after"][1][-1]["amount"]), 2.0)
 	var speed := FireResolver.compute_volley_details([52], [], [], [{"id":"s","effect_kind":"speed_pct","remaining":3,"effect_per_stack":1.0}])
 	assert_true(speed["after"][0].filter(func(f): return str(f.get("id",""))=="chuandi").is_empty())
 	var empties := FireResolver.compute_volley_details([52, EMPTY, WHITE], [], [], [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":1.5}])
-	assert_eq(int(empties["after"][0][0]["remaining"]), 2)
+	assert_eq(int(empties["after"][0][0]["remaining"]), 1)
+	assert_eq(float(empties["after"][0][0]["amount"]), 2.0)
 	assert_eq(float(empties["damages"][1]), 0.0)
 	assert_eq(float(empties["damages"][2]), 5.0)
 
 func test_transfer_runtime_stays_on_planned_shot_not_actual_total() -> void:
 	var cs := _cs([52, WHITE], true)
 	cs._volley_muzzle_buffs = [{"id":"m","effect_kind":"damage_mult","remaining":1,"effect_per_stack":4.0,"total":1}]
-	# planned 12 -> 9 layers. 传递 itself does not pierce, so actual is the single-target 12, not 33.
+	# planned/actual 12 → 一个加强量 9 的火焰，不是 9 层。
 	var first := cs.fire_tap(false)
 	assert_eq(int(first[0]["planned_damage"]), 12)
 	_settle(cs, first)
 	assert_eq(int(cs._volley_actuals[0]), 12)
-	assert_eq(int(cs.volley_muzzle_buffs()[0]["remaining"]), 9)
+	assert_eq(int(cs.volley_muzzle_buffs()[0]["remaining"]), 1)
+	assert_eq(float(cs.volley_muzzle_buffs()[0]["amount"]), 9.0)
 	_settle(cs, cs.take_volley_shot())
 	assert_eq(cs.last_shot_planned_damage, 12) # 3+9
 

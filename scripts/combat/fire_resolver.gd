@@ -341,8 +341,18 @@ static func compute_volley_details(order: Array[int], flat_at: Array = [], actua
 			layers = 1
 		var amount := 0.0
 		if effect_id == ID_CHUANDI:
-			layers = maxi(0, round_damage(dmg) - int(CHUANDI_BASE))
-			amount = 1.0
+			# 发射时若消耗了火焰，只生成一个新火焰：加强量＝实际伤害−基础伤害。
+			layers = 0
+			amount = 0.0
+			if spent > 0:
+				var dealt := float(actual_at[index]) if _is_actual_at(actual_at, index) else dmg
+				var base_dmg := float(int(CHUANDI_BASE))
+				var ammo_def: Dictionary = DataRegistry.get_ammo(effect_id)
+				if ammo_def.get("base_damage", null) != null:
+					base_dmg = float(ammo_def["base_damage"])
+				amount = maxf(0.0, float(round_damage(dealt)) - base_dmg)
+				if amount > 0.0:
+					layers = 1
 		elif effect_id == ID_EMPTY_BEAT:
 			layers = order.size() if black_sight else order.count(Magazine.EMPTY)
 		elif effect_id == ID_WEIJIABEI:

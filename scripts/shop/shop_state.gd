@@ -17,14 +17,19 @@ var removes_done: int = 0
 var free_rerolls_left: int = ShopConstants.FREE_REROLLS
 var rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var last_message: String = ""
+## 店外仍持有的发数（手+膛）。商店袋是战斗袋的拷贝；上限按 bag.size()+held_elsewhere。
+var held_elsewhere: int = 0
+var ammo_cap: int = 0  ## 0 表示本店不加上限
 
 
-func begin(from_gold: int, from_bag: Array, shop_node_id: int, seed_value: int = 0, from_discard: Array = []) -> void:
+func begin(from_gold: int, from_bag: Array, shop_node_id: int, seed_value: int = 0, from_discard: Array = [], held_elsewhere_count: int = 0, cap: int = 0) -> void:
 	open = true
 	node_id = shop_node_id
 	gold = from_gold
 	bag = _copy_ints(from_bag)
 	discard = _copy_ints(from_discard)
+	held_elsewhere = maxi(0, held_elsewhere_count)
+	ammo_cap = maxi(0, cap)
 	removes_done = 0
 	free_rerolls_left = ShopConstants.FREE_REROLLS
 	last_message = ""
@@ -68,6 +73,14 @@ func reroll_cost_now() -> int:
 	return ShopConstants.REROLL_COST
 
 
+func live_owned() -> int:
+	return bag.size() + held_elsewhere
+
+
+func _ammo_room_ok() -> bool:
+	return ammo_cap <= 0 or live_owned() < ammo_cap
+
+
 func can_buy(slot: int) -> bool:
 	if not open:
 		return false
@@ -75,12 +88,17 @@ func can_buy(slot: int) -> bool:
 		return false
 	if sold[slot]:
 		return false
+	if not _ammo_room_ok():
+		return false
 	return gold >= ammo_price(stock[slot])
 
 
 func buy(slot: int) -> bool:
 	if not can_buy(slot):
-		last_message = "无法购买（已售出或金币不足）。"
+		if open and slot >= 0 and slot < stock.size() and not sold[slot] and gold >= ammo_price(stock[slot]) and not _ammo_room_ok():
+			last_message = "弹药已满（%d），无法再加入。" % ammo_cap
+		else:
+			last_message = "无法购买（已售出或金币不足）。"
 		return false
 	var ammo_id: int = stock[slot]
 	var price: int = ammo_price(ammo_id)

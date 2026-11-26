@@ -3973,7 +3973,10 @@ func _refresh_reward_panel() -> void:
 	_style_reward_action_button(btn_reward_skip)
 	_style_reward_action_button(btn_reward_next)
 	if pending:
-		reward_hint.text = "从下列三发弹药中选一加入弹药袋，或放弃换额外金币 +%d。" % CombatConstants.REWARD_SKIP_EXTRA_GOLD
+		if state != null and not state.can_gain_ammo(1):
+			reward_hint.text = "%s可放弃换额外金币 +%d。" % [state.ammo_full_hint(), CombatConstants.REWARD_SKIP_EXTRA_GOLD]
+		else:
+			reward_hint.text = "从下列三发弹药中选一加入弹药袋，或放弃换额外金币 +%d。" % CombatConstants.REWARD_SKIP_EXTRA_GOLD
 		btn_reward_skip.visible = true
 		btn_reward_skip.text = "放弃三选一 · 换额外金币 +%d" % CombatConstants.REWARD_SKIP_EXTRA_GOLD
 		btn_reward_skip.disabled = false
@@ -3994,6 +3997,9 @@ func _refresh_reward_panel() -> void:
 			btn.add_theme_font_size_override("font_size", 18)
 			_style_reward_choice_button(btn, colors["bg"])
 			RarityFx.attach(btn, ammo_id, colors["bg"], 8.0)
+			if state != null and not state.can_gain_ammo(1):
+				btn.disabled = true
+				btn.tooltip_text = state.ammo_full_hint()
 			var idx := i
 			btn.pressed.connect(func(): _on_reward_pick(idx))
 			reward_choices.add_child(btn)
@@ -4823,7 +4829,9 @@ func _open_rush_shop() -> void:
 	_shop_disc_temps.clear()
 	for i in state.discard.size():
 		_shop_disc_temps.append(state.discard_temp[i] if i < state.discard_temp.size() else 0.0)
-	_shop.begin(state.gold, state.bag.duplicate(), state.shop_spawn_count, seed_v, state.discard.duplicate())
+	var cap := 0 if state.sandbox_mode else CombatConstants.OWNED_AMMO_CAP
+	var held := maxi(0, state.owned_live_ammo_count() - state.bag.size())
+	_shop.begin(state.gold, state.bag.duplicate(), state.shop_spawn_count, seed_v, state.discard.duplicate(), held, cap)
 	_shop_open = true
 	state.shop_hold = true
 	_shop_panel.process_mode = Node.PROCESS_MODE_ALWAYS
@@ -4885,6 +4893,8 @@ func _refresh_rush_shop_stock() -> void:
 		btn.text = "购买"
 		btn.custom_minimum_size = Vector2(88, 36)
 		btn.disabled = not _shop.can_buy(i)
+		if btn.disabled and not _shop.sold[i] and state != null and not state.can_gain_ammo(1):
+			btn.tooltip_text = state.ammo_full_hint()
 		var idx := i
 		btn.pressed.connect(func(): _on_rush_shop_buy(idx))
 		row.add_child(btn)
@@ -5105,6 +5115,12 @@ func _bag_inventory_fingerprint(inv: Dictionary) -> String:
 
 
 func _refresh_hand_list() -> void:
+	if _dump_pouring:
+		# 倒出尚未结束：手区由袋物理盒里的 catch_body 显示，避免卡片重排或叠在球上。
+		for p in _hand_slot_panels:
+			if is_instance_valid(p):
+				p.visible = false
+		return
 	## 刷新「手」区：子弹随机散落，不整齐排列。倒出落地的位置保持不变。
 	if hand_slots == null or state == null:
 		return
@@ -5900,7 +5916,7 @@ func _refresh_bag_list() -> void:
 	var stats: Label = bag_list.get_node_or_null("BagStatsLabel") as Label
 	if stats != null:
 		stats.visible = false
-	if fp == _bag_inv_fingerprint and _bag_physics != null and _bag_physics.ball_count() == bag_n:
+	if fp == _bag_inv_fingerprint and _bag_physics != null and _bag_physics.bag_body_count() == bag_n:
 		return
 	_bag_inv_fingerprint = fp
 	# 物理盒只同步「袋」内每发；膛/弃仍在统计行可见
@@ -7691,6 +7707,8 @@ func _refresh_gumball_closeup() -> void:
 		if state.alley_award_kind == "bullet":
 			var full: String = state._ammo_name(state.alley_awarded_id) if state.has_method("_ammo_name") else _ammo_bag_glyph(state.alley_awarded_id)
 			result = "得到子弹：%s" % full
+	elif not state.can_gain_ammo(1):
+		hint = state.ammo_full_hint() + "可以先离开，不扣金币。"
 	elif state.gold >= price:
 		hint = "向下拉杆到头才扣 %d 金，罩里已有的球会掉出一发。拉不到头不扣钱。也可以先离开。" % price
 	else:
@@ -7705,7 +7723,7 @@ func _refresh_gumball_closeup() -> void:
 		result,
 		"投币购买（%d金）" % price,
 		not used,
-		(not used) and state.gold >= price,
+		(not used) and state.gold >= price and state.can_gain_ammo(1),
 		"继续" if used else "离开",
 		leave_enabled
 	)
@@ -8315,44 +8333,63 @@ func _should_play_dump_pour() -> bool:
 
 func _play_dump_pour() -> void:
 	_dump_pouring = true
-	while state.hand.size() < CombatConstants.HAND_SIZE:
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		if state != null:
+			state.dump_to_hand()
+		_dump_pouring = false
+		_refresh()
+		return
+	await _prepare_dump_pour_pose()
+	while state != null and state.hand.size() < CombatConstants.HAND_SIZE:
 		if state.bag.is_empty():
 			if not state.refill_bag_for_pour():
 				break
-			_refresh()
+			_sync_bag_physics_during_pour()
 			await get_tree().create_timer(0.12).timeout
+			_apply_hand_catcher()
+		if state.bag.is_empty():
+			break
 		var previous := state.hand.size()
-		await _play_dump_pour_batch()
+		await _play_dump_pour_batch_keep_world()
 		if state.hand.size() <= previous:
 			break
+	# 再等一小会儿，让后一批和已在手区的球把碰撞结算完。
+	var t1: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - t1 < 350 and is_instance_valid(_bag_physics):
+		await get_tree().process_frame
+	var fallen: Array = []
+	if is_instance_valid(_bag_physics):
+		fallen = _bag_physics.take_catch_bodies()
+	if not fallen.is_empty():
+		_apply_fallen_hand_layout(fallen)
+	await _untilt_after_pour()
 	_dump_pouring = false
 	_refresh()
 
 
-func _play_dump_pour_batch() -> void:
-	if not state.can_dump_to_hand() or state.bag.is_empty():
-		if state.bag.is_empty():
-			state.refill_bag_for_pour()
-			_refresh()
-		if state.bag.is_empty():
-			_refresh()
-			return
+func _apply_hand_catcher() -> void:
 	if _bag_physics == null or not is_instance_valid(_bag_physics):
-		state.dump_to_hand()
-		_refresh()
 		return
-	var n: int = mini(CombatConstants.HAND_SIZE - state.hand.size(), state.bag.size())
-	_clear_bag_area_chrome()
-	_bag_physics.clip_contents = false
-	_bag_physics.z_index = 40
-	_bag_physics.pour_cap = n
-	_bag_physics.mark_pour_balls(n)
 	var slots: Control = hand_slots if hand_slots != null else get_node_or_null("%HandSlots")
 	var hand_r: Rect2 = slots.get_global_rect() if slots != null else (
 		hand_panel.get_global_rect() if hand_panel != null else Rect2()
 	)
 	if hand_r.size.x > 4.0:
 		_bag_physics.set_hand_catcher_from_global(hand_r)
+
+
+func _prepare_dump_pour_pose() -> void:
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		return
+	_clear_bag_area_chrome()
+	_bag_physics.clip_contents = false
+	_bag_physics.z_index = 40
+	_apply_hand_catcher()
+	var slots: Control = hand_slots if hand_slots != null else get_node_or_null("%HandSlots")
+	var hand_r: Rect2 = slots.get_global_rect() if slots != null else (
+		hand_panel.get_global_rect() if hand_panel != null else Rect2()
+	)
+	if hand_r.size.x > 4.0:
 		var mouth_target: Vector2 = Vector2(hand_r.get_center().x, hand_r.position.y - 22.0)
 		var sh: Vector2 = _bag_physics.aim_mouth_above_global(mouth_target)
 		var tw := create_tween()
@@ -8363,8 +8400,52 @@ func _play_dump_pour_batch() -> void:
 		var tw0 := create_tween()
 		tw0.tween_property(_bag_physics, "sack_tilt", -PI, 0.55).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
 		await tw0.finished
+
+
+func _untilt_after_pour() -> void:
 	if not is_instance_valid(_bag_physics):
 		return
+	_bag_physics.mouth_open = false
+	_bag_physics.hand_catch_active = false
+	_bag_physics.sack_bob = 0.0
+	var tw2 := create_tween()
+	tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	tw2.parallel().tween_property(_bag_physics, "sack_shift", Vector2.ZERO, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	await tw2.finished
+	if is_instance_valid(_bag_physics):
+		_bag_physics.z_index = 0
+
+
+func _sync_bag_physics_during_pour() -> void:
+	## 中途洗牌补袋时只把新袋弹同步进仍倒扣的物理袋，已入手的 catch_body 不动。
+	if _bag_physics == null or not is_instance_valid(_bag_physics) or state == null:
+		return
+	var ids: Array = []
+	var temps: Array = []
+	var envies: Array = []
+	state._sync_temp_arrays()
+	for i in state.bag.size():
+		ids.append(int(state.bag[i]))
+		temps.append(state.is_bag_index_temporary(i))
+		envies.append(bool(state.bag_envy_copy[i]) if i < state.bag_envy_copy.size() else false)
+	_bag_physics.sync_ammo_ids(ids, temps, envies)
+	_bag_inv_fingerprint = _bag_inventory_fingerprint(state.ammo_inventory_by_id())
+
+
+func _play_dump_pour_batch_keep_world() -> void:
+	if state == null:
+		return
+	if not state.can_dump_to_hand() or state.bag.is_empty():
+		return
+	if _bag_physics == null or not is_instance_valid(_bag_physics):
+		state.dump_to_hand()
+		return
+	var n: int = mini(CombatConstants.HAND_SIZE - state.hand.size(), state.bag.size())
+	if n <= 0:
+		return
+	_apply_hand_catcher()
+	_bag_physics.pour_cap = n
+	_bag_physics.mark_pour_balls(n)
 	_bag_physics.mouth_open = true
 	_bag_physics.impulse_pour_balls()
 	# 口朝下时上下快晃两下，让圆弹从袋口掉出。
@@ -8392,12 +8473,12 @@ func _play_dump_pour_batch() -> void:
 		_bag_physics.mouth_open = false
 	if shake.is_running():
 		await shake.finished
-	# 再等已出袋的弹落进手区
-	var t1: int = Time.get_ticks_msec()
-	while Time.get_ticks_msec() - t1 < 800 and is_instance_valid(_bag_physics):
+	# 再等已出袋的弹落进手区（已入手的 catch_body 不算在内）
+	var tw: int = Time.get_ticks_msec()
+	while Time.get_ticks_msec() - tw < 800 and is_instance_valid(_bag_physics):
 		var need := false
 		for b in _bag_physics._balls:
-			if bool(b.get("exited", false)) and not bool(b.get("landed", false)):
+			if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)) and not bool(b.get("landed", false)):
 				need = true
 				break
 		if not need:
@@ -8405,27 +8486,16 @@ func _play_dump_pour_batch() -> void:
 		await get_tree().process_frame
 	var fallen: Array = []
 	if is_instance_valid(_bag_physics):
-		fallen = _bag_physics.take_fallen_balls()
+		fallen = _bag_physics.snapshot_exited_pour_balls()
 	if fallen.is_empty():
-		# 一发都没掉出就不要随机补抽，保持和画面一致
-		pass
-	else:
-		state.dump_to_hand_items(fallen)
-		_apply_fallen_hand_layout(fallen)
-	_refresh()
+		return
+	state.dump_to_hand_items(fallen)
 	if is_instance_valid(_bag_physics):
-		_bag_physics.mouth_open = false
-		_bag_physics.hand_catch_active = false
-		_bag_physics.sack_bob = 0.0
-		var tw2 := create_tween()
-		tw2.tween_property(_bag_physics, "sack_tilt", 0.0, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		tw2.parallel().tween_property(_bag_physics, "sack_shift", Vector2.ZERO, 0.40).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-		await tw2.finished
-		_bag_physics.z_index = 0
-	_refresh()
+		_bag_physics.promote_exited_to_catch_bodies()
 
 
 func _apply_fallen_hand_layout(fallen: Array) -> void:
+
 	## 把倒出落地的球心写成手区坐标，后续刷新不再重排。
 	if hand_slots == null or state == null:
 		return
@@ -8453,8 +8523,7 @@ func _apply_fallen_hand_layout(fallen: Array) -> void:
 		var local: Vector2 = inv * world
 		var uid: int = int(state.hand_uid[first + i]) if first + i < state.hand_uid.size() else first + i
 		var landed_pos: Vector2 = local - psz * 0.5
-		# A refill's second physical pour does not collide with cards already in hand.
-		# Keep those cards fixed and settle only conflicting newcomers into a free spot.
+		# 物理世界里两批已经互撞并保持落点。若落点出界或与第一堆重叠，只拨开新来的，不搬第一堆。
 		if first > 0 and (_hand_spot_overlaps(landed_pos, taken, _hand_ball_px) or not Rect2(Vector2.ZERO, hand_slots.size).encloses(Rect2(landed_pos, psz))):
 			landed_pos = _find_free_hand_spot(hand_slots.size, _hand_ball_px, taken, uid)
 		if first > 0 and _hand_spot_overlaps(landed_pos, taken, _hand_ball_px):

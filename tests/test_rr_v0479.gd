@@ -157,7 +157,8 @@ func test_synced_editor_game_descriptions() -> void:
 	assert_true(str(DataRegistry.get_ammo(XULI).get("game_description")).begins_with("创造蓄力火焰"))
 	assert_eq(str(DataRegistry.get_ammo(QISHI).get("muzzle_color", "")).to_upper(), "#52C76B")
 	assert_eq(str(DataRegistry.get_ammo(XULI).get("muzzle_color", "")).to_upper(), "#52C76B")
-	# 传递弹使用已确认的全额超额逐次减1规则。
+	# 传递弹：消耗火焰后只生成一个，加强量＝实际伤害−基础伤害。
 	var chuandi: Dictionary = DataRegistry.get_ammo(CombatConstants.CHUANDI_AMMO_ID)
-	assert_true(str(chuandi.get("special", "")).contains("【火焰层数】"))
-	assert_true(str(chuandi.get("special", "")).contains("+9、+8、+7"))
+	assert_true(str(chuandi.get("special", "")).contains("加强量"))
+	assert_true(str(chuandi.get("special", "")).contains("只生成一个"))
+	assert_false(str(chuandi.get("special", "")).contains("+9、+8、+7"))

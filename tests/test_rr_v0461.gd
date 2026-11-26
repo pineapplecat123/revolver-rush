@@ -304,7 +304,8 @@ func test_damage_modifiers_flat_aftertaste_and_transfer_and_reset() -> void:
 	assert_eq(int(cs.sandbox_damage_modifiers().get("chuandi_flat", 0)), carry)
 	assert_eq(cs.magazine.loaded_count(), 1)
 	assert_true(bool(_manual(cs).get("finished", false)))
-	assert_eq(int(cs.sandbox_damage_modifiers().get("chuandi_flat", 1)), 3)
+	# 新规则：一个加强量火焰在最后一发白板被消耗完，不再留下逐层递减的余层。
+	assert_eq(int(cs.sandbox_damage_modifiers().get("chuandi_flat", 0)), 0)
 
 
 func test_busy_blocks_preset_and_missing_is_non_destructive() -> void:

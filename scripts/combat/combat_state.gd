@@ -862,7 +862,8 @@ func campaign_pick_opening(index: int) -> bool:
 	if index < 0 or index >= campaign_offer_choices.size():
 		return false
 	var ammo_id: int = int(campaign_offer_choices[index])
-	_bag_append(ammo_id, false)
+	if not try_gain_to_bag(ammo_id, false):
+		return false
 	if not DataRegistry.is_ammo_ephemeral(ammo_id):
 		_combat_bag_baseline.append(ammo_id)
 	campaign_offer_picked_id = ammo_id
@@ -1558,6 +1559,48 @@ static func _normalize_temp_for(ammo_id: int, temporary) -> float:
 	return tv
 
 
+func ammo_cap_applies() -> bool:
+	## 沙盒不加数量上限，方便测试。
+	return not sandbox_mode
+
+
+func owned_live_ammo_count() -> int:
+	## 已持有：袋 + 手 + 膛内已装填。不含弃牌（弃牌不占场面，也不再创建新弹）。
+	var n: int = bag.size() + hand.size()
+	if magazine != null:
+		for s in magazine.slots:
+			if int(s) != Magazine.EMPTY:
+				n += 1
+	return n
+
+
+func ammo_room_left() -> int:
+	if not ammo_cap_applies():
+		return 9999
+	return maxi(0, CombatConstants.OWNED_AMMO_CAP - owned_live_ammo_count())
+
+
+func can_gain_ammo(n: int = 1) -> bool:
+	return n <= 0 or ammo_room_left() >= n
+
+
+func ammo_full_hint() -> String:
+	return "弹药已满（%d），无法再加入。" % CombatConstants.OWNED_AMMO_CAP
+
+
+func _refuse_ammo_gain() -> void:
+	_log(ammo_full_hint())
+
+
+func try_gain_to_bag(ammo_id: int, temporary = false, envy_copy: bool = false) -> bool:
+	## 只用于新增弹药。袋/手/膛之间的搬运仍走 _bag_append，不受上限拦截。
+	if not can_gain_ammo(1):
+		_refuse_ammo_gain()
+		return false
+	_bag_append(ammo_id, temporary, envy_copy)
+	return true
+
+
 func _bag_append(ammo_id: int, temporary = false, envy_copy: bool = false) -> void:
 	ammo_id = CombatConstants.migrate_ammo_id(ammo_id)
 	if sandbox_hold_bag_empty:
@@ -2137,7 +2180,8 @@ func _resolve_sin_pack_on_load(loaded: Array) -> void:
 
 
 func _spawn_penalty_temp_sin(sin_id: int) -> void:
-	_bag_append(sin_id, true)
+	if not try_gain_to_bag(sin_id, true):
+		return
 	penalty_temp_sins_spawned += 1
 	_log("罪孽惩罚：袋内 +1 颗临时%s（打出即消失）。" % _ammo_name(sin_id))
 
@@ -2185,7 +2229,8 @@ func _try_spawn_temp_sin_on_load(resolved: int) -> void:
 		return
 	if rng.randf() >= CombatConstants.LOAD_TEMP_SIN_CHANCE:
 		return
-	_bag_append(resolved, true)
+	if not try_gain_to_bag(resolved, true):
+		return
 	load_temp_sins_spawned += 1
 	_log("装入%s：%d%% 触发 → 袋内 +1 临时（打出即消失）。" % [
 		_ammo_name(resolved), int(round(CombatConstants.LOAD_TEMP_SIN_CHANCE * 100.0))
@@ -2355,6 +2400,9 @@ func _try_envy_copy_on_hit(ammo_id: int) -> void:
 
 func _place_envy_copy(ammo_id: int) -> String:
 	## 返回 "chamber" / "bag" / "none"
+	if not can_gain_ammo(1):
+		_refuse_ammo_gain()
+		return "none"
 	if magazine != null:
 		# 从击发位下一格起找空仓
 		var n: int = magazine.size()
@@ -2746,7 +2794,7 @@ func enemies_sorted_by_cell() -> Array:
 
 
 func is_entering(e: EnemyInstance) -> bool:
-	## 还在视野外走进来（打不到、不占格）。
+	## 还在屏幕外走进来（打不到、不占格）。松弛使刚进入屏幕的敌人可被锁定，刷在屏外的仍打不到。
 	return free_walk and e != null and e.pos_x > float(CombatConstants.BOARD_SIZE - 1) + CombatConstants.WALK_IN_TARGETABLE_SLACK
 
 
@@ -3497,9 +3545,13 @@ func _apply_tombstone_on_fire() -> Array:
 	## - 袋里没有幽灵 → 袋内生成 TOMBSTONE_GHOST_SPAWN(2) 颗临时幽灵（TTL GHOST_TTL_SEC），本发不带幽灵；
 	## - 袋里有幽灵 → 袋内所有幽灵跟着墓碑一起射出（每颗独立结算枪口），不再生成新幽灵。
 	if count_ghosts_in_bag() <= 0:
+		var spawned := 0
 		for _i in CombatConstants.TOMBSTONE_GHOST_SPAWN:
-			_bag_append(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC)
-		_log("墓碑弹药：袋里没幽灵 → 生成 %d 颗临时幽灵（TTL %.0fs）。" % [CombatConstants.TOMBSTONE_GHOST_SPAWN, CombatConstants.GHOST_TTL_SEC])
+			if not try_gain_to_bag(FireResolver.ID_GHOST, CombatConstants.GHOST_TTL_SEC):
+				break
+			spawned += 1
+		if spawned > 0:
+			_log("墓碑弹药：袋里没幽灵 → 生成 %d 颗临时幽灵（TTL %.0fs）。" % [spawned, CombatConstants.GHOST_TTL_SEC])
 		return []
 	return _rapid_fire_all_bag_ghosts()
 
@@ -3754,12 +3806,17 @@ func _maybe_spawn_pebbles_from_stone(ammo_id: int, dealt: int) -> void:
 	## 石头命中：按实际伤害数向袋加入等量小石头 TTL。
 	if ammo_id != FireResolver.ID_STONE or dealt <= 0:
 		return
+	var added := 0
 	for _i in dealt:
-		_bag_append(FireResolver.ID_PEBBLE, CombatConstants.PEBBLE_TTL_SEC)
+		if not try_gain_to_bag(FireResolver.ID_PEBBLE, CombatConstants.PEBBLE_TTL_SEC):
+			break
+		added += 1
+	if added <= 0:
+		return
 	_log("石头弹药：实际伤害 %d → 袋内 +%d 小石头（TTL %.0fs）。" % [
-		dealt, dealt, CombatConstants.PEBBLE_TTL_SEC
+		dealt, added, CombatConstants.PEBBLE_TTL_SEC
 	])
-	hooks.emit_hook(&"on_stone_shatter", {"cs": self, "dealt": dealt, "pebbles": dealt})
+	hooks.emit_hook(&"on_stone_shatter", {"cs": self, "dealt": dealt, "pebbles": added})
 
 
 func _prepare_point_fire_damages(full_order: Array[int], full_dmg: Array[int]) -> void:
@@ -3977,7 +4034,8 @@ func _apply_on_fire_effect(ammo_id: int) -> void:
 		var idx: int = rng.randi_range(0, remain.size() - 1)
 		var pick: int = remain[idx]
 		remain.remove_at(idx)
-		_bag_append(pick, CombatConstants.FIRE_ONCE_TEMP, true)
+		if not try_gain_to_bag(pick, CombatConstants.FIRE_ONCE_TEMP, true):
+			break
 		made.append(_ammo_name(pick))
 	if made.is_empty():
 		return
@@ -6184,6 +6242,8 @@ func alley_can_buy() -> bool:
 		return false
 	if alley_used or alley_hold == false:
 		return false
+	if not can_gain_ammo(1):
+		return false
 	return gold >= CampaignRules.gumball_price()
 
 
@@ -6195,6 +6255,9 @@ func alley_commit_pull() -> bool:
 		return false
 	var price: int = CampaignRules.gumball_price()
 	if gold < price:
+		return false
+	if not can_gain_ammo(1):
+		_refuse_ammo_gain()
 		return false
 	gold -= price
 	alley_used = true
@@ -6246,11 +6309,16 @@ func alley_try_rummage() -> bool:
 	alley_award_kind = outcome
 	if outcome == "bullet":
 		var aid: int = CampaignRules.roll_alley_ammo(rng)
-		_bag_append(aid, false)
-		_note_baseline_add(aid, false)
-		alley_awarded_id = aid
-		alley_award_amount = 1
-		_log("垃圾桶：翻出 %s，加入弹药袋（现 %d）。" % [_ammo_name(aid), bag.size()])
+		if try_gain_to_bag(aid, false):
+			_note_baseline_add(aid, false)
+			alley_awarded_id = aid
+			alley_award_amount = 1
+			_log("垃圾桶：翻出 %s，加入弹药袋（现 %d）。" % [_ammo_name(aid), bag.size()])
+		else:
+			alley_award_kind = "full"
+			alley_awarded_id = 0
+			alley_award_amount = 0
+			_log("垃圾桶：翻出 %s，但弹药已满，没有加入。" % _ammo_name(aid))
 	elif outcome == "gold":
 		var amt: int = CampaignRules.trash_gold_amount()
 		gold += amt
@@ -6285,7 +6353,10 @@ func alley_collect_award() -> bool:
 	## 把已扣费摇出的那发弹进袋和基准袋，只发一次。
 	if not alley_has_pending_grant():
 		return false
-	_bag_append(alley_awarded_id, false)
+	if not try_gain_to_bag(alley_awarded_id, false):
+		# 已扣费但中途满了：退款，不发弹。
+		gold += CampaignRules.gumball_price()
+		return false
 	_note_baseline_add(alley_awarded_id, false)
 	alley_award_granted = true
 	_log("糖果机：%s 加入弹药袋（现 %d）。" % [_ammo_name(alley_awarded_id), bag.size()])
@@ -7055,7 +7126,8 @@ func pick_reward_ammo(index: int) -> bool:
 	if index < 0 or index >= reward_choices.size():
 		return false
 	var ammo_id: int = reward_choices[index]
-	_bag_append(ammo_id, false)
+	if not try_gain_to_bag(ammo_id, false):
+		return false
 	# 不重拍基线（袋此刻只是部分池）：直接把奖励弹记入构筑基线
 	if not DataRegistry.is_ammo_ephemeral(ammo_id):
 		_combat_bag_baseline.append(ammo_id)
@@ -7134,10 +7206,15 @@ func dev_add_ammo(ammo_id: int, count: int = 1) -> void:
 	if ammo_id != CombatConstants.INVALID_AMMO_ID and not DataRegistry.is_ammo_enabled(ammo_id):
 		_log("[开发] 已退役弹药不可添加：%s" % _ammo_name(ammo_id))
 		return
+	var added := 0
 	for _i in count:
-		_bag_append(ammo_id, false)
+		if not try_gain_to_bag(ammo_id, false):
+			break
 		_note_baseline_add(ammo_id, false)
-	_log("[开发] 弹药袋 +%d × %s（现 %d）" % [count, _ammo_name(ammo_id), bag.size()])
+		added += 1
+	if added <= 0:
+		return
+	_log("[开发] 弹药袋 +%d × %s（现 %d）" % [added, _ammo_name(ammo_id), bag.size()])
 	_emit()
 
 

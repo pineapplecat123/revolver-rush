@@ -13,6 +13,7 @@ const MACHINE_SCALE := 2.55
 const BALL_HEIGHT := 48.0
 const GRAVITY := 2100.0
 const RESTITUTION := 0.28
+const TRAY_RESTITUTION := 0.62  # 出球口落到托盘时更明显的弹跳；不改罩内常数。
 const AIR_DRAG := 0.995
 const WALL_FRICTION := 0.82
 const SLEEP_SPEED := 12.0
@@ -737,9 +738,9 @@ func _resolve_walls(pos: Vector2, vel: Vector2, r: float, in_tray: bool, is_payl
 			floor_hit = true
 			if vel.y > 0.0:
 				var incoming: float = vel.y
-				vel.y *= -RESTITUTION
+				vel.y *= -TRAY_RESTITUTION
 				vel.x *= WALL_FRICTION
-				if incoming >= 80.0 and vel.y < -8.0:
+				if incoming >= 40.0 and vel.y < -8.0:
 					bounced = true
 				if absf(vel.y) < SLEEP_SPEED:
 					vel.y = 0.0

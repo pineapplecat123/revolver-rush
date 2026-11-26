@@ -125,6 +125,19 @@ func ball_count() -> int:
 	return _balls.size()
 
 
+func bag_body_count() -> int:
+	## 仍算在弹药袋里的球，不含已经倒到手上、留在物理世界里当碰撞体的 catch_body。
+	var n := 0
+	for b in _balls:
+		if not bool(b.get("catch_body", false)):
+			n += 1
+	return n
+
+
+func catch_body_count() -> int:
+	return _balls.size() - bag_body_count()
+
+
 func clear_balls() -> void:
 	_balls.clear()
 	_animated_balls = 0
@@ -146,6 +159,8 @@ func sync_ammo_ids(ammo_ids: Array, temps: Array = [], envies: Array = []) -> vo
 		want[key] = int(want.get(key, 0)) + 1
 	var have: Dictionary = {}
 	for b in _balls:
+		if bool(b.get("catch_body", false)):
+			continue
 		var key2: String = "%d:%d:%d" % [int(b["id"]), 1 if bool(b.get("temp", false)) else 0, 1 if bool(b.get("envy", false)) else 0]
 		have[key2] = int(have.get(key2, 0)) + 1
 	for key3 in have.keys():
@@ -209,7 +224,7 @@ func needs_redraw_every_frame() -> bool:
 
 
 func _update_radii_for_count() -> void:
-	var n: int = _balls.size()
+	var n: int = bag_body_count()
 	var sz := size
 	if sz.x < 8.0 or sz.y < 8.0:
 		sz = custom_minimum_size
@@ -222,6 +237,8 @@ func _update_radii_for_count() -> void:
 	var r: float = circle_radius_for_height(h)
 	var changed := false
 	for b in _balls:
+		if bool(b.get("catch_body", false)):
+			continue
 		if absf(float(b.get("h", 0.0)) - h) > 0.05:
 			changed = true
 		b["h"] = h
@@ -498,6 +515,8 @@ func _remove_one_ball(ammo_id: int, temporary: bool = false, envy_copy: bool = f
 	var best_top := INF
 	for i in _balls.size():
 		var b: Dictionary = _balls[i]
+		if bool(b.get("catch_body", false)):
+			continue
 		if int(b["id"]) != ammo_id:
 			continue
 		if bool(b.get("temp", false)) != temporary:
@@ -1163,9 +1182,10 @@ func _wake_all() -> void:
 
 
 func _fallen_count() -> int:
+	## 本批评已经出袋、但还不是手上碰撞体的球。
 	var n := 0
 	for b in _balls:
-		if bool(b.get("exited", false)):
+		if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)):
 			n += 1
 	return n
 
@@ -1273,10 +1293,12 @@ func mark_pour_balls(count: int) -> int:
 	pour_cap = maxi(count, 0)
 	_wake_all()
 	for b in _balls:
+		if bool(b.get("catch_body", false)):
+			continue
 		b["exited"] = false
 		b["landed"] = false
 		b["pouring"] = false
-	return mini(count, _balls.size())
+	return mini(count, bag_body_count())
 
 
 func impulse_pour_balls() -> void:
@@ -1314,6 +1336,51 @@ func take_remaining_pour_balls() -> Array:
 
 func take_fallen_balls() -> Array:
 	return take_exited_pour_balls()
+
+
+func snapshot_exited_pour_balls() -> Array:
+	## 记录已出袋但还不是 catch_body 的球，不从物理世界拿走。
+	var out: Array = []
+	for b in _balls:
+		if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)):
+			var rec: Dictionary = b.duplicate()
+			rec["world_pos"] = get_global_transform() * Vector2(b["pos"])
+			out.append(rec)
+	return out
+
+
+func promote_exited_to_catch_bodies() -> int:
+	## 已经逻辑入手的球留在手区当碰撞体，下次倒出仍能撞到它们。
+	var n := 0
+	for b in _balls:
+		if bool(b.get("exited", false)) and not bool(b.get("catch_body", false)):
+			b["catch_body"] = true
+			b["pouring"] = false
+			n += 1
+	return n
+
+
+func catch_body_records() -> Array:
+	var out: Array = []
+	for b in _balls:
+		if bool(b.get("catch_body", false)):
+			var rec: Dictionary = b.duplicate()
+			rec["world_pos"] = get_global_transform() * Vector2(b["pos"])
+			out.append(rec)
+	return out
+
+
+func take_catch_bodies() -> Array:
+	var out: Array = catch_body_records()
+	var i := _balls.size() - 1
+	while i >= 0:
+		if bool(_balls[i].get("catch_body", false)):
+			_balls.remove_at(i)
+			_dirty = true
+		i -= 1
+	if not out.is_empty():
+		_update_radii_for_count()
+	return out
 
 
 func aim_mouth_above_global(target: Vector2) -> Vector2:

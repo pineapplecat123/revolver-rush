@@ -33,10 +33,12 @@ func test_transfer_excess_2_four_actual_shots_clamps_to_zero() -> void:
 		flames = FireResolver.consume_flame_layers(flames, 3.0)
 
 func test_transfer_generation_and_empty_chambers_preserve_decay() -> void:
-	# Transfer intrinsic 3 receives ×4 => predicted12 => excess9.
+	# 传递 3 受 ×4 → 预计 12，加强量 9，只一层；空仓不消耗，再后面的白板不再吃到这个火焰。
 	var seed: Array = [_flame("boost", "damage_mult", 1, 4.0)]
 	var details := FireResolver.compute_volley_details([52, WHITE, EMPTY, WHITE, WHITE], [], [], seed)
-	assert_eq(details["damages"], [12.0, 12.0, 0.0, 11.0, 10.0])
+	assert_eq(details["damages"], [12.0, 12.0, 0.0, 3.0, 3.0])
+	assert_eq(int(details["after"][0][0]["remaining"]), 1)
+	assert_eq(float(details["after"][0][0]["amount"]), 9.0)
 
 func test_five_layers_all_apply_then_four_then_three() -> void:
 	var flames: Array = [_flame("flat", "damage_flat", 5, 1.0)]

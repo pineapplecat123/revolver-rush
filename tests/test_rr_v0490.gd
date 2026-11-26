@@ -12,8 +12,10 @@ func before_each() -> void:
 func _flame(id: String, kind: String, layers: int, value: float) -> Dictionary:
 	return {"id": id, "effect_kind": kind, "remaining": layers, "total": layers, "effect_per_stack": value, "amount": value, "color": Color.RED, "name": id}
 
-func test_version_is_0_4_90() -> void:
-	assert_eq(GameVersion.STRING, "0.4.90")
+func test_version_is_at_least_0_4_90() -> void:
+	assert_true(GameVersion.STRING.begins_with("0.4."))
+	var minor := int(GameVersion.STRING.split(".")[2])
+	assert_gte(minor, 90)
 
 func test_same_type_icons_collapse_and_omit_times_one() -> void:
 	var a := _flame("boost", "damage_mult", 3, 1.5)
