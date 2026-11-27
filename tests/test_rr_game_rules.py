@@ -63,7 +63,7 @@ class GameRulesCopyTests(unittest.TestCase):
             for part in field.split('.'):
                 cur = (cur or {}).get(part) if isinstance(cur, dict) else None
             # v0.4.85 intentionally revises these unique texts after t658/t666.
-            revised = {'倍伤弹','伤害递增弹','叠势弹','尾加倍弹','需要鼓励','模仿弹','重复开始弹','总伤二分弹','传递弹','爆穿'}
+            revised = {'倍伤弹','伤害递增弹','叠势弹','尾加倍弹','需要鼓励','模仿弹','重复开始弹','总伤二分弹','传递弹','爆穿','加伤弹','回味弹'}
             if change['name'] in revised:
                 self.assertNotIn(COMMON, cur)
             else:
@@ -71,30 +71,31 @@ class GameRulesCopyTests(unittest.TestCase):
 
     def test_flavor_and_unique_mechanics_preserved(self):
         editor = {b['name']: b for b in json.loads((ROOT / 'companion/bullet-editor/data.json').read_text())['bullets']}
-        self.assertEqual(editor['加伤弹']['game_description'], '给之后的子弹加伤害')
-        self.assertIn('×1.5', editor['加伤弹']['effect'])
+        self.assertEqual(editor['加伤弹']['game_description'], '给后续子弹加伤害')
+        self.assertIn('多层逐层相加', editor['加伤弹']['effect'])
         self.assertIn('本轮剩余实弹数', editor['加伤弹']['effect'])
-        self.assertEqual(editor['倍伤弹']['game_description'], '创造蓄力火焰，只有有伤害的子弹才会消耗它。')
+        self.assertEqual(editor['倍伤弹']['game_description'], '给后一发子弹乘伤')
         self.assertIn('【火焰层数】1', editor['倍伤弹']['effect'])
-        self.assertIn('+9、+8、+7', editor['传递弹']['effect'])
-        self.assertEqual(editor['传递弹']['game_description'], '被加强时会把加强同步给后续子弹')
+        self.assertEqual(editor['懂得分享']['game_description'], '自己的强化量分给别人...')
         zhong = '自身伤害＝本轮此前所有子弹实际造成的总伤害÷2，再应用枪口火焰，最后四舍五入。'
         chuan = (
-            '本发经过【枪口火焰】加成并四舍五入后的伤害减去基础伤害3（最低0），即生成的【火焰层数】；每层固定加伤1。'
-            '因此超额9后面三发加伤为+9、+8、+7；超额2后面四发为+2、+1、+0、+0，不做总和守恒。'
-            '不按穿透命中多个敌人的总伤害计算。'
+            '发射时，如果本发消耗了火焰，生成一个新的【枪口火焰】：加强量＝实际伤害减去本弹基础伤害的差值；无论消耗多少层都只生成一个。'
+            '未消耗火焰则不生成。预览用四舍五入后的预计伤害，结算后用本发实际伤害。不按穿透命中多个敌人的总伤害计算。'
         )
         bao = '本发经过枪口火焰加成并四舍五入后的伤害大于7时，获得穿透；每穿过一个敌人，伤害减少1，直到伤害耗尽。伤害等于或低于7时不穿透。'
         self.assertEqual(editor['总伤二分弹']['effect'], zhong)
         self.assertEqual(editor['总伤二分弹']['game_description'], '前面越厉害它就越厉害')
-        self.assertEqual(editor['传递弹']['effect'], chuan)
+        self.assertEqual(editor['懂得分享']['effect'], chuan)
         self.assertEqual(editor['爆穿']['effect'], bao)
         self.assertEqual(editor['爆穿']['game_description'], '被加强到极致可以穿透！')
         ammo = {r['name']: r for r in json.loads((ROOT / 'data/ammo.json').read_text())['items']}
         self.assertEqual(ammo['总伤二分弹']['special'], zhong)
-        self.assertEqual(ammo['传递弹']['special'], chuan)
-        self.assertEqual(ammo['传递弹']['muzzle_status']['effect_description'], chuan)
+        self.assertEqual(ammo['懂得分享']['special'], chuan)
+        self.assertEqual(ammo['懂得分享']['muzzle_status']['effect_description'], chuan)
         self.assertEqual(ammo['爆穿']['special'], bao)
+        # 加伤弹运行时仍按 ×1.5 逐层相乘，与编辑器「相加」文案暂不一致，待确认。
+        self.assertIn('多层逐层相乘', ammo['加伤弹']['special'])
+        self.assertNotIn('多层逐层相加', ammo['加伤弹']['special'])
         self.assertNotIn('仍待文案拍板', (ROOT / 'docs/game_rules.md').read_text(encoding='utf-8'))
         self.assertNotIn('表格原文暂未改', (ROOT / 'docs/game_rules.md').read_text(encoding='utf-8'))
         self.assertNotIn('表格原文仍待拍板', (ROOT / 'docs/game_rules.md').read_text(encoding='utf-8'))
@@ -115,8 +116,13 @@ class GameRulesCopyTests(unittest.TestCase):
         sync = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(sync)
         editor = {b['name']: b for b in json.loads((ROOT / 'companion/bullet-editor/data.json').read_text())['bullets']}
+        pending_stacking = {'加伤弹'}
         for row in json.loads((ROOT / 'data/ammo.json').read_text())['items']:
-            self.assertEqual(sync.apply_editor_row(dict(row), editor[row['name']]), [], row['name'])
+            changes = sync.apply_editor_row(dict(row), editor[row['name']])
+            if row['name'] in pending_stacking:
+                self.assertIn('special', changes, row['name'])
+            else:
+                self.assertEqual(changes, [], row['name'])
 
     def test_ingest_strips_boilerplate_instead_of_reappending(self):
         sys.path.insert(0, str(ROOT / '.github/scripts'))

@@ -3956,7 +3956,7 @@ func _capture_applying_buffs(_ammo_id: int) -> void:
 
 
 func _shot_effect_ammo_id(ammo_id: int) -> int:
-	## 重复开始弹 / 模仿弹在开火时改用解析后的技能效果；没有可复制的则返回 0（无效果）。
+	## 重复开始弹 / 技能镜像在开火时改用解析后的技能效果；没有可复制的则返回 0（无效果）。
 	if ammo_id != CombatConstants.CHONGFU_KAISHI_AMMO_ID and ammo_id != CombatConstants.MOFANG_AMMO_ID:
 		return ammo_id
 	var idx: int = _volley_plan_index - 1

@@ -153,8 +153,8 @@ func test_weijiabei_muzzle_status_and_planned_damage() -> void:
 
 
 func test_synced_editor_game_descriptions() -> void:
-	assert_true(str(DataRegistry.get_ammo(QISHI).get("game_description")).begins_with("给之后的子弹加伤害"))
-	assert_true(str(DataRegistry.get_ammo(XULI).get("game_description")).begins_with("创造蓄力火焰"))
+	assert_true(str(DataRegistry.get_ammo(QISHI).get("game_description")).begins_with("给后续子弹加伤害"))
+	assert_true(str(DataRegistry.get_ammo(XULI).get("game_description")).begins_with("给后一发子弹乘伤"))
 	assert_eq(str(DataRegistry.get_ammo(QISHI).get("muzzle_color", "")).to_upper(), "#52C76B")
 	assert_eq(str(DataRegistry.get_ammo(XULI).get("muzzle_color", "")).to_upper(), "#52C76B")
 	# 传递弹：消耗火焰后只生成一个，加强量＝实际伤害−基础伤害。

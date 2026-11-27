@@ -418,8 +418,8 @@ static func copied_start_effect_id(order: Array[int], index: int) -> int:
 
 
 static func copied_adjacent_effect_id(order: Array[int], index: int) -> int:
-	## 模仿弹：只看紧邻的前一个弹夹槽位。前一格空仓或没有前一格则 0，不跳空仓、不绕圈。
-	## 若前一格也是模仿弹，沿用重复开始弹的连续解析：再往前走模仿链，直到非模仿或空/没有。
+	## 技能镜像（旧名模仿弹）：只看紧邻的前一个弹夹槽位。前一格空仓或没有前一格则 0，不跳空仓、不绕圈。
+	## 若前一格也是技能镜像，沿用重复开始弹的连续解析：再往前走模仿链，直到非模仿或空/没有。
 	if index < 0 or index >= order.size():
 		return 0
 	if int(order[index]) != ID_MOFANG:
@@ -447,7 +447,7 @@ static func resolve_shot_effect_id(order: Array[int], index: int) -> int:
 
 
 static func effect_replaces_own_base(effect_id: int) -> bool:
-	## 这些技能本身就是伤害公式，模仿弹获得后按公式结算，而不是先抄对方的基础伤害数字。
+	## 这些技能本身就是伤害公式，技能镜像获得后按公式结算，而不是先抄对方的基础伤害数字。
 	match effect_id:
 		ID_DIZENG, ID_WEIZHONG, ID_ZHONGSHEN, ID_XIANWEI, ID_DIESHI, ID_HALF_PREV, ID_DOUBLE_PREV, ID_DRAIN, ID_SPLIT, ID_EMPTY_NEIGHBOR:
 			return true

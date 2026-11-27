@@ -124,7 +124,7 @@ func test_chuandi_grants_one_flame_with_potency_equal_to_actual_minus_base() -> 
 	var def: Dictionary = DataRegistry.get_ammo(CHUANDI)
 	assert_true(str(def.get("special", "")).contains("只生成一个"))
 	assert_true(str(def.get("special", "")).contains("枪口"))
-	assert_true(str(def.get("game_description", "")).contains("加强量"))
+	assert_true(str(def.get("game_description", "")).contains("强化量"))
 	assert_eq(DataRegistry.format_muzzle_status_effect(granted[0]), "加强量 +8745")
 
 

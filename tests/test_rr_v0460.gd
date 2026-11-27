@@ -27,8 +27,8 @@ func test_version_is_at_least_0_4_60() -> void:
 
 
 func test_mofang_and_huiwei_in_registry() -> void:
-	assert_eq(str(DataRegistry.get_ammo(MOFANG).get("name")), "模仿弹")
-	assert_eq(str(DataRegistry.get_ammo(HUIWEI).get("name")), "回味弹")
+	assert_eq(str(DataRegistry.get_ammo(MOFANG).get("name")), "技能镜像")
+	assert_eq(str(DataRegistry.get_ammo(HUIWEI).get("name")), "超级增强弹")
 	assert_eq(FireResolver.type_tag(MOFANG), "中间")
 	assert_eq(FireResolver.type_tag(HUIWEI), "中间")
 	assert_eq(FireResolver.base_damage_for(MOFANG, [], 0), 3)
@@ -37,8 +37,8 @@ func test_mofang_and_huiwei_in_registry() -> void:
 	assert_true(DataRegistry.is_ammo_reward_eligible(HUIWEI))
 	assert_eq(DataRegistry.all_ammo().size(), 28)
 	var raw := FileAccess.get_file_as_string("res://companion/bullet-editor/data.json")
-	assert_true('"name": "模仿弹"' in raw)
-	assert_true('"name": "回味弹"' in raw)
+	assert_true('"name": "技能镜像"' in raw)
+	assert_true('"name": "超级增强弹"' in raw)
 	# 回味编辑器伤害已同步为 2，且已入库
 	assert_true('"damage": "2"' in raw)
 

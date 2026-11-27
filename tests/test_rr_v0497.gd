@@ -10,8 +10,8 @@ func before_each() -> void:
 	CombatState.boot_sandbox = false
 
 
-func test_version_is_0_4_97() -> void:
-	assert_eq(GameVersion.STRING, "0.4.97")
+func test_version_is_at_least_0_4_97() -> void:
+	assert_true(GameVersion.STRING.naturalnocasecmp_to("0.4.97") >= 0)
 
 
 func test_lever_has_no_travel_track_bar() -> void:

@@ -151,7 +151,7 @@ func test_baochuan_self_pierce_decays_and_does_not_mount_muzzle() -> void:
 func test_new_ammo_in_registry_and_reward_pool() -> void:
 	assert_eq(str(DataRegistry.get_ammo(DIESHI).get("name")), "叠势弹")
 	assert_eq(str(DataRegistry.get_ammo(BAOCHUAN).get("name")), "爆穿")
-	assert_eq(str(DataRegistry.get_ammo(CHUANDI).get("name")), "传递弹")
+	assert_eq(str(DataRegistry.get_ammo(CHUANDI).get("name")), "懂得分享")
 	assert_eq(FireResolver.type_tag(DIESHI), "中间")
 	assert_eq(FireResolver.type_tag(BAOCHUAN), "结束")
 	assert_eq(FireResolver.type_tag(CHUANDI), "中间")
@@ -165,8 +165,8 @@ func test_editor_marks_ingested_and_blocks_ambiguous() -> void:
 	var raw := FileAccess.get_file_as_string("res://companion/bullet-editor/data.json")
 	assert_true("叠势弹" in raw)
 	assert_true('"in_game": true' in raw)
-	assert_true("模仿弹" in raw)
-	assert_true("回味弹" in raw)
+	assert_true("技能镜像" in raw)
+	assert_true("超级增强弹" in raw)
 	var found_copy := false
 	for item in DataRegistry.all_ammo():
 		if str(item.get("name", "")) == "随机复制弹":
